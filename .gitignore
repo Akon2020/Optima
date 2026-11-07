@@ -43,3 +43,6 @@ next-env.d.ts
 
 # prisma (client généré par `pnpm db:generate`, aussi lancé après `pnpm install`)
 /src/generated
+
+# fichiers locaux confidentiels (identifiants de développement)
+*.local.md
