@@ -27,8 +27,11 @@ Implémenté **en local uniquement** (base IndexedDB de l'appareil, données de 
 | EF-TDB-01 (partiel), EF-TDB-04 | Tableau de bord du jour : montant facturé, factures, panier moyen, commandes par statut, points de service, serveurs ; alerte stock du matin manquant |
 | EF-OFF-02 (partiel), RG-OFF-01 (côté appareil) | Bandeau d'état ; chaque écriture crée une opération UUIDv7 dans la file locale. L'envoi au serveur n'existe pas encore |
 | EF-PRE-02 (partiel) | Suivi « en préparation / prête / servie » depuis le détail d'une commande |
+| EF-REQ-03, EF-REQ-04 (partiel), RG-REQ-02 | Stock du matin par point de service : quantités pré-remplies avec la proposition, écarts affichés, motif obligatoire pour tout écart ou correction, corrections conservées dans un historique (saisies en ajout seul) |
+| RG-REQ-03 (partiel), EF-TDB-04 | Statut « saisi / à saisir » par poste, alerte du tableau de bord. Le blocage de la clôture viendra avec l'écran Clôtures |
+| Matrice des droits (stock du matin, menus, commandes) | Permissions déclarées dans `modules/restaurant/permissions.ts` et vérifiées sur l'appareil ; le serveur les revérifiera |
 
-Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (tables numérotées, 12 en démonstration).
+Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (tables numérotées, 12 en démonstration), **D-Q14** (tant que clôtures et réquisitions n'existent pas, la proposition du stock du matin est le reste théorique de la veille, sans réquisition ; les apports du jour se justifient par le motif « Réquisition du jour », `domain/morning-stock.ts`).
 
 ## Hypothèses retenues (section 1.5 du cahier, à confirmer)
 

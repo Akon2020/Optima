@@ -37,7 +37,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Stock du matin",
     shortLabel: "Stock",
     icon: Sunrise,
-    isUpcoming: true,
   },
   {
     segment: "requisitions",

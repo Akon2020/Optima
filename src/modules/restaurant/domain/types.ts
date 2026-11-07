@@ -90,15 +90,26 @@ export type Order = {
   invoiceIds: string[];
 };
 
-/** Stock du matin d'un élément de menu pour une journée (EF-REQ-03). */
-export type MorningStock = {
+/**
+ * Saisie du stock du matin d'un élément (EF-REQ-03). Les saisies ne sont
+ * jamais modifiées : une correction ajoute une nouvelle saisie qui remplace
+ * la précédente (`replacesId`), l'historique reste consultable.
+ */
+export type MorningStockEntry = {
   id: string;
   establishmentId: string;
-  menuItemId: string;
   day: string;
+  servicePointId: string;
+  menuItemId: string;
   quantity: number;
+  /** Quantité proposée par le logiciel (EF-REQ-04), `null` sans base de calcul. */
+  proposed: number | null;
+  /** Motif obligatoire dès qu'il y a un écart ou une correction (RG-REQ-02). */
+  reason: string | null;
+  replacesId: string | null;
   enteredAt: string;
   enteredBy: string;
+  enteredByName: string;
 };
 
 export type StaffMember = {

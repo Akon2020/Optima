@@ -54,6 +54,7 @@ export function RestaurantProvider({ slug, children }: { slug: string; children:
       userName: DEMO_MANAGER.name,
       deviceId: "demo-device",
       deviceCode: "D01",
+      role: "manager",
       settings: DEFAULT_RESTAURANT_SETTINGS,
     }),
     [slug],
