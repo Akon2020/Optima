@@ -17,14 +17,15 @@
 | 5 | Stock du matin | Fait, proposition simplifiée (D-Q14) | `e15882e`, `4c18be0` |
 | 6 | Tables | Fait, libération manuelle (D-Q04) | `9e00932`, `48b4cb2` |
 | 7 | Socle serveur | Fait | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
-| 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, puis l'écran « Appareils » |
+| 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, `e8850c1`, `2bef4be` |
+| 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 98 tests unitaires passent ;
-- `pnpm test:integration` : 46 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test` : 105 tests unitaires passent ;
+- `pnpm test:integration` : 55 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -169,7 +170,6 @@
 - La base locale et l'interface sont désormais reliées : voir l'étape 8.
 - Les données de démonstration locales utilisent des identifiants non UUID (`item-primus`…) : elles **ne seront jamais synchronisées**, c'est voulu.
 - **Espace propriétaire** réduit à une liste : tableau de bord consolidé, gestion des établissements, des modules et des gérants à faire.
-- **Gestion du personnel** (création des comptes, réinitialisation des mots de passe, suspension) : services et écrans à faire.
 - **En-têtes de sécurité et CSP avec nonce** pas encore posés (`CLAUDE.md` § 5.4).
 - Limitation de débit **en mémoire** : à revoir si plusieurs instances tournent un jour.
 - **À valider par vous** :
@@ -212,7 +212,6 @@
 - **Vérifié dans le navigateur** : révocation de D01 (« Appareil perdu »), effacement de l'appareil et message de révocation, nouvel appairage en D02, puis redirection vers `/connexion` (session fermée).
 
 **Bloque encore**
-- **Gestion du personnel** : création des comptes, réinitialisation, suspension.
 - **Hors connexion** :
   - l'ajout d'un utilisateur et la confirmation du mot de passe d'un gérant exigent le réseau ;
   - sans PWA (Serwist), un rechargement complet de la page sans réseau échoue ; les données restent dans l'appareil.
@@ -220,6 +219,33 @@
 - **Layout du module** : coquille statique sans donnée ; tout passe par le jeton d'appareil, revérifié à chaque requête. Un contrôle serveur sera ajouté pour les écrans en ligne (rapports).
 - **Utilisateur suspendu** entre deux synchronisations : ses opérations sont refusées, avec motif ; le marquage « pour revue » prévu par le `CLAUDE.md` § 5.1 reste à faire.
 - **À valider par vous** : D-024 (PIN local en PBKDF2-SHA256 au lieu d'Argon2id, droits de gérant limités à 15 minutes après le mot de passe).
+
+---
+
+## Étape 9 : gestion du personnel
+
+**Fait**
+- **Écran « Équipe »** (`/e/<slug>/equipe`, EF-CPT-02), relié à « Appareils » par des onglets ; liens depuis `/compte` (gérants) et `/proprietaire` :
+  - personnel en activité et suspendu : nom, identifiant, rôle et poste, dernière connexion, état (actif, mot de passe provisoire, suspendu) ;
+  - tableau à partir de 1024 px, cartes en dessous ; vérifié à 360, 768 et 1280 px, en clair et en sombre, sous la charte Restaurant.
+- **Création d'un compte** (EF-AUT-02) : nom affiché, e-mail ou téléphone, rôle, poste obligatoire pour un poste de préparation. Mot de passe provisoire lisible, montré une seule fois avec un bouton « Copier », changement obligatoire à la première connexion.
+- **Gérer un membre** :
+  - nom, rôle et poste ; un changement de rôle ferme ses sessions ;
+  - réinitialisation du mot de passe en deux gestes (EF-AUT-04) ;
+  - déconnexion forcée (EF-CPT-01) ;
+  - suspension avec motif obligatoire et motifs proposés, puis réactivation (EF-CPT-05).
+- **Qui gère qui** (`src/server/staff/rules.ts`, EF-CPT-03) : le gérant gère le personnel de son établissement, ni les gérants ni lui-même ; le propriétaire gère aussi les gérants.
+- **Effet sur les appareils** : chaque création, modification, suspension et réactivation est diffusée (`staff_member`). Un membre suspendu disparaît des appareils, même s'il était l'utilisateur actif, et ne peut plus reprendre la main par son PIN. Un changement de rôle s'applique aussitôt à ses droits sur l'appareil. Un appareil éteint pendant la suspension fait le ménage à son prochain démarrage.
+- **Une transaction par action** : compte, appartenance, diffusion et audit ensemble (CLAUDE.md § 3.7). Audit `core.staff.created`, `updated`, `password-reset`, `signed-out`, `suspended` (avec motif), `reactivated`, avec l'adresse IP.
+- **Factorisation** : cadre commun des écrans de gestion (`_components/management-frame.tsx`), contrôle de session (`_lib/management.ts`) et contexte des Server Actions (`_lib/actions.ts`), partagés avec « Appareils ».
+- **Tests** : règles (unitaires), application des changements de personnel sur l'appareil (unitaires), 9 tests d'intégration (droits, IDOR, identifiant déjà pris, poste d'un autre établissement, connexion avec le mot de passe provisoire, sessions fermées, diffusion, audit).
+- **Vérifié dans le navigateur** : création d'un poste de préparation « Cuisine Test » (refus sans poste, puis mot de passe affiché), suspension (« Départ ») puis réactivation ; audit et diffusion contrôlés dans PostgreSQL.
+
+**Bloque encore**
+- **Droits ajustables** (remise maximale, accès aux rapports, EF-CPT-03) : à faire avec l'encaissement et les rapports.
+- **Changement d'identifiant** (e-mail ou téléphone) d'un membre : non prévu dans cet écran.
+- **Gestion des propriétaires** et RG-CPT-01 (le dernier propriétaire ne peut pas se retirer son rôle) : avec l'espace propriétaire.
+- Les identifiants de développement sont rassemblés dans `ACCES.local.md`, à la racine, **non versionné**.
 
 ---
 
@@ -256,7 +282,7 @@
 ## Prochaines étapes recommandées
 
 1. **Vous connecter une première fois en propriétaire** (comptes dans `.env.accounts.local`) et activer la double authentification (voir `guide.md`, § 4).
-2. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, journal d'audit.
+2. **Espace propriétaire** : tableau de bord consolidé, établissements, modules, journal d'audit consultable.
 3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
 5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.

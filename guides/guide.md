@@ -144,6 +144,8 @@ Ouvrez `http://localhost:3000/connexion`.
 6. Les opérations partent au serveur toutes les 30 secondes, 3 secondes après chaque saisie et au retour du réseau. Le bouton d'état ouvre le détail : opérations en attente, dernière synchronisation, refus avec leur motif.
 7. Après l'appairage, la session web du gérant se ferme sur cet appareil : un serveur qui l'utilise ne peut pas ouvrir les écrans de gestion.
 
+**Équipe** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/equipe`. « Ajouter un membre » crée le compte et affiche **une seule fois** son mot de passe provisoire, à remettre en main propre. « Gérer » permet de modifier le nom, le rôle et le poste (un changement de rôle ferme ses sessions), de réinitialiser le mot de passe, de déconnecter partout, de suspendre avec un motif (accès fermé tout de suite, PIN refusé sur les appareils dès leur synchronisation) ou de réactiver. Le gérant ne gère ni les autres gérants ni son propre compte : c'est le rôle du propriétaire.
+
 **Appareils** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/appareils` liste les appareils, leur dernière synchronisation et leurs opérations refusées. Un appareil perdu, volé ou remplacé se révoque avec un motif : il ne peut plus rien envoyer ni recevoir, et il efface ses données locales à sa prochaine connexion. Ce qui y a été saisi après sa dernière synchronisation est perdu : l'écran le rappelle avant de confirmer.
 
 **Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`. Rien n'y est envoyé au serveur.
@@ -215,11 +217,14 @@ Par ordre d'urgence :
 - [ ] Tableau de bord consolidé (EF-PRO-01 à 05) : chiffre d'affaires, marge, cash attendu et déclaré, manquants, stock, alertes, comparaison de périodes.
 - [ ] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), suspension (03), suppression en deux temps (04, RG-ETB-02), exports (05).
 - [ ] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, 02, RG-MOD-01, 02).
-- [ ] Comptes :
-  - gérants (EF-CPT-01) et personnel (EF-CPT-02, 03, 05) ;
+- [x] Comptes (écran « Équipe », `/e/<slug>/equipe`) :
+  - gérants créés et gérés par le propriétaire, personnel par le gérant (EF-CPT-01, 02, 05) ;
   - réinitialisation des mots de passe par le gérant ou le propriétaire (EF-AUT-04) ;
   - déconnexion forcée ;
-  - le dernier propriétaire ne peut pas se retirer son rôle (RG-CPT-01).
+  - suspension avec motif, réactivation ; un membre suspendu perd aussi son PIN sur les appareils.
+- [ ] Droits ajustables par le gérant : remise maximale, accès aux rapports (EF-CPT-03).
+- [ ] Changement d'identifiant (e-mail ou téléphone) d'un membre.
+- [ ] Gestion des propriétaires ; le dernier propriétaire ne peut pas se retirer son rôle (RG-CPT-01).
 - [ ] Journal d'audit consultable, filtrable et exportable (EF-AUD-02 à 04).
 - [ ] Paramètres d'établissement validés par Zod (`establishment_settings`).
 
@@ -405,7 +410,7 @@ docker compose -f docker-compose.prod.yml up -d
 | Stock du matin | Gérant | Restaurant, « Stock du matin » | ✅ synchronisé |
 | Tables, addition | Serveur, gérant | Restaurant, « Tables » | ✅ synchronisé |
 | Menus et prix | Gérant | Restaurant, « Menus » | ✅ ajout ; modification des prix ⬜ |
-| Créer un compte, réinitialiser un mot de passe, suspendre | Gérant, propriétaire | Équipe | ⬜ |
+| Créer un compte, réinitialiser un mot de passe, suspendre | Gérant (personnel), propriétaire (gérants compris) | `/compte` ou `/proprietaire`, puis « Équipe » | ✅ |
 | Révoquer un appareil, voir sa dernière synchronisation | Gérant, propriétaire | `/compte` ou `/proprietaire`, puis « Appareils » | ✅ |
 | Encaisser, clôturer | Serveur, gérant | Restaurant | ⬜ 🔒 |
 | Suspendre, exporter un établissement, modules | Propriétaire | Espace propriétaire | ⬜ |
