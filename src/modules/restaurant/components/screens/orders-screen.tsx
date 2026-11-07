@@ -106,6 +106,7 @@ export function OrdersScreen() {
           tone="grey"
           value={formatMoney(summary.billed)}
           label="Facturé aujourd'hui"
+          className="col-span-2 sm:col-span-1"
         />
       </Card>
 

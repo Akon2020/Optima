@@ -88,13 +88,13 @@ export function DashboardScreen() {
         </div>
         <Link
           href={restaurantHref(slug, "commandes/nouvelle")}
-          className={buttonClasses("action", "md", "hidden sm:inline-flex")}
+          className={buttonClasses("action", "md", "max-sm:hidden")}
         >
           Nouvelle commande
         </Link>
       </div>
 
-      <div className="grid gap-4 lg:gap-6 xl:grid-cols-12">
+      <div className="grid grid-cols-1 gap-4 lg:gap-6 xl:grid-cols-12">
         <div className="flex flex-col gap-4 lg:gap-6 xl:col-span-8">
           <Card aria-labelledby="sales-title">
             <CardHeader
@@ -102,7 +102,7 @@ export function DashboardScreen() {
               title="Ventes de la journée"
               description="Montant des factures d'avance émises, par heure."
             />
-            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_200px] md:items-center">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_200px] md:items-center">
               {summary.invoiceCount > 0 ? (
                 <AreaChart
                   points={chartPoints}
@@ -118,7 +118,7 @@ export function DashboardScreen() {
                   description="La courbe apparaîtra dès la première commande validée."
                 />
               )}
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-1 md:gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:grid-cols-1 md:gap-6">
                 <Kpi
                   icon={TrendingUp}
                   tone="green"
@@ -136,7 +136,6 @@ export function DashboardScreen() {
                   tone="peach"
                   value={formatMoney(summary.averageOrder)}
                   label="Panier moyen"
-                  className="col-span-2 md:col-span-1"
                 />
               </div>
             </div>

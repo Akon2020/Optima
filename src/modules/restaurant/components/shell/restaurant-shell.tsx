@@ -221,6 +221,12 @@ function SidebarContent({
           <p className="truncate text-xs text-text-muted">Gérant · appareil {ctx.deviceCode}</p>
         </div>
       </div>
+      {isInDrawer ? (
+        <div className="mt-4 flex items-center justify-between gap-3 px-2 sm:hidden">
+          <span className="text-xs text-text-muted">Thème</span>
+          <ThemeSwitcher />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -268,13 +274,15 @@ function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
         </form>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden sm:inline-flex">
+          <span className="hidden xl:inline-flex">
             <SyncStatus />
           </span>
-          <span className="sm:hidden">
+          <span className="xl:hidden">
             <SyncStatus compact />
           </span>
-          <ThemeSwitcher />
+          <span className="hidden sm:inline-flex">
+            <ThemeSwitcher />
+          </span>
         </div>
       </div>
     </header>
@@ -291,8 +299,11 @@ function DemoBanner() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-border-strong bg-surface px-3 py-2 text-xs text-text-muted">
         <FlaskConical aria-hidden className="size-4 shrink-0 text-accent" />
         <p className="min-w-0 flex-1">
-          <span className="font-semibold text-text">Données de démonstration.</span> Elles sont
-          enregistrées uniquement dans ce navigateur ; prix et prénoms sont fictifs.
+          <span className="font-semibold text-text">Données de démonstration.</span>{" "}
+          <span className="hidden sm:inline">
+            Elles sont enregistrées uniquement dans ce navigateur ; prix et prénoms sont fictifs.
+          </span>
+          <span className="sm:hidden">Fictives, dans ce navigateur seulement.</span>
         </p>
         {isConfirming ? (
           <span className="flex items-center gap-2">
@@ -386,7 +397,7 @@ function BottomNav() {
 
 function LoadingState() {
   return (
-    <div aria-busy="true" aria-label="Chargement" className="grid gap-4 lg:grid-cols-3">
+    <div aria-busy="true" aria-label="Chargement" className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Skeleton className="h-64 lg:col-span-2" />
       <Skeleton className="h-64" />
       <Skeleton className="h-48 lg:col-span-2" />

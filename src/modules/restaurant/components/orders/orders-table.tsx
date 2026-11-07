@@ -101,7 +101,7 @@ export function OrdersTable({
               <th scope="col" className="hidden px-3 py-2 font-normal 2xl:table-cell">
                 N°
               </th>
-              <th scope="col" className="px-3 py-2 font-normal">
+              <th scope="col" className="hidden px-3 py-2 font-normal lg:table-cell">
                 Postes
               </th>
               <th scope="col" className="px-3 py-2 font-normal">
@@ -144,7 +144,7 @@ export function OrdersTable({
                 <td className="hidden px-3 text-text-muted tabular 2xl:table-cell">
                   {row.order.number}
                 </td>
-                <td className="px-3">
+                <td className="hidden px-3 lg:table-cell">
                   <ServicePointIcons row={row} />
                 </td>
                 <td className="px-3 whitespace-nowrap">{row.order.waiterName}</td>
