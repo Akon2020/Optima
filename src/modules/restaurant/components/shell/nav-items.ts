@@ -31,7 +31,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: SquarePlus,
   },
   { segment: "menus", label: "Menus", shortLabel: "Menus", icon: UtensilsCrossed },
-  { segment: "tables", label: "Tables", shortLabel: "Tables", icon: Armchair, isUpcoming: true },
+  { segment: "tables", label: "Tables", shortLabel: "Tables", icon: Armchair },
   {
     segment: "stock-du-matin",
     label: "Stock du matin",

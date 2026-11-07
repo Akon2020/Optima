@@ -29,9 +29,10 @@ Implémenté **en local uniquement** (base IndexedDB de l'appareil, données de 
 | EF-PRE-02 (partiel) | Suivi « en préparation / prête / servie » depuis le détail d'une commande |
 | EF-REQ-03, EF-REQ-04 (partiel), RG-REQ-02 | Stock du matin par point de service : quantités pré-remplies avec la proposition, écarts affichés, motif obligatoire pour tout écart ou correction, corrections conservées dans un historique (saisies en ajout seul) |
 | RG-REQ-03 (partiel), EF-TDB-04 | Statut « saisi / à saisir » par poste, alerte du tableau de bord. Le blocage de la clôture viendra avec l'écran Clôtures |
+| EF-RES-04, EF-CMD-04, EF-CMD-05 | Écran Tables : occupation en direct, commande complémentaire depuis une table, addition récapitulative imprimable, libération manuelle ; le gérant ajoute, renomme, retire du service et rétablit les tables (jamais de suppression) |
 | Matrice des droits (stock du matin, menus, commandes) | Permissions déclarées dans `modules/restaurant/permissions.ts` et vérifiées sur l'appareil ; le serveur les revérifiera |
 
-Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (tables numérotées, 12 en démonstration), **D-Q14** (tant que clôtures et réquisitions n'existent pas, la proposition du stock du matin est le reste théorique de la veille, sans réquisition ; les apports du jour se justifient par le motif « Réquisition du jour », `domain/morning-stock.ts`).
+Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (liste de tables numérotées et renommables, sans plan de salle, 12 en démonstration), **D-Q04** (tant que l'encaissement n'est pas tranché, une table est libérée à la main par le serveur ou le gérant, `domain/tables.ts`), **D-Q14** (tant que clôtures et réquisitions n'existent pas, la proposition du stock du matin est le reste théorique de la veille, sans réquisition ; les apports du jour se justifient par le motif « Réquisition du jour », `domain/morning-stock.ts`).
 
 ## Hypothèses retenues (section 1.5 du cahier, à confirmer)
 

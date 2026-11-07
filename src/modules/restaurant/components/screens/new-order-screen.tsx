@@ -12,6 +12,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -42,7 +43,6 @@ import { useDayData, type DayData } from "../../offline/hooks";
 import { createOrder } from "../../offline/repository";
 import { availabilityBadge, categoryVisual } from "../labels";
 import { AdvanceInvoiceTicket } from "../orders/advance-invoice-ticket";
-import { buildOrderRows } from "../orders/order-rows";
 import { restaurantHref } from "../shell/nav-items";
 import { useRestaurant } from "../restaurant-provider";
 
@@ -65,7 +65,9 @@ export function NewOrderScreen() {
   const { db, ctx, slug, establishmentName } = useRestaurant();
   const data = useDayData();
   const [mode, setMode] = useState<OrderMode>("dine-in");
-  const [tableId, setTableId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  // EF-CMD-04 : arrivée depuis l'écran Tables, la table est déjà choisie.
+  const [requestedTableId, setTableId] = useState<string | null>(() => searchParams.get("table"));
   const [menu, setMenu] = useState<MenuKind>("drinks");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<Cart>(new Map());
@@ -74,16 +76,15 @@ export function NewOrderScreen() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<AdvanceInvoice[] | null>(null);
 
-  const busyTables = useMemo(() => {
-    if (!data) return new Set<string>();
-    return new Set(
-      buildOrderRows(data.orders, data.invoices, data.servicePoints)
-        .filter((row) => !row.isCancelled && row.prepStatus !== "served" && row.order.tableId)
-        .map((row) => row.order.tableId as string),
-    );
-  }, [data]);
+  // Tables occupées : la nouvelle commande y sera complémentaire (EF-CMD-04).
+  const busyTables = useMemo(() => new Set(data ? data.sessions.keys() : []), [data]);
 
   if (!data) return null;
+
+  const activeTables = data.tables.filter((table) => table.archivedAt === null);
+  const tableId = activeTables.some((table) => table.id === requestedTableId)
+    ? requestedTableId
+    : null;
 
   const itemById = new Map(data.menuItems.map((item) => [item.id, item]));
   const cartLines = [...cart.entries()]
@@ -239,7 +240,7 @@ export function NewOrderScreen() {
                 aria-labelledby="table-label"
                 className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-6 sm:overflow-visible sm:px-0 xl:grid-cols-12"
               >
-                {data.tables.map((table) => {
+                {activeTables.map((table) => {
                   const isChecked = table.id === tableId;
                   const isBusy = busyTables.has(table.id);
                   return (

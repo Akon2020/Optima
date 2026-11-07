@@ -10,6 +10,7 @@ import type {
   Order,
   ServicePoint,
   StaffMember,
+  TableRelease,
 } from "../domain/types";
 
 export type Counter = { key: string; value: number };
@@ -27,6 +28,7 @@ export class RestaurantDb extends Dexie {
   orders!: EntityTable<Order, "id">;
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
+  tableReleases!: EntityTable<TableRelease, "id">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
   meta!: EntityTable<Meta, "key">;
@@ -85,6 +87,18 @@ export class RestaurantDb extends Dexie {
       });
     // v3 : l'ancienne table, reprise en v2, est supprimée.
     this.version(3).stores({ morningStock: null });
+    // v4 : tables archivables (EF-RES-04) et journal des libérations de table.
+    this.version(4)
+      .stores({ tableReleases: "id, tableId, releasedAt" })
+      .upgrade(async (tx) => {
+        await tx
+          .table<DiningTable>("diningTables")
+          .toCollection()
+          .modify((table) => {
+            table.createdAt ??= "2026-11-01T06:00:00.000Z";
+            table.archivedAt ??= null;
+          });
+      });
   }
 }
 

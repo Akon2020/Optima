@@ -33,11 +33,28 @@ export type MenuItem = {
   archivedAt: string | null;
 };
 
+/** Table de la salle, créée et numérotée par le gérant (EF-RES-04). */
 export type DiningTable = {
   id: string;
   establishmentId: string;
   label: string;
   sortOrder: number;
+  createdAt: string;
+  /** Une table ne se supprime pas (des commandes y font référence) : elle s'archive. */
+  archivedAt: string | null;
+};
+
+/**
+ * Libération d'une table : les commandes suivantes ouvrent une nouvelle
+ * occupation. Journal en ajout seul.
+ */
+export type TableRelease = {
+  id: string;
+  establishmentId: string;
+  tableId: string;
+  releasedAt: string;
+  releasedBy: string;
+  releasedByName: string;
 };
 
 export type OrderMode = "dine-in" | "takeaway" | "delivery";

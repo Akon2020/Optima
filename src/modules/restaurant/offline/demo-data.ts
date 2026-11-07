@@ -22,7 +22,13 @@ import type {
   StaffMember,
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
-import { createOrder, morningProposals, saveMorningStock, type DeviceContext } from "./repository";
+import {
+  createOrder,
+  morningProposals,
+  releaseTable,
+  saveMorningStock,
+  type DeviceContext,
+} from "./repository";
 
 export const DEMO_ESTABLISHMENT_SLUG = "demo";
 export const DEMO_ESTABLISHMENT_NAME = "Restaurant de démonstration";
@@ -305,6 +311,8 @@ const TABLES: DiningTable[] = Array.from({ length: 12 }, (_, index) => ({
   establishmentId: ESTABLISHMENT_ID,
   label: `Table ${index + 1}`,
   sortOrder: index + 1,
+  createdAt: CREATED_AT,
+  archivedAt: null,
 }));
 
 /** Générateur pseudo-aléatoire déterministe (mulberry32) : la démo est reproductible. */
@@ -517,6 +525,33 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
   if (lastOrder > firstOrder) {
     const count = Math.min(26, Math.max(4, Math.round((lastOrder - firstOrder) / (25 * 60_000))));
     const created = await seedOrders(db, ctx, random, { from: firstOrder, to: lastOrder, count });
+    // Les clients repartent environ une heure après leur dernière commande :
+    // la table est libérée entre deux occupations éloignées, et en fin de repas.
+    const timesByTable = new Map<string, number[]>();
+    for (const order of await db.orders
+      .where("createdAt")
+      .aboveOrEqual(dayStart.toISOString())
+      .toArray()) {
+      if (order.tableId === null) continue;
+      timesByTable.set(order.tableId, [
+        ...(timesByTable.get(order.tableId) ?? []),
+        new Date(order.createdAt).getTime(),
+      ]);
+    }
+    for (const [tableId, times] of timesByTable) {
+      const sorted = [...times].sort((a, b) => a - b);
+      const releases = sorted.filter((time, index) => {
+        const next = sorted[index + 1] ?? now.getTime();
+        return next - time > 90 * 60_000;
+      });
+      for (const time of releases) {
+        await releaseTable(db, manager, tableId, {
+          releasedAt: new Date(time + 70 * 60_000).toISOString(),
+          enqueue: false,
+        });
+      }
+    }
+
     // Avancement de la préparation : les commandes anciennes sont servies.
     for (const order of created) {
       const ageMinutes = (now.getTime() - order.createdAt) / 60_000;
