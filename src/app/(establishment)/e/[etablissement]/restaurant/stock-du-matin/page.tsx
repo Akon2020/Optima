@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { UpcomingScreen } from "@/modules/restaurant/components/screens/upcoming-screen";
+import { MorningStockScreen } from "@/modules/restaurant/components/screens/morning-stock-screen";
 
 export const metadata: Metadata = { title: "Stock du matin" };
 
 export default function StockDuMatinPage() {
-  return <UpcomingScreen segment="stock-du-matin" />;
+  return <MorningStockScreen />;
 }

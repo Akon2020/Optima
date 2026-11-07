@@ -12,18 +12,17 @@
 
 import { moneyFromMajor } from "@/shared/lib/money";
 
-import { businessDayKey, businessDayStart } from "../domain/business-day";
+import { businessDayStart } from "../domain/business-day";
 import type {
   DiningTable,
   MenuItem,
-  MorningStock,
   PrepStatus,
   SaleUnit,
   ServicePoint,
   StaffMember,
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
-import { createOrder, type DeviceContext } from "./repository";
+import { createOrder, morningProposals, saveMorningStock, type DeviceContext } from "./repository";
 
 export const DEMO_ESTABLISHMENT_SLUG = "demo";
 export const DEMO_ESTABLISHMENT_NAME = "Restaurant de démonstration";
@@ -287,7 +286,7 @@ const ITEMS: DemoItem[] = [
     weight: 5,
   },
 
-  // Stock du matin de la grillade volontairement non saisi : alerte EF-TDB-04.
+  // Stock du matin de la grillade saisi la veille, pas encore aujourd'hui : alerte EF-TDB-04.
   {
     key: "goat",
     point: "sp-grill",
@@ -359,12 +358,74 @@ export async function resetDemoData(db: RestaurantDb, ctx: DeviceContext): Promi
   await seedDemo(db, ctx);
 }
 
+const HOUR_MS = 3_600_000;
+
+/** Quantité de la veille pour les éléments sans stock du matin du jour (grillade). */
+const YESTERDAY_FALLBACK = 40;
+
+async function seedOrders(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  random: () => number,
+  window: { from: number; to: number; count: number },
+): Promise<{ invoiceIds: string[]; createdAt: number }[]> {
+  const sellable = ITEMS.filter((item) => item.price !== null && item.weight > 0);
+  const created: { invoiceIds: string[]; createdAt: number }[] = [];
+  const span = window.to - window.from;
+
+  for (let index = 0; index < window.count; index += 1) {
+    const createdAt = new Date(
+      window.from + Math.round(((index + random() * 0.8) / window.count) * span),
+    );
+    const waiter = WAITERS[Math.floor(random() * WAITERS.length)] ?? WAITERS[0];
+    if (!waiter) break;
+    const isTakeaway = random() < 0.15;
+    const lines = new Map<string, number>();
+    const lineCount = 1 + Math.floor(random() * 4);
+    for (let l = 0; l < lineCount; l += 1) {
+      // Une commande sur trois passe aussi par la grillade, pour que la démo
+      // montre les trois factures d'avance.
+      const item =
+        l === 0 && index % 3 === 1
+          ? (sellable.find((entry) => entry.point === "sp-grill") ?? pickWeighted(sellable, random))
+          : pickWeighted(sellable, random);
+      lines.set(
+        `item-${item.key}`,
+        (lines.get(`item-${item.key}`) ?? 0) + 1 + Math.floor(random() * 2),
+      );
+    }
+    try {
+      const { invoices } = await createOrder(
+        db,
+        { ...ctx, userId: waiter.id, userName: waiter.name, role: "waiter" },
+        {
+          mode: isTakeaway ? "takeaway" : "dine-in",
+          tableId: isTakeaway ? null : (TABLES[Math.floor(random() * TABLES.length)]?.id ?? null),
+          lines: [...lines].map(([menuItemId, quantity]) => ({ menuItemId, quantity })),
+        },
+        { createdAt: createdAt.toISOString(), enqueue: false },
+      );
+      created.push({ invoiceIds: invoices.map((i) => i.id), createdAt: createdAt.getTime() });
+    } catch {
+      // Un élément épuisé dans la démo : la commande est simplement ignorée.
+    }
+  }
+  return created;
+}
+
 async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
   const now = new Date();
   const nowIso = now.toISOString();
   const { businessDayStartHour, timeZone } = ctx.settings;
-  const day = businessDayKey(nowIso, businessDayStartHour, timeZone);
   const dayStart = new Date(businessDayStart(nowIso, businessDayStartHour, timeZone));
+  const yesterdayStart = new Date(dayStart.getTime() - 24 * HOUR_MS);
+  const manager = {
+    ...ctx,
+    userId: DEMO_MANAGER.id,
+    userName: DEMO_MANAGER.name,
+    role: "manager" as const,
+  };
+  const random = createRandom(20261107);
 
   const menuItems: MenuItem[] = ITEMS.map((item) => ({
     id: `item-${item.key}`,
@@ -379,78 +440,83 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
     archivedAt: null,
   }));
 
-  const morningStock: MorningStock[] = ITEMS.filter((item) => item.morning !== null).map(
-    (item) => ({
-      id: `${day}:item-${item.key}`,
-      establishmentId: ESTABLISHMENT_ID,
-      menuItemId: `item-${item.key}`,
-      day,
-      quantity: item.morning ?? 0,
-      enteredAt: new Date(dayStart.getTime() + 60 * 60_000).toISOString(),
-      enteredBy: DEMO_MANAGER.id,
-    }),
-  );
-
   await db.transaction(
     "rw",
-    [db.servicePoints, db.menuItems, db.diningTables, db.staff, db.morningStock, db.meta],
+    [db.servicePoints, db.menuItems, db.diningTables, db.staff, db.meta],
     async () => {
       await db.servicePoints.bulkPut(SERVICE_POINTS);
       await db.menuItems.bulkPut(menuItems);
       await db.diningTables.bulkPut(TABLES);
       await db.staff.bulkPut([DEMO_MANAGER, ...WAITERS]);
-      await db.morningStock.bulkPut(morningStock);
     },
   );
 
-  // Commandes réparties entre l'ouverture (début de journée + 4 h) et maintenant.
-  const random = createRandom(20261107);
-  const firstOrder = dayStart.getTime() + 4 * 3_600_000;
-  const span = now.getTime() - firstOrder - 5 * 60_000;
-  if (span > 0) {
-    const count = Math.min(26, Math.max(4, Math.round(span / (25 * 60_000))));
-    const sellable = ITEMS.filter((item) => item.price !== null && item.weight > 0);
-    const created: { invoiceIds: string[]; createdAt: number }[] = [];
+  // La veille : stock du matin des trois postes, puis une journée de ventes servies.
+  for (const point of SERVICE_POINTS) {
+    await saveMorningStock(
+      db,
+      manager,
+      {
+        servicePointId: point.id,
+        lines: ITEMS.filter((item) => item.point === point.id && item.price !== null).map(
+          (item) => ({
+            menuItemId: `item-${item.key}`,
+            quantity: item.morning ?? YESTERDAY_FALLBACK,
+            reason: "",
+          }),
+        ),
+      },
+      { enteredAt: new Date(yesterdayStart.getTime() + HOUR_MS).toISOString(), enqueue: false },
+    );
+  }
+  const yesterdayOrders = await seedOrders(db, ctx, random, {
+    from: yesterdayStart.getTime() + 4 * HOUR_MS,
+    to: yesterdayStart.getTime() + 16 * HOUR_MS,
+    count: 18,
+  });
+  for (const order of yesterdayOrders) {
+    await db.invoices.bulkUpdate(
+      order.invoiceIds.map((key) => ({ key, changes: { prepStatus: "served" as PrepStatus } })),
+    );
+  }
 
-    for (let index = 0; index < count; index += 1) {
-      const createdAt = new Date(
-        firstOrder + Math.round(((index + random() * 0.8) / count) * span),
-      );
-      const waiter = WAITERS[Math.floor(random() * WAITERS.length)] ?? WAITERS[0];
-      if (!waiter) break;
-      const isTakeaway = random() < 0.15;
-      const lines = new Map<string, number>();
-      const lineCount = 1 + Math.floor(random() * 4);
-      for (let l = 0; l < lineCount; l += 1) {
-        // Une commande sur trois passe aussi par la grillade, pour que la démo
-        // montre les trois factures d'avance.
-        const item =
-          l === 0 && index % 3 === 1
-            ? (sellable.find((entry) => entry.point === "sp-grill") ??
-              pickWeighted(sellable, random))
-            : pickWeighted(sellable, random);
-        lines.set(
-          `item-${item.key}`,
-          (lines.get(`item-${item.key}`) ?? 0) + 1 + Math.floor(random() * 2),
-        );
-      }
-      try {
-        const { invoices } = await createOrder(
-          db,
-          { ...ctx, userId: waiter.id, userName: waiter.name },
-          {
-            mode: isTakeaway ? "takeaway" : "dine-in",
-            tableId: isTakeaway ? null : (TABLES[Math.floor(random() * TABLES.length)]?.id ?? null),
-            lines: [...lines].map(([menuItemId, quantity]) => ({ menuItemId, quantity })),
-          },
-          { createdAt: createdAt.toISOString(), enqueue: false },
-        );
-        created.push({ invoiceIds: invoices.map((i) => i.id), createdAt: createdAt.getTime() });
-      } catch {
-        // Un élément épuisé dans la démo : la commande est simplement ignorée.
-      }
-    }
+  // Aujourd'hui : comptoir et cuisine saisis ; les apports du jour sont des
+  // écarts justifiés (HYPOTHÈSE D-Q14 : pas encore de réquisitions).
+  const enteredAt = new Date(
+    Math.min(dayStart.getTime() + HOUR_MS, now.getTime() - 60_000),
+  ).toISOString();
+  const proposals = await morningProposals(db, manager, dayStart.toISOString());
+  for (const pointId of ["sp-counter", "sp-kitchen"]) {
+    await saveMorningStock(
+      db,
+      manager,
+      {
+        servicePointId: pointId,
+        lines: ITEMS.filter((item) => item.point === pointId && item.price !== null).map((item) => {
+          const proposed = proposals.get(`item-${item.key}`) ?? null;
+          const base = Math.max(item.morning ?? 0, proposed ?? 0);
+          const isBroken = item.key === "primus";
+          const quantity = isBroken ? base - 2 : base;
+          const restocked = proposed !== null && base > proposed;
+          const reason =
+            proposed === null || proposed === quantity
+              ? ""
+              : [restocked ? "Réquisition du jour" : "", isBroken ? "2 bouteilles cassées" : ""]
+                  .filter(Boolean)
+                  .join(" ; ");
+          return { menuItemId: `item-${item.key}`, quantity, reason };
+        }),
+      },
+      { enteredAt, enqueue: false },
+    );
+  }
 
+  // Commandes du jour, entre l'ouverture (début de journée + 4 h) et maintenant.
+  const firstOrder = dayStart.getTime() + 4 * HOUR_MS;
+  const lastOrder = now.getTime() - 5 * 60_000;
+  if (lastOrder > firstOrder) {
+    const count = Math.min(26, Math.max(4, Math.round((lastOrder - firstOrder) / (25 * 60_000))));
+    const created = await seedOrders(db, ctx, random, { from: firstOrder, to: lastOrder, count });
     // Avancement de la préparation : les commandes anciennes sont servies.
     for (const order of created) {
       const ageMinutes = (now.getTime() - order.createdAt) / 60_000;

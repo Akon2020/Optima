@@ -26,6 +26,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { Kpi } from "@/shared/ui/kpi";
 
 import { summarizeDay } from "../../domain/dashboard";
+import { isMorningStockComplete, itemsRequiringMorningStock } from "../../domain/morning-stock";
 import { useDayData } from "../../offline/hooks";
 import { SERVICE_POINT_ICONS, SERVICE_POINT_TONES } from "../labels";
 import { OrderDetailSheet } from "../orders/order-detail-sheet";
@@ -59,13 +60,12 @@ export function DashboardScreen() {
   if (!data || !summary) return null;
   const selected = rows.find((row) => row.order.id === selectedId) ?? null;
 
-  const missingMorningStock = data.servicePoints.filter((point) => {
-    const items = data.menuItems.filter(
-      (i) => i.servicePointId === point.id && i.archivedAt === null && i.price !== null,
-    );
-    const entered = new Set(data.morningStock.map((entry) => entry.menuItemId));
-    return items.length > 0 && items.some((item) => !entered.has(item.id));
-  });
+  // EF-TDB-04 : points de service dont le stock du matin n'est pas complet.
+  const missingMorningStock = data.servicePoints.filter(
+    (point) =>
+      itemsRequiringMorningStock(data.menuItems, point.id).length > 0 &&
+      !isMorningStockComplete(data.menuItems, point.id, data.morningStock),
+  );
 
   const chartPoints = summary.hourly.map((point) => ({
     label: `${localHour(point.hourStart, ctx.settings.timeZone)} h`,

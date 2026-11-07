@@ -13,6 +13,7 @@ const ctx: DeviceContext = {
   userName: "Serveur test",
   deviceId: "device-1",
   deviceCode: "D01",
+  role: "manager",
   settings: DEFAULT_RESTAURANT_SETTINGS,
 };
 

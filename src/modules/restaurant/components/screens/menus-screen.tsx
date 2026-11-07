@@ -162,9 +162,7 @@ function MenuItemDetailSheet({
   data: DayData;
   onClose: () => void;
 }) {
-  const morning = item
-    ? data.morningStock.find((entry) => entry.menuItemId === item.id)
-    : undefined;
+  const morning = item ? data.morningStock.get(item.id) : undefined;
   const sold = item ? (data.soldByItem.get(item.id) ?? 0) : 0;
   const badge = item ? availabilityBadge(data.availability.get(item.id)) : null;
   const point = item ? data.servicePoints.find((p) => p.id === item.servicePointId) : undefined;

@@ -8,9 +8,23 @@ import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
-import type { AdvanceInvoice, MenuItem, Order, OrderLine, PrepStatus } from "../domain/types";
+import {
+  currentEntries,
+  itemsRequiringMorningStock,
+  proposeMorningQuantity,
+  validateMorningLines,
+} from "../domain/morning-stock";
+import type {
+  AdvanceInvoice,
+  MenuItem,
+  MorningStockEntry,
+  Order,
+  OrderLine,
+  PrepStatus,
+} from "../domain/types";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
+import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
 
@@ -22,8 +36,18 @@ export type DeviceContext = {
   deviceId: string;
   /** Code appareil (D01, D02...) utilisé dans la numérotation (EF-DOC-01). */
   deviceCode: string;
+  role: RestaurantRole;
   settings: RestaurantSettings;
 };
+
+function assertPermission(ctx: DeviceContext, permission: RestaurantPermission, action: string) {
+  if (!hasPermission(ctx.role, permission)) {
+    throw new DomainError(
+      "FORBIDDEN",
+      `Votre rôle ne permet pas de ${action}. Demandez au gérant.`,
+    );
+  }
+}
 
 async function nextNumber(
   db: RestaurantDb,
@@ -39,12 +63,16 @@ async function nextNumber(
   return formatDocumentNumber({ prefix, year, deviceCode: ctx.deviceCode, sequence });
 }
 
-/** Quantités vendues par élément depuis le début de la journée d'exploitation. */
-export async function soldQuantitiesSince(
+/** Quantités vendues par élément sur une période [depuis, jusqu'à[ (factures non annulées). */
+export async function soldQuantitiesBetween(
   db: RestaurantDb,
-  sinceIso: string,
+  fromIso: string,
+  toIso: string,
 ): Promise<Map<string, number>> {
-  const invoices = await db.invoices.where("createdAt").aboveOrEqual(sinceIso).toArray();
+  const invoices = await db.invoices
+    .where("createdAt")
+    .between(fromIso, toIso, true, false)
+    .toArray();
   const sold = new Map<string, number>();
   for (const invoice of invoices) {
     if (invoice.paymentStatus === "cancelled") continue;
@@ -53,6 +81,20 @@ export async function soldQuantitiesSince(
     }
   }
   return sold;
+}
+
+/** Saisies du stock du matin en vigueur pour une journée, par élément. */
+export async function currentMorningStock(
+  db: RestaurantDb,
+  day: string,
+): Promise<Map<string, MorningStockEntry>> {
+  return currentEntries(await db.morningStockEntries.where("day").equals(day).toArray());
+}
+
+const DAY_MS = 24 * 3_600_000;
+
+function nextDayIso(dayStartIso: string): string {
+  return new Date(new Date(dayStartIso).getTime() + DAY_MS).toISOString();
 }
 
 /**
@@ -66,6 +108,7 @@ export async function createOrder(
   rawInput: OrderInput,
   options: { createdAt?: string; enqueue?: boolean } = {},
 ): Promise<{ order: Order; invoices: AdvanceInvoice[] }> {
+  assertPermission(ctx, "restaurant.order.create", "prendre une commande");
   const parsed = orderInputSchema.safeParse(rawInput);
   if (!parsed.success) {
     throw new DomainError(
@@ -86,7 +129,7 @@ export async function createOrder(
       db.orders,
       db.invoices,
       db.counters,
-      db.morningStock,
+      db.morningStockEntries,
       db.outbox,
     ],
     async () => {
@@ -94,7 +137,8 @@ export async function createOrder(
       const items = await db.menuItems.bulkGet(input.lines.map((line) => line.menuItemId));
       const dayStart = businessDayStart(createdAt, businessDayStartHour, timeZone);
       const day = businessDayKey(createdAt, businessDayStartHour, timeZone);
-      const sold = await soldQuantitiesSince(db, dayStart);
+      const sold = await soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart));
+      const morningStock = await currentMorningStock(db, day);
 
       const lines: OrderLine[] = [];
       for (const [index, requested] of input.lines.entries()) {
@@ -111,7 +155,7 @@ export async function createOrder(
             `« ${item.name} » n'a pas de prix : demandez au gérant de le fixer.`,
           );
         }
-        const morning = await db.morningStock.get(`${day}:${item.id}`);
+        const morning = morningStock.get(item.id);
         const availability = computeAvailability(
           item,
           morning?.quantity ?? null,
@@ -214,6 +258,7 @@ export async function setInvoicePrepStatus(
   invoiceId: string,
   status: PrepStatus,
 ): Promise<void> {
+  assertPermission(ctx, "restaurant.order.prep-status", "changer le statut d'une commande");
   await db.transaction("rw", db.invoices, db.outbox, async () => {
     const invoice = await db.invoices.get(invoiceId);
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Cette facture est introuvable.");
@@ -241,6 +286,7 @@ export async function addMenuItem(
   ctx: DeviceContext,
   rawInput: MenuItemInput,
 ): Promise<MenuItem> {
+  assertPermission(ctx, "restaurant.menu.manage", "modifier le menu");
   const input = menuItemInputSchema.parse(rawInput);
   const createdAt = new Date().toISOString();
   return db.transaction("rw", db.menuItems, db.servicePoints, db.outbox, async () => {
@@ -274,4 +320,122 @@ export async function addMenuItem(
     );
     return item;
   });
+}
+
+/** Propositions du stock du matin d'une journée, par élément (EF-REQ-04). */
+export async function morningProposals(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  dayStartIso: string,
+): Promise<Map<string, number | null>> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const previousStart = new Date(new Date(dayStartIso).getTime() - DAY_MS).toISOString();
+  const previousDay = businessDayKey(previousStart, businessDayStartHour, timeZone);
+  const [previousMorning, previousSold, items] = await Promise.all([
+    currentMorningStock(db, previousDay),
+    soldQuantitiesBetween(db, previousStart, dayStartIso),
+    db.menuItems.toArray(),
+  ]);
+  return new Map(
+    items.map((item) => [
+      item.id,
+      proposeMorningQuantity({
+        previousMorning: previousMorning.get(item.id)?.quantity ?? null,
+        previousSold: previousSold.get(item.id) ?? 0,
+        // HYPOTHÈSE D-Q14 : les réquisitions ne sont pas encore gérées.
+        requisitioned: null,
+      }),
+    ]),
+  );
+}
+
+export type MorningStockLine = { menuItemId: string; quantity: number | null; reason: string };
+
+/**
+ * Enregistre (ou corrige) le stock du matin d'un point de service
+ * (EF-REQ-03, EF-REQ-04, RG-REQ-02). Les propositions sont recalculées ici,
+ * jamais reprises de l'écran. Seules les lignes nouvelles ou modifiées créent
+ * une saisie ; une correction remplace la précédente sans l'effacer.
+ */
+export async function saveMorningStock(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { servicePointId: string; lines: readonly MorningStockLine[] },
+  options: { enteredAt?: string; enqueue?: boolean } = {},
+): Promise<MorningStockEntry[]> {
+  assertPermission(ctx, "restaurant.morning-stock.enter", "saisir le stock du matin");
+  const enteredAt = options.enteredAt ?? new Date().toISOString();
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const dayStart = businessDayStart(enteredAt, businessDayStartHour, timeZone);
+  const day = businessDayKey(enteredAt, businessDayStartHour, timeZone);
+
+  return db.transaction(
+    "rw",
+    [db.servicePoints, db.menuItems, db.invoices, db.morningStockEntries, db.outbox],
+    async () => {
+      const point = await db.servicePoints.get(input.servicePointId);
+      if (!point) {
+        throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+      }
+      const items = itemsRequiringMorningStock(await db.menuItems.toArray(), point.id);
+      const itemIds = new Set(items.map((item) => item.id));
+      if (input.lines.some((line) => !itemIds.has(line.menuItemId))) {
+        throw new DomainError(
+          "ITEM_NOT_FOUND",
+          "Un élément saisi n'appartient pas au menu de ce point de service.",
+        );
+      }
+      const linesById = new Map(input.lines.map((line) => [line.menuItemId, line]));
+      const proposals = await morningProposals(db, ctx, dayStart);
+      const current = await currentMorningStock(db, day);
+
+      const checked = items.map((item) => {
+        const line = linesById.get(item.id);
+        return {
+          menuItemId: item.id,
+          name: item.name,
+          quantity: line?.quantity ?? null,
+          proposed: proposals.get(item.id) ?? null,
+          previous: current.get(item.id)?.quantity ?? null,
+          reason: line?.reason ?? "",
+        };
+      });
+      const issue = validateMorningLines(checked)[0];
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const entries: MorningStockEntry[] = checked
+        .filter((line) => line.previous === null || line.quantity !== line.previous)
+        .map((line) => ({
+          id: uuidv7(new Date(enteredAt).getTime()),
+          establishmentId: ctx.establishmentId,
+          day,
+          servicePointId: point.id,
+          menuItemId: line.menuItemId,
+          quantity: line.quantity ?? 0,
+          proposed: line.proposed,
+          reason: line.reason.trim() === "" ? null : line.reason.trim(),
+          replacesId: current.get(line.menuItemId)?.id ?? null,
+          enteredAt,
+          enteredBy: ctx.userId,
+          enteredByName: ctx.userName,
+        }));
+      if (entries.length === 0) return [];
+
+      await db.morningStockEntries.bulkAdd(entries);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          createOperation({
+            id: uuidv7(),
+            type: "restaurant.morning-stock.entered",
+            payload: { day, servicePointId: point.id, entries },
+            establishmentId: ctx.establishmentId,
+            userId: ctx.userId,
+            deviceId: ctx.deviceId,
+            createdAt: enteredAt,
+          }),
+        );
+      }
+      return entries;
+    },
+  );
 }

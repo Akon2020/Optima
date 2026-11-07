@@ -6,7 +6,7 @@ import type {
   AdvanceInvoice,
   DiningTable,
   MenuItem,
-  MorningStock,
+  MorningStockEntry,
   Order,
   ServicePoint,
   StaffMember,
@@ -26,7 +26,7 @@ export class RestaurantDb extends Dexie {
   staff!: EntityTable<StaffMember, "id">;
   orders!: EntityTable<Order, "id">;
   invoices!: EntityTable<AdvanceInvoice, "id">;
-  morningStock!: EntityTable<MorningStock, "id">;
+  morningStockEntries!: EntityTable<MorningStockEntry, "id">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
   meta!: EntityTable<Meta, "key">;
@@ -45,6 +45,46 @@ export class RestaurantDb extends Dexie {
       outbox: "id, status, createdAt",
       meta: "key",
     });
+    // v2 : le stock du matin devient un journal de saisies en ajout seul
+    // (corrections tracées, RG-REQ-02). Les anciennes saisies sont reprises.
+    this.version(2)
+      .stores({
+        morningStockEntries: "id, day, [day+menuItemId], servicePointId",
+      })
+      .upgrade(async (tx) => {
+        const legacy = await tx
+          .table<{
+            id: string;
+            establishmentId: string;
+            menuItemId: string;
+            day: string;
+            quantity: number;
+            enteredAt: string;
+            enteredBy: string;
+          }>("morningStock")
+          .toArray();
+        const items = new Map(
+          (await tx.table<MenuItem>("menuItems").toArray()).map((item) => [item.id, item]),
+        );
+        await tx.table<MorningStockEntry>("morningStockEntries").bulkAdd(
+          legacy.map((entry) => ({
+            id: entry.id,
+            establishmentId: entry.establishmentId,
+            day: entry.day,
+            servicePointId: items.get(entry.menuItemId)?.servicePointId ?? "",
+            menuItemId: entry.menuItemId,
+            quantity: entry.quantity,
+            proposed: null,
+            reason: null,
+            replacesId: null,
+            enteredAt: entry.enteredAt,
+            enteredBy: entry.enteredBy,
+            enteredByName: "",
+          })),
+        );
+      });
+    // v3 : l'ancienne table, reprise en v2, est supprimée.
+    this.version(3).stores({ morningStock: null });
   }
 }
 
