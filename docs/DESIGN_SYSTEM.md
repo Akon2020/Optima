@@ -81,30 +81,26 @@ Ajouter une identité de module, par exemple pour la boutique de la phase 2 :
 4. Documenter la charte ici, dans une nouvelle section.
 5. Ajouter les combinaisons aux tests visuels (§ 10).
 
-### 2.5 Intégration avec Tailwind CSS v4 [PROPOSÉ]
+### 2.5 Intégration avec Tailwind CSS v4 [APPLIQUÉ le 07/11/2026]
 
-Tailwind lit les tokens sémantiques et ne contient aucune couleur en dur :
+Tailwind lit les tokens sémantiques et ne contient aucune couleur en dur. **Écart par rapport à la première version de ce document** : le mapping `@theme inline { --color-bg: var(--color-bg); }` produit une variable **cyclique** (Tailwind émet `--color-bg: var(--color-bg)` dans `:root`, ce qui invalide le token ; vérifié avec Tailwind 4). Mise en œuvre retenue :
 
 ```css
-/* globals.css (extrait) */
+/* src/styles/globals.css (extrait) */
+@layer theme, tokens, base, components, utilities;
 @import "tailwindcss";
-@layer tokens, base, components, utilities;
 @import "./tokens/primitives.css" layer(tokens);
-@import "./tokens/semantic.light.css" layer(tokens);
+@import "./tokens/semantic.light.css";            /* @theme { --color-*: initial; --color-bg: ...; } */
 @import "./tokens/semantic.dark.css" layer(tokens);
 @import "./modules/restaurant.css" layer(tokens);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
-@theme inline {
-  --color-bg: var(--color-bg);
-  --color-surface: var(--color-surface);
-  --color-text: var(--color-text);
-  /* ... un mapping par token sémantique ... */
-  --radius-card: var(--radius-card);
-  --font-sans: var(--font-sans);
-}
 ```
+
+- Les tokens sémantiques de la **charte générale claire** sont déclarés directement dans `@theme` : Tailwind génère les utilitaires (`bg-surface`, `text-text-muted`, `rounded-card`, `shadow-card`...).
+- `--color-*: initial` retire toutes les couleurs par défaut de Tailwind : aucune palette brute (`bg-red-500`) n'est utilisable.
+- Le thème sombre et les chartes de module redéfinissent les mêmes variables dans la couche `tokens`, **placée après** la couche `theme` de Tailwind : elles l'emportent sans conflit de spécificité.
+- Les documents imprimés utilisent des tokens dédiés (`--color-ticket-*`) que les thèmes ne redéfinissent jamais (§ 9).
 
 Garde-fous **[PROPOSÉ]** :
 

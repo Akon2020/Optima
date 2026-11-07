@@ -13,6 +13,23 @@
 - Une exigence modifiée par une décision ultérieure est annotée avec le numéro de la décision (`→ voir D-012`). La décision elle-même est consignée dans `docs/DECISIONS.md`.
 - Les sections 4.1 à 4.14 forment le **socle commun**, inspiré du logiciel AkivioFlow. Les sections 4.15 à 4.23 forment le **module Restaurant**. La section 4.24 décrit le **journal d'audit**, transversal à tout le système.
 
+## État d'implémentation (au 07/11/2026)
+
+Implémenté **en local uniquement** (base IndexedDB de l'appareil, données de démonstration, sans serveur ni authentification, D-018). Rien n'est encore en production.
+
+| Exigences | État |
+|---|---|
+| EF-RES-01, EF-RES-02, EF-RES-03 | Trois points de service, menus boissons et nourriture, unité de vente par élément |
+| RG-RES-01, RG-PRX-01, RG-REQ-03 | Élément épuisé ou sans prix non commandable ; commande possible sans stock du matin |
+| EF-CMD-01 à EF-CMD-04 | Prise de commande (table ou à emporter), les plus vendus d'abord, répartition par point de service, factures d'avance numérotées et imprimables, facture complémentaire sur une table occupée |
+| RG-CMD-01 | Le stock du jour diminue dès la validation (disponibilité recalculée à partir des souches) |
+| EF-DOC-01, RG-DOC-01 | Numérotation `TYPE-ANNÉE-CODEAPPAREIL-SÉQUENCE`, compteurs locaux par appareil |
+| EF-TDB-01 (partiel), EF-TDB-04 | Tableau de bord du jour : montant facturé, factures, panier moyen, commandes par statut, points de service, serveurs ; alerte stock du matin manquant |
+| EF-OFF-02 (partiel), RG-OFF-01 (côté appareil) | Bandeau d'état ; chaque écriture crée une opération UUIDv7 dans la file locale. L'envoi au serveur n'existe pas encore |
+| EF-PRE-02 (partiel) | Suivi « en préparation / prête / servie » depuis le détail d'une commande |
+
+Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (tables numérotées, 12 en démonstration).
+
 ## Hypothèses retenues (section 1.5 du cahier, à confirmer)
 
 - L'argent est reçu par le serveur, puis reversé à la caisse du point de service concerné. La clôture se fait donc par serveur et par point de service.
