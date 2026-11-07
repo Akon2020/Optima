@@ -19,6 +19,13 @@ import {
 } from "@/modules/restaurant/schemas/sync";
 
 import { writeAudit } from "../audit/audit";
+import {
+  diningTableSnapshot,
+  menuItemSnapshot,
+  morningEntrySnapshots,
+  orderSnapshots,
+  tableReleaseSnapshots,
+} from "../restaurant/snapshots";
 import type { Tx } from "../db/context";
 import { toJson, toSafeNumber } from "../db/context";
 
@@ -167,25 +174,15 @@ const orderCreated = handler({
           lineTotalMinor: BigInt(line.unitPrice.amountMinor * line.quantity),
         })),
       });
-      await recordChange(tx, ctx, "advance_invoice", invoice.id, {
-        ...invoice,
-        orderId: payload.orderId,
-        lines: group.lines,
-        total: group.total,
-        createdAt: payload.createdAt,
-        waiterId: ctx.userId,
-      });
     }
-    await recordChange(tx, ctx, "order", payload.orderId, {
-      id: payload.orderId,
-      number: payload.number,
-      mode: payload.mode,
-      tableId: payload.tableId,
-      tableLabel,
-      waiterId: ctx.userId,
-      totalMinor: total,
-      createdAt: payload.createdAt,
-    });
+    // Diffusion aux autres appareils : enregistrements complets, prix du serveur.
+    const snapshot = await orderSnapshots(tx, ctx.establishmentId, { id: payload.orderId });
+    for (const invoice of snapshot.invoices) {
+      await recordChange(tx, ctx, "advance_invoice", invoice.id, invoice);
+    }
+    for (const order of snapshot.orders) {
+      await recordChange(tx, ctx, "order", order.id, order);
+    }
   },
 });
 
@@ -203,7 +200,9 @@ const prepStatusChanged = handler({
       where: { id: invoice.id },
       data: { prepStatus: payload.status },
     });
-    await recordChange(tx, ctx, "advance_invoice.prep_status", invoice.id, payload);
+    const snapshot = await orderSnapshots(tx, ctx.establishmentId, { id: invoice.orderId });
+    const updated = snapshot.invoices.find((entry) => entry.id === invoice.id);
+    if (updated) await recordChange(tx, ctx, "advance_invoice", invoice.id, updated);
   },
 });
 
@@ -221,7 +220,7 @@ const menuItemCreated = handler({
         "Le prix doit être dans la devise de l'établissement.",
       );
     }
-    await tx.menuItem.create({
+    const created = await tx.menuItem.create({
       data: {
         id: item.id,
         establishmentId: ctx.establishmentId,
@@ -244,7 +243,7 @@ const menuItemCreated = handler({
       entityId: item.id,
       after: item,
     });
-    await recordChange(tx, ctx, "menu_item", item.id, item);
+    await recordChange(tx, ctx, "menu_item", item.id, menuItemSnapshot(created));
   },
 });
 
@@ -299,8 +298,11 @@ const morningStockEntered = handler({
       entityId: payload.servicePointId,
       after: { day: payload.day, entries: payload.entries.length, variances },
     });
-    for (const entry of payload.entries) {
-      await recordChange(tx, ctx, "morning_stock_entry", entry.id, { ...entry, day: payload.day });
+    const entries = await morningEntrySnapshots(tx, ctx.establishmentId, {
+      id: { in: payload.entries.map((entry) => entry.id) },
+    });
+    for (const entry of entries) {
+      await recordChange(tx, ctx, "morning_stock_entry", entry.id, entry);
     }
   },
 });
@@ -315,7 +317,7 @@ const tableCreated = handler({
     });
     const error = validateTableLabel(table.label, tables);
     if (error) throw new DomainError("INVALID_TABLE_LABEL", error);
-    await tx.diningTable.create({
+    const created = await tx.diningTable.create({
       data: {
         id: table.id,
         establishmentId: ctx.establishmentId,
@@ -323,7 +325,7 @@ const tableCreated = handler({
         sortOrder: table.sortOrder,
       },
     });
-    await recordChange(tx, ctx, "dining_table", table.id, table);
+    await recordChange(tx, ctx, "dining_table", table.id, diningTableSnapshot(created));
   },
 });
 
@@ -339,7 +341,10 @@ const tableRenamed = handler({
     if (!current) throw new DomainError("TABLE_NOT_FOUND", "Table inconnue du serveur.");
     const error = validateTableLabel(payload.after, tables, payload.tableId);
     if (error) throw new DomainError("INVALID_TABLE_LABEL", error);
-    await tx.diningTable.update({ where: { id: payload.tableId }, data: { label: payload.after } });
+    const renamed = await tx.diningTable.update({
+      where: { id: payload.tableId },
+      data: { label: payload.after },
+    });
     await writeAudit(tx, {
       establishmentId: ctx.establishmentId,
       actorUserId: ctx.userId,
@@ -351,7 +356,7 @@ const tableRenamed = handler({
       before: { label: current.label },
       after: { label: payload.after },
     });
-    await recordChange(tx, ctx, "dining_table", payload.tableId, { label: payload.after });
+    await recordChange(tx, ctx, "dining_table", payload.tableId, diningTableSnapshot(renamed));
   },
 });
 
@@ -365,7 +370,10 @@ function tableArchiveHandler(archived: boolean) {
       });
       if (!table) throw new DomainError("TABLE_NOT_FOUND", "Table inconnue du serveur.");
       const archivedAt = archived ? ctx.receivedAt : null;
-      await tx.diningTable.update({ where: { id: table.id }, data: { archivedAt } });
+      const updated = await tx.diningTable.update({
+        where: { id: table.id },
+        data: { archivedAt },
+      });
       await writeAudit(tx, {
         establishmentId: ctx.establishmentId,
         actorUserId: ctx.userId,
@@ -375,7 +383,7 @@ function tableArchiveHandler(archived: boolean) {
         entity: "dining_table",
         entityId: table.id,
       });
-      await recordChange(tx, ctx, "dining_table", table.id, { archivedAt });
+      await recordChange(tx, ctx, "dining_table", table.id, diningTableSnapshot(updated));
     },
   });
 }
@@ -397,7 +405,8 @@ const tableReleased = handler({
         releasedBy: ctx.userId,
       },
     });
-    await recordChange(tx, ctx, "table_release", release.id, release);
+    const [snapshot] = await tableReleaseSnapshots(tx, ctx.establishmentId, { id: release.id });
+    if (snapshot) await recordChange(tx, ctx, "table_release", release.id, snapshot);
   },
 });
 
