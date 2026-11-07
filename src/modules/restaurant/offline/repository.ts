@@ -17,11 +17,14 @@ import {
 import type {
   AdvanceInvoice,
   MenuItem,
+  DiningTable,
   MorningStockEntry,
   Order,
   OrderLine,
   PrepStatus,
+  TableRelease,
 } from "../domain/types";
+import { nextTableLabel, validateTableLabel } from "../domain/tables";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
@@ -182,6 +185,9 @@ export async function createOrder(
       }
 
       const table = input.tableId ? await db.diningTables.get(input.tableId) : undefined;
+      if (table && table.archivedAt !== null) {
+        throw new DomainError("TABLE_ARCHIVED", `« ${table.label} » n'est plus en service.`);
+      }
       if (input.tableId && !table) {
         throw new DomainError(
           "TABLE_NOT_FOUND",
@@ -438,4 +444,142 @@ export async function saveMorningStock(
       return entries;
     },
   );
+}
+
+function tableOperation(ctx: DeviceContext, type: string, payload: unknown, createdAt: string) {
+  return createOperation({
+    id: uuidv7(),
+    type,
+    payload,
+    establishmentId: ctx.establishmentId,
+    userId: ctx.userId,
+    deviceId: ctx.deviceId,
+    createdAt,
+  });
+}
+
+/** Ajoute une table, numérotée à la suite par défaut (EF-RES-04, gérant). */
+export async function addTable(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  label?: string,
+): Promise<DiningTable> {
+  assertPermission(ctx, "restaurant.table.manage", "gérer les tables");
+  const createdAt = new Date().toISOString();
+  return db.transaction("rw", db.diningTables, db.outbox, async () => {
+    const tables = await db.diningTables.toArray();
+    const finalLabel = (
+      label ?? nextTableLabel(tables.filter((t) => t.archivedAt === null))
+    ).trim();
+    const error = validateTableLabel(finalLabel, tables);
+    if (error) throw new DomainError("INVALID_TABLE_LABEL", error);
+    const table: DiningTable = {
+      id: uuidv7(),
+      establishmentId: ctx.establishmentId,
+      label: finalLabel,
+      sortOrder: Math.max(0, ...tables.map((t) => t.sortOrder)) + 1,
+      createdAt,
+      archivedAt: null,
+    };
+    await db.diningTables.add(table);
+    await db.outbox.add(tableOperation(ctx, "restaurant.table.created", { table }, createdAt));
+    return table;
+  });
+}
+
+/** Renomme une table ; les commandes passées gardent le libellé d'origine. */
+export async function renameTable(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  tableId: string,
+  label: string,
+): Promise<void> {
+  assertPermission(ctx, "restaurant.table.manage", "gérer les tables");
+  const updatedAt = new Date().toISOString();
+  await db.transaction("rw", db.diningTables, db.outbox, async () => {
+    const tables = await db.diningTables.toArray();
+    const table = tables.find((t) => t.id === tableId);
+    if (!table) throw new DomainError("TABLE_NOT_FOUND", "Cette table n'existe plus.");
+    const error = validateTableLabel(label, tables, tableId);
+    if (error) throw new DomainError("INVALID_TABLE_LABEL", error);
+    if (table.label === label.trim()) return;
+    await db.diningTables.update(tableId, { label: label.trim() });
+    await db.outbox.add(
+      tableOperation(
+        ctx,
+        "restaurant.table.renamed",
+        { tableId, before: table.label, after: label.trim() },
+        updatedAt,
+      ),
+    );
+  });
+}
+
+/**
+ * Archive ou rétablit une table (jamais de suppression : RG-CAT-01 appliqué
+ * aux tables). Une table occupée ne peut pas être archivée.
+ */
+export async function setTableArchived(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  tableId: string,
+  archived: boolean,
+  options: { isOccupied: boolean },
+): Promise<void> {
+  assertPermission(ctx, "restaurant.table.manage", "gérer les tables");
+  const at = new Date().toISOString();
+  await db.transaction("rw", db.diningTables, db.outbox, async () => {
+    const tables = await db.diningTables.toArray();
+    const table = tables.find((t) => t.id === tableId);
+    if (!table) throw new DomainError("TABLE_NOT_FOUND", "Cette table n'existe plus.");
+    if (archived && options.isOccupied) {
+      throw new DomainError(
+        "TABLE_OCCUPIED",
+        `« ${table.label} » est occupée : libérez-la avant de la retirer du service.`,
+      );
+    }
+    if (!archived) {
+      const error = validateTableLabel(table.label, tables, tableId);
+      if (error) throw new DomainError("INVALID_TABLE_LABEL", error);
+    }
+    await db.diningTables.update(tableId, { archivedAt: archived ? at : null });
+    await db.outbox.add(
+      tableOperation(
+        ctx,
+        archived ? "restaurant.table.archived" : "restaurant.table.restored",
+        { tableId },
+        at,
+      ),
+    );
+  });
+}
+
+/** Libère une table (HYPOTHÈSE D-Q04 : à la main tant que l'encaissement n'existe pas). */
+export async function releaseTable(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  tableId: string,
+  options: { releasedAt?: string; enqueue?: boolean } = {},
+): Promise<TableRelease> {
+  assertPermission(ctx, "restaurant.table.release", "libérer une table");
+  const releasedAt = options.releasedAt ?? new Date().toISOString();
+  return db.transaction("rw", db.diningTables, db.tableReleases, db.outbox, async () => {
+    const table = await db.diningTables.get(tableId);
+    if (!table) throw new DomainError("TABLE_NOT_FOUND", "Cette table n'existe plus.");
+    const release: TableRelease = {
+      id: uuidv7(new Date(releasedAt).getTime()),
+      establishmentId: ctx.establishmentId,
+      tableId,
+      releasedAt,
+      releasedBy: ctx.userId,
+      releasedByName: ctx.userName,
+    };
+    await db.tableReleases.add(release);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(ctx, "restaurant.table.released", { release }, releasedAt),
+      );
+    }
+    return release;
+  });
 }

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { UpcomingScreen } from "@/modules/restaurant/components/screens/upcoming-screen";
+import { TablesScreen } from "@/modules/restaurant/components/screens/tables-screen";
 
 export const metadata: Metadata = { title: "Tables" };
 
 export default function TablesPage() {
-  return <UpcomingScreen segment="tables" />;
+  return <TablesScreen />;
 }

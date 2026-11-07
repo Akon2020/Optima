@@ -12,6 +12,8 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.menu.manage",
   "restaurant.morning-stock.read",
   "restaurant.morning-stock.enter",
+  "restaurant.table.manage",
+  "restaurant.table.release",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -21,7 +23,12 @@ export type RestaurantRole = "owner" | "manager" | "waiter" | "prep" | "courier"
 const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> = {
   owner: RESTAURANT_PERMISSIONS,
   manager: RESTAURANT_PERMISSIONS,
-  waiter: ["restaurant.order.create", "restaurant.order.prep-status", "restaurant.menu.read"],
+  waiter: [
+    "restaurant.order.create",
+    "restaurant.order.prep-status",
+    "restaurant.menu.read",
+    "restaurant.table.release",
+  ],
   prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
   courier: [],
   reader: ["restaurant.menu.read", "restaurant.morning-stock.read"],

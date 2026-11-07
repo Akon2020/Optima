@@ -76,8 +76,13 @@ export function RestaurantProvider({ slug, children }: { slug: string; children:
 
   const resetDemo = useCallback(async () => {
     setStatus("loading");
-    await resetDemoData(db, ctx);
-    setStatus("ready");
+    try {
+      await resetDemoData(db, ctx);
+      setStatus("ready");
+    } catch (error) {
+      console.error(error);
+      setStatus("error");
+    }
   }, [db, ctx]);
 
   const value = useMemo<RestaurantContextValue>(

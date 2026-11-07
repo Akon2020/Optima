@@ -6,6 +6,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
 import { currentEntries } from "../domain/morning-stock";
+import { tableSessions, type TableSession } from "../domain/tables";
 import type {
   AdvanceInvoice,
   DiningTable,
@@ -14,6 +15,7 @@ import type {
   Order,
   ServicePoint,
   StaffMember,
+  TableRelease,
 } from "../domain/types";
 import { useRestaurant } from "../components/restaurant-provider";
 import { morningProposals } from "./repository";
@@ -60,7 +62,11 @@ export type DayData = {
   dayStart: string;
   servicePoints: ServicePoint[];
   menuItems: MenuItem[];
+  /** Toutes les tables, archivées comprises (les écrans filtrent `archivedAt`). */
   tables: DiningTable[];
+  releases: TableRelease[];
+  /** Occupation en cours par table (EF-CMD-04). */
+  sessions: Map<string, TableSession>;
   staff: StaffMember[];
   orders: Order[];
   invoices: AdvanceInvoice[];
@@ -79,13 +85,13 @@ export type DayData = {
 export function useDayData(): DayData | undefined {
   const { db, ctx, status } = useRestaurant();
   const now = useNow();
-  const { businessDayStartHour, timeZone, lowStockThreshold } = ctx.settings;
+  const { businessDayStartHour, timeZone, lowStockThreshold, currency } = ctx.settings;
   const dayStart = now ? businessDayStart(now, businessDayStartHour, timeZone) : null;
   const day = now ? businessDayKey(now, businessDayStartHour, timeZone) : null;
 
   const raw = useLiveQuery(async () => {
     if (status !== "ready" || dayStart === null || day === null) return undefined;
-    const [servicePoints, menuItems, tables, staff, orders, invoices, morningEntries] =
+    const [servicePoints, menuItems, tables, staff, orders, invoices, morningEntries, releases] =
       await Promise.all([
         db.servicePoints.orderBy("sortOrder").toArray(),
         db.menuItems.toArray(),
@@ -94,8 +100,18 @@ export function useDayData(): DayData | undefined {
         db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
         db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
         db.morningStockEntries.where("day").equals(day).toArray(),
+        db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
       ]);
-    return { servicePoints, menuItems, tables, staff, orders, invoices, morningEntries };
+    return {
+      servicePoints,
+      menuItems,
+      tables,
+      staff,
+      orders,
+      invoices,
+      morningEntries,
+      releases,
+    };
   }, [db, status, dayStart, day]);
 
   return useMemo(() => {
@@ -119,8 +135,15 @@ export function useDayData(): DayData | undefined {
         ),
       ]),
     );
-    return { ...raw, now, day, dayStart, availability, soldByItem, morningStock };
-  }, [raw, now, day, dayStart, lowStockThreshold]);
+    const sessions = tableSessions({
+      orders: raw.orders,
+      invoices: raw.invoices,
+      releases: raw.releases,
+      dayStart,
+      currency,
+    });
+    return { ...raw, now, day, dayStart, availability, soldByItem, morningStock, sessions };
+  }, [raw, now, day, dayStart, lowStockThreshold, currency]);
 }
 
 /** Propositions du stock du matin de la journée, par élément (EF-REQ-04). */
