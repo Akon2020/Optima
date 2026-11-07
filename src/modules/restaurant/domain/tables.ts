@@ -133,7 +133,7 @@ export const MAX_TABLE_LABEL_LENGTH = 24;
 /** Contrôle d'un libellé de table ; renvoie le message d'erreur ou `null`. */
 export function validateTableLabel(
   label: string,
-  tables: readonly Pick<DiningTable, "id" | "label" | "archivedAt">[],
+  tables: readonly { id: string; label: string; archivedAt: DiningTable["archivedAt"] | Date }[],
   excludeId: string | null = null,
 ): string | null {
   const trimmed = label.trim();

@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 import { localYear } from "@/shared/lib/dates";
 import { DomainError } from "@/shared/lib/errors";
 import { uuidv7 } from "@/shared/lib/ids";
@@ -27,6 +29,9 @@ import type {
 import { nextTableLabel, validateTableLabel } from "../domain/tables";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
+import type { orderCreatedSchema } from "../schemas/sync";
+
+type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -244,7 +249,21 @@ export async function createOrder(
           createOperation({
             id: uuidv7(),
             type: "restaurant.order.created",
-            payload: { orderId, numbers: [orderNumber, ...invoices.map((i) => i.number)], input },
+            // Forme validée par orderCreatedSchema (schemas/sync.ts) : le serveur
+            // recalcule les prix et revérifie la répartition par point de service.
+            payload: {
+              orderId,
+              number: orderNumber,
+              createdAt,
+              mode: input.mode,
+              tableId: input.tableId,
+              lines: input.lines,
+              invoices: invoices.map((invoice) => ({
+                id: invoice.id,
+                number: invoice.number,
+                servicePointId: invoice.servicePointId,
+              })),
+            } satisfies OrderCreatedPayload,
             establishmentId: ctx.establishmentId,
             userId: ctx.userId,
             deviceId: ctx.deviceId,
