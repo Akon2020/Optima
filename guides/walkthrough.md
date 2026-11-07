@@ -18,14 +18,15 @@
 | 6 | Tables | Fait, libération manuelle (D-Q04) | `9e00932`, `48b4cb2` |
 | 7 | Socle serveur | Fait | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
 | 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, `e8850c1`, `2bef4be` |
-| 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | voir `git log` |
+| 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | `e9e9ef6`, `5cbe87b`, `4ff970d`, `5aaaa1d` |
+| 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports, suppression, journal consultable | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 105 tests unitaires passent ;
-- `pnpm test:integration` : 55 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test` : 116 tests unitaires passent ;
+- `pnpm test:integration` : 63 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -249,6 +250,36 @@
 
 ---
 
+## Étape 10 : espace propriétaire
+
+**Fait**
+- **Vue d'ensemble** (`/proprietaire`, EF-PRO-01, 02, 04, 05) :
+  - période au choix : aujourd'hui, 7 jours ou 30 jours, en journées d'exploitation (6 h à 6 h, HYPOTHÈSE D-Q10) ;
+  - montant facturé au total (par devise, jamais de francs et de dollars additionnés) et par établissement, évolution par rapport à la période précédente, commandes, panier moyen ;
+  - graphique d'évolution (par heure pour la journée, par jour sinon) ;
+  - alertes : appareil sans synchronisation depuis 24 heures, opérations refusées dans la semaine, stock du matin non saisi, établissement suspendu ; chacune mène à l'écran où agir ;
+  - personnel et appareils par établissement, dernière synchronisation ;
+  - les indicateurs qui attendent d'autres écrans (marge, cash, manquants, stock, dépenses) sont **annoncés avec ce qu'ils attendent**, jamais remplacés par des zéros.
+- **Établissements** (`/proprietaire/etablissements`) :
+  - création (EF-ETB-01) : nom, adresse OPTIMA proposée à partir du nom, raison sociale, adresse, téléphone, type (Restaurant), devise de base figée (RG-ETB-01), fuseau ; points de service habituels en option ; modules par défaut du type ;
+  - aperçu de l'en-tête imprimé, toujours en clair, avec les champs manquants (EF-ETB-02) ;
+  - fiche : identité modifiable, modules activables d'un geste avec les dépendances dans les deux sens (RG-MOD-02), suspension avec motif et réactivation (EF-ETB-03) ; liens vers « Équipe » et « Appareils ».
+- **Suspension sans perte** (D-025) : la synchronisation d'un établissement suspendu répond 403, pas 401. L'appareil garde ses données et ses opérations, qui partent à la réactivation ; seule une révocation efface un appareil. Les trois routes de synchronisation partagent ce contrôle (`src/server/sync/device-request.ts`).
+- **Traçabilité** (RG-PRO-01) : chaque action du propriétaire est inscrite au journal de l'établissement concerné, rôle « owner ».
+- **Code** : logique pure dans `src/modules/owner/` (périodes, synthèse des ventes, adresse, en-tête, schémas Zod) ; services dans `src/server/owner/` ; `requireOwner` pour les actions hors établissement ; dépendances et types d'établissement dans `src/modules/registry.ts`.
+- **Tests** : 11 tests unitaires (périodes, synthèse, devises, adresse, en-tête, dépendances), 8 tests d'intégration (accès, création, adresse prise ou réservée, identité et journal, modules dans les deux sens, suspension et 403, vue d'ensemble).
+- **Vérifié dans le navigateur** : première connexion du propriétaire (mot de passe, double authentification), vue d'ensemble avec la vraie commande du jour (9 500 FC) et l'alerte « stock du matin », création de « Restaurant Test Goma » avec aperçu de l'en-tête, activation de « Postes de préparation » (Restaurant alors verrouillé), suspension (« Travaux ») et réactivation ; journal contrôlé dans PostgreSQL ; 360, 768 et 1280 px, clair et sombre.
+
+**Bloque encore**
+- **Exports et suppression définitive** (EF-ETB-04, EF-ETB-05, RG-ETB-02) : attendent les tâches de fond (pg-boss).
+- **Logo et couleur** de l'en-tête : attendent le stockage des fichiers (**D-Q23**).
+- **Menus adaptés aux modules** (EF-MOD-02) : un module désactivé refuse ses opérations, mais ses écrans restent dans le menu de l'appareil.
+- **Indicateurs financiers** (marge, cash, manquants, stock) : attendent l'encaissement et les clôtures (**D-Q03**, **D-Q04**, **D-Q10**) et le stock (**D-Q14**).
+- **Journal d'audit consultable** (EF-AUD-02 à 04) : il est écrit partout, l'écran reste à faire.
+- **À valider par vous** : D-025.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Recommandation actuelle |
@@ -266,7 +297,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022, D-023, D-024 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022, D-023, D-024, D-025 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -281,8 +312,8 @@
 
 ## Prochaines étapes recommandées
 
-1. **Vous connecter une première fois en propriétaire** (comptes dans `.env.accounts.local`) et activer la double authentification (voir `guide.md`, § 4).
-2. **Espace propriétaire** : tableau de bord consolidé, établissements, modules, journal d'audit consultable.
+1. **Journal d'audit consultable et exportable** (EF-AUD-02 à 04), pour le gérant et le propriétaire.
+2. **Menus adaptés aux modules actifs** (EF-MOD-02).
 3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
 5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.

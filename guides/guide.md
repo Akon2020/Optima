@@ -135,6 +135,8 @@ Ouvrez `http://localhost:3000/connexion`.
 
 **Gérant ou serveur** : mot de passe provisoire, puis nouveau mot de passe, puis `/compte`.
 
+**Espace propriétaire** : `/proprietaire` montre la vue d'ensemble (aujourd'hui, 7 jours ou 30 jours, comparés à la période précédente) et les alertes. « Établissements » permet de créer un établissement (son adresse OPTIMA et sa devise ne changent plus ensuite), d'en modifier l'identité, d'activer ou de désactiver ses modules et de le suspendre avec un motif. Une suspension n'efface rien : les appareils gardent leurs données et reprennent à la réactivation.
+
 **Restaurant sur les vraies données** :
 1. Sur `/compte`, le gérant ouvre l'établissement (`/e/restaurant-dev/restaurant`).
 2. **Appairage** (une fois par appareil) : il nomme l'appareil (« Téléphone salle 1 ») et l'enregistre. L'appareil reçoit son code (D01, D02…) et charge les points de service, le menu, les tables, le personnel et les commandes du jour.
@@ -192,7 +194,7 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022**, **D-023** et **D-024**.
+10. Valider les propositions **D-022**, **D-023**, **D-024** et **D-025**.
 11. Faire signer le cahier des charges (D-013).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
@@ -214,9 +216,12 @@ Par ordre d'urgence :
 
 ### 7.3 Espace propriétaire et administration ⬜
 
-- [ ] Tableau de bord consolidé (EF-PRO-01 à 05) : chiffre d'affaires, marge, cash attendu et déclaré, manquants, stock, alertes, comparaison de périodes.
-- [ ] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), suspension (03), suppression en deux temps (04, RG-ETB-02), exports (05).
-- [ ] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, 02, RG-MOD-01, 02).
+- [x] Vue d'ensemble (`/proprietaire`) : montant facturé, commandes, panier moyen, comparaison avec la période précédente, graphique, alertes, appareils (EF-PRO-01, 02, 04, 05, en partie).
+- [ ] Vue d'ensemble, suite : marge, cash attendu et déclaré, manquants, stock (avec l'encaissement, les clôtures et le stock) ; période personnalisée ; comparaison de deux établissements ; chiffres cliquables (EF-PRO-03).
+- [x] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), identité, suspension et réactivation (03).
+- [ ] Logo et couleur de l'en-tête 🔒 D-Q23 ; suppression en deux temps (EF-ETB-04, RG-ETB-02) et exports (EF-ETB-05), avec pg-boss.
+- [x] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, RG-MOD-01, 02).
+- [ ] Menus de l'interface adaptés aux modules actifs (EF-MOD-02) : aujourd'hui, les opérations d'un module désactivé sont refusées à la synchronisation, mais ses écrans restent visibles.
 - [x] Comptes (écran « Équipe », `/e/<slug>/equipe`) :
   - gérants créés et gérés par le propriétaire, personnel par le gérant (EF-CPT-01, 02, 05) ;
   - réinitialisation des mots de passe par le gérant ou le propriétaire (EF-AUT-04) ;
@@ -413,7 +418,9 @@ docker compose -f docker-compose.prod.yml up -d
 | Créer un compte, réinitialiser un mot de passe, suspendre | Gérant (personnel), propriétaire (gérants compris) | `/compte` ou `/proprietaire`, puis « Équipe » | ✅ |
 | Révoquer un appareil, voir sa dernière synchronisation | Gérant, propriétaire | `/compte` ou `/proprietaire`, puis « Appareils » | ✅ |
 | Encaisser, clôturer | Serveur, gérant | Restaurant | ⬜ 🔒 |
-| Suspendre, exporter un établissement, modules | Propriétaire | Espace propriétaire | ⬜ |
+| Créer un établissement, modifier son identité, activer des modules, suspendre | Propriétaire | `/proprietaire/etablissements` | ✅ |
+| Exporter ou supprimer un établissement | Propriétaire | Espace propriétaire | ⬜ |
+| Suivre les ventes et les alertes de tous les établissements | Propriétaire | `/proprietaire` | ✅ (ventes ; marge et cash à venir) |
 | Consulter le journal d'audit | Gérant, propriétaire | Audit | ⬜ (journal écrit, écran à faire) |
 
 ---
