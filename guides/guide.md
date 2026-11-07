@@ -142,6 +142,9 @@ Ouvrez `http://localhost:3000/connexion`.
 4. Ensuite, on change d'utilisateur en deux gestes : bouton « Changer d'utilisateur », puis le PIN. Après 5 erreurs, le PIN est verrouillé et le mot de passe est redemandé.
 5. Un gérant entré par PIN agit comme serveur. Pour le stock du matin, les menus ou les tables, il confirme son mot de passe (« Actions de gérant ») : ses droits valent 15 minutes (D-024).
 6. Les opérations partent au serveur toutes les 30 secondes, 3 secondes après chaque saisie et au retour du réseau. Le bouton d'état ouvre le détail : opérations en attente, dernière synchronisation, refus avec leur motif.
+7. Après l'appairage, la session web du gérant se ferme sur cet appareil : un serveur qui l'utilise ne peut pas ouvrir les écrans de gestion.
+
+**Appareils** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/appareils` liste les appareils, leur dernière synchronisation et leurs opérations refusées. Un appareil perdu, volé ou remplacé se révoque avec un motif : il ne peut plus rien envoyer ni recevoir, et il efface ses données locales à sa prochaine connexion. Ce qui y a été saisi après sa dernière synchronisation est perdu : l'écran le rappelle avant de confirmer.
 
 **Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`. Rien n'y est envoyé au serveur.
 
@@ -192,7 +195,7 @@ Par ordre d'urgence :
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
 
-- [ ] Écran « Appareils » (gérant) : liste, révocation, dernière synchronisation (EF-CPT-04, EF-PRO-04). Le service existe ; l'appairage se fait déjà depuis l'appareil.
+- [x] Écran « Appareils » (gérant et propriétaire, `/e/<slug>/appareils`) : liste, révocation avec motif, dernière synchronisation, refus, signalement après 24 heures sans nouvelles (EF-CPT-04).
 - [x] Première connexion d'un appareil avec mot de passe (RG-OFF-02), stockage local du jeton d'appareil.
 - [x] **Code PIN** à 4 chiffres par utilisateur et par appareil, vérificateur local, 5 essais (EF-AUT-01, EF-AUT-05, D-024).
 - [x] Client de synchronisation :
@@ -403,7 +406,7 @@ docker compose -f docker-compose.prod.yml up -d
 | Tables, addition | Serveur, gérant | Restaurant, « Tables » | ✅ synchronisé |
 | Menus et prix | Gérant | Restaurant, « Menus » | ✅ ajout ; modification des prix ⬜ |
 | Créer un compte, réinitialiser un mot de passe, suspendre | Gérant, propriétaire | Équipe | ⬜ |
-| Révoquer un appareil, voir sa dernière synchronisation | Gérant | Appareils | ⬜ (service prêt, écran à faire) |
+| Révoquer un appareil, voir sa dernière synchronisation | Gérant, propriétaire | `/compte` ou `/proprietaire`, puis « Appareils » | ✅ |
 | Encaisser, clôturer | Serveur, gérant | Restaurant | ⬜ 🔒 |
 | Suspendre, exporter un établissement, modules | Propriétaire | Espace propriétaire | ⬜ |
 | Consulter le journal d'audit | Gérant, propriétaire | Audit | ⬜ (journal écrit, écran à faire) |
@@ -427,4 +430,6 @@ docker compose -f docker-compose.prod.yml up -d
 | « Changez d'abord votre mot de passe provisoire… » en ajoutant un utilisateur | Compte jamais utilisé | Se connecter une fois sur `/connexion` pour choisir son mot de passe |
 | « PIN verrouillé » | 5 erreurs de PIN | « Ajouter un utilisateur » avec le mot de passe : le PIN redevient utilisable |
 | L'appareil revient à l'écran d'appairage avec un message de révocation | Appareil révoqué (ENF-09) | Ses données locales ont été effacées ; un gérant l'appaire de nouveau |
+| « Connectez-vous d'abord avec un compte de gérant » juste après avoir appairé un autre appareil | La session web se ferme après chaque appairage | Se reconnecter sur `/connexion`, puis appairer |
+| Un appareil est marqué « Sans nouvelles » | Aucune synchronisation depuis plus de 24 heures | Vérifier qu'il est allumé, connecté, et que l'application est ouverte |
 | Le bouton d'état affiche « N opérations refusées » | Le serveur a refusé une opération (droit, prix, établissement) | Ouvrir le détail : chaque refus a son motif ; le gérant le revoit |

@@ -17,14 +17,14 @@
 | 5 | Stock du matin | Fait, proposition simplifiée (D-Q14) | `e15882e`, `4c18be0` |
 | 6 | Tables | Fait, libération manuelle (D-Q04) | `9e00932`, `48b4cb2` |
 | 7 | Socle serveur | Fait | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
-| 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation. Restent l'écran « Appareils » et la PWA | voir `git log` |
+| 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, puis l'écran « Appareils » |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
 - `pnpm test` : 98 tests unitaires passent ;
-- `pnpm test:integration` : 41 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test:integration` : 46 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -203,9 +203,15 @@
   - indicateur « En ligne, tout est synchronisé » ;
   - ajout du serveur sur l'appareil avec son mot de passe provisoire : refusé avec le message demandant de le changer d'abord.
 - **Tests** : PIN et utilisateurs de l'appareil, effacement, application des changements (unitaires) ; état initial, connexion d'un membre sur l'appareil, commande complète dans le pull (intégration).
+- **Écran « Appareils »** (`/e/<slug>/appareils`, EF-CPT-04) :
+  - réservé au gérant de l'établissement et au propriétaire après double authentification, contrôlé par `authorize` côté serveur ; lien depuis `/compte` (gérants) et `/proprietaire` ;
+  - appareils en service et révoqués, dernière synchronisation (envoi **ou** réception), opérations refusées, signalement « Sans nouvelles » après 24 heures ;
+  - révocation dans un panneau latéral : motifs proposés, motif obligatoire, rappel que les saisies postérieures à la dernière synchronisation n'arriveront plus, audit avec l'adresse IP ;
+  - charte Restaurant quand le module est actif (D-017), vérifié à 360, 768 et 1280 px, en clair et en sombre.
+- **Session web fermée après l'appairage** : sans cela, un serveur utilisant l'appareil partagé aurait pu ouvrir les écrans de gestion avec la session du gérant.
+- **Vérifié dans le navigateur** : révocation de D01 (« Appareil perdu »), effacement de l'appareil et message de révocation, nouvel appairage en D02, puis redirection vers `/connexion` (session fermée).
 
 **Bloque encore**
-- **Écran « Appareils »** du gérant (liste, révocation, dernière synchronisation) : le service existe, l'écran reste à faire. Aujourd'hui, révoquer un appareil demande une requête en base.
 - **Gestion du personnel** : création des comptes, réinitialisation, suspension.
 - **Hors connexion** :
   - l'ajout d'un utilisateur et la confirmation du mot de passe d'un gérant exigent le réseau ;
@@ -250,7 +256,7 @@
 ## Prochaines étapes recommandées
 
 1. **Vous connecter une première fois en propriétaire** (comptes dans `.env.accounts.local`) et activer la double authentification (voir `guide.md`, § 4).
-2. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, **appareils** (révocation), journal d'audit.
+2. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, journal d'audit.
 3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
 5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.

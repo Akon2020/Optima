@@ -39,7 +39,8 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
   - le design system (deux chartes, clair et sombre) et une page d'accueil provisoire ;
   - le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018) ;
   - le **socle serveur** : schéma Prisma et migrations (RLS, tables en ajout seul), authentification maison (Argon2id, sessions, TOTP du propriétaire), `authorize`, journal d'audit, appareils et synchronisation `/api/sync/push`, `/api/sync/pull` et `/api/sync/bootstrap`, écrans de connexion ;
-  - la **liaison de l'interface Restaurant au serveur** : appairage d'un appareil par un gérant connecté, ajout des utilisateurs par mot de passe puis **code PIN** local (D-024), client de synchronisation (envoi de la file, réception par curseur, refus visibles), effacement d'un appareil révoqué.
+  - la **liaison de l'interface Restaurant au serveur** : appairage d'un appareil par un gérant connecté, ajout des utilisateurs par mot de passe puis **code PIN** local (D-024), client de synchronisation (envoi de la file, réception par curseur, refus visibles), effacement d'un appareil révoqué ;
+  - l'écran **« Appareils »** (`/e/<slug>/appareils`, session web du gérant ou du propriétaire) : liste, dernière synchronisation, révocation avec motif. Après un appairage, la session web du gérant est fermée sur l'appareil partagé.
 - `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
 - La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
 - Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
@@ -340,7 +341,7 @@ Les URL sont en **français** (elles sont visibles par les utilisateurs). Le cod
 | `/proprietaire/etablissements`, `/proprietaire/etablissements/[id]` | Propriétaire | Gestion des établissements et des modules |
 | `/proprietaire/gerants`, `/proprietaire/audit` | Propriétaire | Gérants, journal global |
 | `/e/[etablissement]` | Membres de l'établissement | Tableau de bord d'établissement |
-| `/e/[etablissement]/catalogue`, `/stock`, `/achats`, `/caisse`, `/tresorerie`, `/rapports`, `/parametres`, `/equipe` | Selon la matrice des droits | Socle |
+| `/e/[etablissement]/catalogue`, `/stock`, `/achats`, `/caisse`, `/tresorerie`, `/rapports`, `/parametres`, `/equipe`, `/appareils` | Selon la matrice des droits | Socle |
 | `/e/[etablissement]/restaurant/commandes`, `/tables`, `/menus`, `/requisitions`, `/stock-du-matin`, `/preparation/[poste]`, `/livraisons`, `/clotures`, `/fiches-recettes` | Selon la matrice des droits | Module Restaurant, sous `<ModuleScope module="restaurant">` |
 
 Chaque layout protégé vérifie **côté serveur** la session, l'appartenance à l'établissement, l'activation du module et la permission. Masquer un lien dans le menu ne protège rien.
@@ -756,7 +757,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Style
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
 | 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
-| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026. Restent l'écran de gestion des appareils, l'espace propriétaire et la PWA ; D-Q20 (hébergement) reste ouverte |
+| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écran « Appareils » compris. Restent la gestion du personnel, l'espace propriétaire et la PWA ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
 L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).
