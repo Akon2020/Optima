@@ -33,7 +33,7 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
 ### 0.3 État du dépôt au 7 novembre 2026
 
 - Le projet est initialisé (Next.js 16.4, React 19.3, TypeScript strict, Tailwind CSS v4, pnpm, Vitest). **[CONFIRMÉ : D-014]**
-- Existent : le design system (deux chartes, clair et sombre), une page d'accueil provisoire, et le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin) sur une base IndexedDB alimentée par des **données de démonstration** (D-018). Il n'y a encore **ni base PostgreSQL, ni authentification, ni synchronisation serveur**.
+- Existent : le design system (deux chartes, clair et sombre), une page d'accueil provisoire, et le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018). Il n'y a encore **ni base PostgreSQL, ni authentification, ni synchronisation serveur**.
 - Aperçu : `/e/demo/restaurant`. Seul l'établissement de démonstration est servi ; ses routes ne lisent aucune donnée serveur. Le contrôle d'accès côté serveur sera posé dans le layout du module avec le socle serveur.
 - La pile technique décrite au § 3 est celle **proposée par le cahier des charges** (chapitre 6). Elle est **[PROPOSÉ]** tant que D-Q18 n'est pas tranchée. Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
 - Prochaine étape **[CONFIRMÉ]** : initialiser le projet, poser le design system et le mécanisme des thèmes, puis implémenter la landing page (voir § 10).
@@ -741,7 +741,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:integration` (PostgreSQL
 | 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Restent Stylelint et Playwright |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
-| 5 | Module Restaurant, suite : stock du matin (fait le 07/11/2026), réquisitions (après D-Q14), tables, encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
+| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
 | 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync` | À faire ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
