@@ -16,6 +16,8 @@ Document de référence pour développer OPTIMA avec Claude Code. **À lire en e
 | `docs/DECISIONS.md` | Le registre des décisions prises (D-xxx) et des questions ouvertes (D-Qxx) | Avant toute décision structurante ; à mettre à jour après chaque décision |
 | `docs/LANDING_PAGE.md` | Le contenu et la structure de la landing page | Avant de travailler sur les pages publiques |
 | `docs/reference/` | Cahier des charges d'origine (Word) | En cas de doute sur la formulation exacte |
+| `guides/walkthrough.md` | Ce qui est fait, étape par étape, et ce qui bloque encore | Pour reprendre le travail ou faire le point |
+| `guides/guide.md` | Tout ce qu'il reste à faire, de l'installation locale à la mise en production | Avant d'installer, de déployer ou de planifier |
 
 ### 0.2 Statut des informations
 
@@ -33,10 +35,14 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
 ### 0.3 État du dépôt au 7 novembre 2026
 
 - Le projet est initialisé (Next.js 16.4, React 19.3, TypeScript strict, Tailwind CSS v4, pnpm, Vitest). **[CONFIRMÉ : D-014]**
-- Existent : le design system (deux chartes, clair et sombre), une page d'accueil provisoire, et le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018). Il n'y a encore **ni base PostgreSQL, ni authentification, ni synchronisation serveur**.
-- Aperçu : `/e/demo/restaurant`. Seul l'établissement de démonstration est servi ; ses routes ne lisent aucune donnée serveur. Le contrôle d'accès côté serveur sera posé dans le layout du module avec le socle serveur.
-- La pile technique décrite au § 3 est celle **proposée par le cahier des charges** (chapitre 6). Elle est **[PROPOSÉ]** tant que D-Q18 n'est pas tranchée. Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
-- Prochaine étape **[CONFIRMÉ]** : initialiser le projet, poser le design system et le mécanisme des thèmes, puis implémenter la landing page (voir § 10).
+- Existent :
+  - le design system (deux chartes, clair et sombre) et une page d'accueil provisoire ;
+  - le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018) ;
+  - le **socle serveur** : schéma Prisma et migrations (RLS, tables en ajout seul), authentification maison (Argon2id, sessions, TOTP du propriétaire), `authorize`, journal d'audit, appareils et synchronisation `/api/sync/push` et `/api/sync/pull`, écrans de connexion.
+- **Pas encore relié** : l'interface Restaurant ne parle pas encore au serveur (client de synchronisation, enregistrement d'appareil et code PIN à faire). L'aperçu `/e/demo/restaurant` reste local.
+- La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
+- Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
+- L'état détaillé et les blocages sont tenus dans `guides/walkthrough.md`.
 
 ---
 
@@ -259,7 +265,9 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 | Tests | **Vitest**, Testing Library, **Playwright** (e2e, accessibilité, captures) | Voir § 6 |
 | Gestionnaire de paquets | **pnpm** | Rapide, verrouillage strict |
 | Hébergement | **Docker** sur VPS Linux (Hetzner, Contabo ou équivalent), **Caddy** pour HTTPS | Cahier, § 6.3 |
-| Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id, sessions en base, TOTP, PIN | Voir § 5.1 |
+| Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id (`@node-rs/argon2`), sessions en base, TOTP (RFC 6238, sans dépendance), PIN | Voir § 5.1 |
+
+Précisions de mise en œuvre : Prisma **7.10.1** épinglé avec `@prisma/adapter-pg` (D-019) ; Node.js **24 LTS** en production (D-020) ; tests d'intégration sur **PGlite** (D-021).
 
 Règle : **ne remplace aucune de ces briques** une fois le projet initialisé sans exposer la raison, les conséquences et l'alternative, puis consigner la décision dans `docs/DECISIONS.md`.
 
@@ -392,7 +400,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 - **Rôles PostgreSQL** :
   - l'application se connecte avec un rôle **sans** `BYPASSRLS` ni droits de superutilisateur ;
   - les migrations utilisent un rôle distinct ;
-  - les lectures consolidées du propriétaire passent par des fonctions dédiées qui vérifient le rôle propriétaire.
+  - les lectures consolidées du propriétaire passent par le drapeau RLS `app.is_owner`, posé seulement après `authorize` (D-022, à valider).
 - **Identifiants** : UUIDv7, générables hors connexion et triables par date.
 - **Montants** : entiers en **unité minimale** (`BIGINT`) avec un code devise (`CDF`, `USD`), jamais de flottants. Les taux de change sont en `NUMERIC(18,6)`. Le prix de revient moyen pondéré est en `NUMERIC`, arrondi seulement à l'affichage et à la facturation. La règle d'arrondi des prix en CDF est **[À DÉCIDER : D-Q15]**.
 - **Dates** : stockées en `timestamptz` (UTC). L'affichage se fait dans le fuseau de l'établissement, **Africa/Lubumbashi** (UTC+2) pour Bukavu. Une « journée d'exploitation » est délimitée par la clôture, pas par minuit **[À DÉCIDER : D-Q10]**.
@@ -728,8 +736,13 @@ Scripts existants dans `package.json` :
 | `pnpm lint` | ESLint (règles Next.js) |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm test` / `pnpm test:watch` | Tests unitaires Vitest (`*.test.ts` à côté du code ; IndexedDB simulée par `fake-indexeddb`) |
+| `pnpm test:integration` | Tests d'intégration sur PostgreSQL 18 embarqué (PGlite), sans serveur ni mot de passe |
+| `pnpm db:generate` | Génère le client Prisma (aussi lancé après `pnpm install`) |
+| `pnpm db:migrate` / `pnpm db:status` | Applique / liste les migrations (`MIGRATION_DATABASE_URL`) |
+| `pnpm db:seed` | Données de développement, mots de passe provisoires affichés une fois (refusé en production) |
+| `psql -U postgres -h localhost -f scripts/db/setup-local.sql` | Crée la base `optima` et les rôles `optima_migrator` / `optima_app` (une seule fois) |
 
-Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:integration` (PostgreSQL natif, D-016), `pnpm test:e2e` (Playwright), `pnpm db:migrate` / `pnpm db:seed` (Prisma), Stylelint.
+Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Stylelint, Dockerfile et `docker-compose` de production.
 
 ---
 
@@ -742,7 +755,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:integration` (PostgreSQL
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
 | 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
-| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync` | À faire ; D-Q20 (hébergement) reste ouverte |
+| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync` | Fait le 07/11/2026. Reste à relier l'interface (client de synchronisation, appareils, PIN) ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
 L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).

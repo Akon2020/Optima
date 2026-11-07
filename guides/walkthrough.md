@@ -1,0 +1,228 @@
+# Walkthrough OPTIMA : ce qui est fait, ce qui bloque
+
+> État au **7 novembre 2026**, branche `develop`.
+> Ce fichier raconte le projet étape par étape : pour chacune, ce qui a été réalisé, comment c'est vérifié, et **ce qui bloque encore**. Il est mis à jour à la fin de chaque étape.
+> Pour la suite du travail (de l'installation à la mise en production), voir [`guide.md`](./guide.md).
+
+---
+
+## Vue d'ensemble
+
+| # | Étape | État | Commits |
+|---|---|---|---|
+| 1 | Analyse, spécifications et décisions | Fait | `1703006`, `5b2c30e` |
+| 2 | Initialisation de l'outillage | Fait (Stylelint et Playwright restent à ajouter) | `2ca6d7e` |
+| 3 | Design system et thèmes | Fait | `b809a7e` |
+| 4 | Module Restaurant, interface locale | Fait sur données de démonstration | `9c44090`, `9df9a5b`, `0b38c1b`, `6a41638` |
+| 5 | Stock du matin | Fait, proposition simplifiée (D-Q14) | `e15882e`, `4c18be0` |
+| 6 | Tables | Fait, libération manuelle (D-Q04) | `9e00932`, `48b4cb2` |
+| 7 | Socle serveur | Fait côté serveur, **pas encore relié à l'interface** | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
+
+**En une phrase :** l'interface Restaurant fonctionne sur un téléphone avec des données de démonstration. Le serveur sécurisé est prêt et testé, mais les deux ne sont pas encore reliés.
+
+**Vérifications au dernier commit :**
+- `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
+- `pnpm test` : 89 tests unitaires passent ;
+- `pnpm test:integration` : 36 tests d'intégration passent, sur PostgreSQL 18 embarqué.
+
+---
+
+## Étape 1 : analyse, spécifications et décisions
+
+**Fait**
+- `CLAUDE.md` et le dossier `docs/` : vision, architecture, sécurité, conventions, 161 exigences numérotées, matrice des droits, deux chartes graphiques.
+- Décisions prises avec le porteur du projet :
+  - D-014 : pile technique confirmée ;
+  - D-015 : authentification maison ;
+  - D-016 : PostgreSQL natif sous Windows pour le développement ;
+  - D-017 : charte Restaurant (texte encre sur le doré, Plus Jakarta Sans, pastille encre) ;
+  - D-018 : le Restaurant passe avant la landing page et le socle serveur.
+
+**Bloque encore**
+- Le cahier des charges v1.0 n'est **pas signé** (D-013) : les exigences peuvent encore bouger.
+- Les questions ouvertes sont listées plus bas ; plusieurs bloquent des écrans du Restaurant.
+
+---
+
+## Étape 2 : initialisation
+
+**Fait**
+- Next.js 16.4, React 19.3, TypeScript strict (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Tailwind CSS v4, pnpm 12.
+- ESLint, Prettier, Vitest, dossier `src/`.
+- Utilitaires partagés :
+  - `money.ts` : entiers en unité minimale, formatage `fr-CD` ;
+  - `dates.ts` : fuseau Africa/Lubumbashi ;
+  - `ids.ts` : UUIDv7 ;
+  - `errors.ts` : erreurs métier typées.
+
+**Bloque encore**
+- **Stylelint** (interdiction des couleurs littérales hors des tokens) n'est pas installé.
+- **Playwright** (tests de bout en bout, captures, accessibilité axe) n'est pas installé.
+- Pas d'**intégration continue** (GitHub Actions), recommandée par D-Q22.
+
+---
+
+## Étape 3 : design system et thèmes
+
+**Fait**
+- Trois couches de tokens (`src/styles/`), deux chartes (générale et Restaurant), chacune en clair et en sombre.
+- `ThemeProvider` (next-themes, clé `optima:theme`, mode système par défaut, sans flash au chargement), `ThemeSwitcher`, `ModuleScope` (la charte suit aussi les panneaux et les dialogues).
+- Composants partagés : `Button`, `IconButton`, `Card`, `Badge`, `Kpi`, `Sheet`, `Tabs`, `Field`, `EmptyState`, `Avatar`, `AreaChart` (avec infobulle au clavier et tableau des données).
+- **Écart documenté** : le mapping Tailwind proposé au départ créait des variables cycliques. Il est remplacé ; voir `docs/DESIGN_SYSTEM.md` § 2.5.
+
+**Bloque encore**
+- **D-Q11** : logo OPTIMA et confirmation du bleu nuit. Un logotype textuel provisoire est utilisé.
+- Les contrastes du thème sombre sont **[PROPOSÉ]** et n'ont pas été mesurés automatiquement, faute de Playwright et d'axe.
+
+---
+
+## Étape 4 : module Restaurant, interface locale
+
+**Fait**
+- **Coquille responsive** :
+  - barre latérale à partir de 1024 px ;
+  - menu en tiroir et barre d'onglets en bas sur téléphone ;
+  - état de synchronisation ;
+  - bandeau « Données de démonstration » avec bouton de réinitialisation.
+- **Tableau de bord** : ventes par heure, montant facturé, panier moyen, commandes par statut, points de service, serveurs, alerte « stock du matin ».
+- **Commandes** : tableau sur ordinateur, cartes sur téléphone, filtres, recherche, détail avec suivi « en préparation / prête / servie » et réimpression.
+- **Prise de commande** :
+  - table ou vente à emporter ;
+  - menus Boissons et Nourriture, les plus vendus d'abord ;
+  - panier réparti par point de service ;
+  - **une facture d'avance numérotée par poste** (`FAC-2026-D01-000013`), imprimable et toujours en clair.
+- **Menus** : cartes, disponibilité du jour, « prix à fixer », ajout d'un élément en panneau latéral.
+- Logique métier pure et testée (`src/modules/restaurant/domain/`) : répartition, disponibilité, numérotation, journée d'exploitation, écarts de clôture.
+- Base locale **IndexedDB** (Dexie) avec file d'opérations (outbox) : chaque écriture crée une opération UUIDv7.
+- Vérifié à 360, 768 et 1280 px, en clair et en sombre.
+
+**Bloque encore**
+- **Données fictives** : prix, prénoms et boissons. Seuls les plats viennent de l'équipe (D-007).
+- **Encaissement** impossible : **D-Q03** (qui reçoit l'argent) et **D-Q04** (paiement avant ou après le repas).
+- **Livraison** désactivée : **D-Q07**.
+- **Accompagnements** (frites, foufou…) vendus seuls pour l'instant : **D-Q06**.
+- **Impression** : le navigateur seulement. Le matériel n'est pas connu (**D-Q13**), donc pas d'ESC/POS.
+- **Hors connexion réel** : sans service worker (Serwist), un rechargement complet sans réseau échoue. Les données, elles, restent dans l'appareil.
+- **Annulation et remise** (RG-CMD-02, RG-ENC-01) non faites.
+
+---
+
+## Étape 5 : stock du matin
+
+**Fait**
+- Écran par point de service. Les quantités sont pré-remplies avec la proposition du logiciel ; l'écart est affiché ligne par ligne.
+- **Motif obligatoire** pour tout écart ou toute correction (RG-REQ-02), avec des motifs proposés en un geste.
+- Saisies **en ajout seul** : une correction remplace la précédente sans l'effacer, et l'historique est visible.
+- Le stock saisi limite ensuite les commandes (élément « épuisé »), et l'alerte du tableau de bord s'éteint.
+- Seul le gérant ou le propriétaire peut saisir (permissions du module).
+
+**Bloque encore**
+- **D-Q14** (magasin et réquisitions). La formule prévue est « clôture de la veille + réquisition ». Faute de clôtures et de réquisitions, le logiciel propose le **reste théorique de la veille** (stock du matin moins ventes). Les apports du jour se justifient par le motif « Réquisition du jour ». Ce choix est isolé dans `domain/morning-stock.ts`.
+- **D-Q10** (rythme des clôtures). La journée d'exploitation commence à 6 h par hypothèse (`domain/business-day.ts`).
+- Le blocage de la clôture sans stock du matin (RG-REQ-03) attend l'écran Clôtures.
+
+---
+
+## Étape 6 : tables
+
+**Fait**
+- Grille des tables : libres ou occupées, total en cours, temps écoulé, serveurs, état de préparation.
+- Touchez une table libre : la commande s'ouvre avec la table déjà choisie. Une table occupée reçoit des **commandes complémentaires** (EF-CMD-04).
+- **Addition récapitulative** imprimable (EF-CMD-05).
+- **Gestion des tables** par le gérant : ajouter, renommer, retirer du service, remettre en service. Rien n'est supprimé.
+
+**Bloque encore**
+- **D-Q04** : la table est **libérée à la main** tant que l'encaissement n'existe pas. Quand D-Q03/D-Q04 seront tranchées, elle se libérera au règlement de toutes ses factures.
+- **D-Q05** : liste numérotée, sans plan de salle. À confirmer.
+
+---
+
+## Étape 7 : socle serveur
+
+**Fait**
+- **Base de données** (`prisma/`) :
+  - schéma du noyau (établissements, modules, comptes, appartenances, sessions, appareils), de la synchronisation, de l'audit et du Restaurant ;
+  - montants en BIGINT, identifiants UUIDv7 ;
+  - migration de sécurité : **RLS** sur toutes les tables métier, **triggers d'ajout seul** (audit, synchronisation, stock du matin, libérations de table, lignes de facture), droits minimaux pour le rôle `optima_app` (aucune suppression de données métier).
+- **Authentification maison** (D-015, `src/server/auth/`) :
+  - Argon2id ;
+  - sessions côté serveur (cookie `__Host-`, empreinte SHA-256 en base, rotation à l'élévation, expiration après inactivité) ;
+  - blocage après 5 échecs en 15 minutes ;
+  - mot de passe provisoire à changer à la première connexion ;
+  - **double authentification TOTP du propriétaire**, avec secret chiffré (AES-256-GCM) et 8 codes de secours à usage unique.
+- **Autorisation** : une seule fonction `authorize`, avec les six contrôles dans l'ordre du `CLAUDE.md` § 5.3. Registre des modules avec dépendances (RG-MOD-02).
+- **Journal d'audit** en ajout seul, secrets masqués.
+- **Synchronisation** :
+  - appareils enregistrés (code D01…, secret montré une fois, révocables) ;
+  - `POST /api/sync/push` : idempotent, droits revérifiés à l'envoi, **prix recalculés par le serveur**, répartition revérifiée, réponses `accepted`, `duplicate`, `rejected` ou `retry` ;
+  - `GET /api/sync/pull` par curseur ;
+  - limitation à 120 requêtes par minute et par appareil.
+- **Écrans** :
+  - connexion, nouveau mot de passe, activation et vérification de la double authentification ;
+  - `/proprietaire` : liste des établissements, protégée ;
+  - `/compte` : accueil du personnel.
+- **Tests** : 36 tests d'intégration sur PostgreSQL 18 embarqué (RLS, IDOR, ajout seul, connexion, blocage, sessions, 2FA, matrice des droits, idempotence et refus de synchronisation).
+
+**Bloque encore**
+- **La base locale n'est pas créée.** Le mot de passe du super-utilisateur PostgreSQL est le vôtre : vous devez lancer `scripts/db/setup-local.sql` vous-même, puis `pnpm db:migrate` et `pnpm db:seed` (voir `guide.md`). Le seed n'a donc **pas encore tourné contre votre PostgreSQL** ; il est vérifié par le typage seulement.
+- **L'interface Restaurant n'est pas reliée au serveur** :
+  - pas de client de synchronisation (envoi de la file, réception des changements) ;
+  - pas d'écran d'enregistrement d'appareil ;
+  - pas de **code PIN** (EF-AUT-05) ;
+  - le layout du module n'applique pas encore le contrôle serveur pour un établissement réel.
+- Les données de démonstration locales utilisent des identifiants non UUID (`item-primus`…) : elles **ne seront jamais synchronisées**, c'est voulu.
+- **Espace propriétaire** réduit à une liste : tableau de bord consolidé, gestion des établissements, des modules et des gérants à faire.
+- **Gestion du personnel** (création des comptes, réinitialisation des mots de passe, suspension) : services et écrans à faire.
+- **En-têtes de sécurité et CSP avec nonce** pas encore posés (`CLAUDE.md` § 5.4).
+- Limitation de débit **en mémoire** : à revoir si plusieurs instances tournent un jour.
+- **À valider par vous** :
+  - D-022 : lecture consolidée du propriétaire par drapeau RLS ;
+  - D-023 : durées de session.
+- **D-Q20** (hébergeur, domaine, administration du serveur) bloque la préproduction et la production.
+
+---
+
+## Décisions ouvertes et ce qu'elles bloquent
+
+| Question | Bloque | Recommandation actuelle |
+|---|---|---|
+| D-Q03 : qui reçoit l'argent ? | Encaissement, clôtures, libération automatique des tables | Le serveur, qui reverse à la caisse du point de service |
+| D-Q04 : paiement avant ou après le repas ? | Encaissement, impayés (RG-ENC-02) | À décider |
+| D-Q06 : accompagnements seuls, inclus ou les deux ? | Structure des menus, fiches recettes | À décider |
+| D-Q07 : livreurs, zones, frais | Module Livraison | À décider |
+| D-Q10 : rythme des clôtures | Clôtures, journée d'exploitation (6 h en attendant) | Journée = du stock du matin à la clôture validée |
+| D-Q13 : téléphones, imprimantes, Wi-Fi, électricité | Impression thermique, tests sur le matériel réel | À recenser sur place |
+| D-Q14 : magasin et réquisitions | Réquisitions, formule exacte du stock du matin | À décider |
+| D-Q11 : logo, couleur, police de la charte générale | Identité définitive | Logotype textuel, bleu nuit, Inter |
+| D-Q15 : arrondi des prix en CDF, taux du dollar | Encaissement multidevise | Arrondi à 100 CDF, dollar au taux du jour |
+| D-Q20 : hébergement, domaine, administrateur | Préproduction et production | VPS européen, préproduction séparée |
+| D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
+| D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
+| D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
+| D-022, D-023 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+
+---
+
+## Points d'attention techniques
+
+- **Node.js 26** sur le poste : Prisma l'accepte avec un avertissement. Utilisez **Node.js 24 LTS** en production (D-020).
+- **Prisma 7.10.1 est épinglé**, car l'étiquette « latest » pointe vers une version candidate (D-019). Le client est généré dans `src/generated/prisma` (non versionné) après chaque `pnpm install`.
+- En développement, Next.js affiche des avertissements « instant navigation » sur les routes du Restaurant. Ils ne concernent que le mode développement ; le build passe.
+- Le volet « Browser » de l'application de bureau, quand il est masqué, ne déclenche pas le rendu des pages. Ce n'est pas un défaut de l'application.
+
+---
+
+## Prochaines étapes recommandées
+
+1. **Créer votre base locale** et vous connecter une première fois en propriétaire (voir `guide.md`, § 3 et 4).
+2. **Relier l'interface au serveur** :
+   - enregistrement d'appareil ;
+   - code PIN ;
+   - client de synchronisation (envoi et réception) ;
+   - contrôle serveur dans le layout du module ;
+   - bascule de la démonstration vers les vraies données.
+3. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, appareils, journal d'audit.
+4. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
+5. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
+6. **PWA hors connexion** (Serwist), puis tests Playwright hors connexion et sur deux appareils.
+7. **D-Q20**, puis préproduction.
