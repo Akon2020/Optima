@@ -62,12 +62,16 @@ export async function revokeDevice(
   db: Db,
   actor: Actor | null,
   input: { establishmentId: string; deviceId: string; reason: string },
+  meta: { ip?: string | null } = {},
 ): Promise<void> {
   const access = await authorize(db, actor, "core.device.revoke", {
     establishmentId: input.establishmentId,
   });
   if (input.reason.trim().length < 3) {
     throw new DomainError("REASON_REQUIRED", "Indiquez le motif de la révocation.");
+  }
+  if (input.reason.trim().length > 200) {
+    throw new DomainError("REASON_TOO_LONG", "Le motif tient en 200 caractères au plus.");
   }
   const result = await db.device.updateMany({
     where: { id: input.deviceId, establishmentId: access.establishmentId, revokedAt: null },
@@ -85,8 +89,111 @@ export async function revokeDevice(
       entity: "device",
       entityId: input.deviceId,
       reason: input.reason.trim(),
+      ip: meta.ip ?? null,
     }),
   );
+}
+
+/** Un appareil tel que le gérant le voit sur l'écran « Appareils ». */
+export type DeviceSummary = {
+  id: string;
+  code: string;
+  name: string;
+  registeredAt: string;
+  registeredByName: string;
+  lastSyncAt: string | null;
+  revokedAt: string | null;
+  revokedByName: string | null;
+  revokedReason: string | null;
+  /** Opérations refusées par le serveur (EF-OFF-04), à revoir par le gérant. */
+  rejectedOperations: number;
+};
+
+/**
+ * Appareils d'un établissement (EF-CPT-04), du plus récent au plus ancien.
+ * Le motif et l'auteur d'une révocation viennent du journal d'audit, qui
+ * reste la source de vérité.
+ */
+export async function listDevices(
+  db: Db,
+  actor: Actor | null,
+  input: { establishmentId: string },
+): Promise<{
+  establishment: { id: string; name: string; timeZone: string; enabledModules: string[] };
+  devices: DeviceSummary[];
+}> {
+  const access = await authorize(db, actor, "core.device.revoke", {
+    establishmentId: input.establishmentId,
+  });
+  const establishmentId = access.establishmentId;
+  const establishment = await db.establishment.findUniqueOrThrow({
+    where: { id: establishmentId },
+    select: { id: true, name: true, timeZone: true },
+  });
+  const devices = await db.device.findMany({
+    where: { establishmentId },
+    orderBy: { registeredAt: "desc" },
+  });
+  const { revocations, rejected, modules } = await withContext(
+    db,
+    access.dbContext,
+    async (tx) => ({
+      modules: await tx.establishmentModule.findMany({
+        where: { establishmentId, enabled: true },
+        select: { module: true },
+      }),
+      revocations: await tx.auditLog.findMany({
+        where: {
+          establishmentId,
+          action: "core.device.revoked",
+          entityId: { in: devices.map((device) => device.id) },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { entityId: true, actorUserId: true, reason: true },
+      }),
+      rejected: await tx.syncOperation.groupBy({
+        by: ["deviceId"],
+        where: { establishmentId, status: "rejected" },
+        _count: { _all: true },
+      }),
+    }),
+  );
+  const userIds = [
+    ...new Set([
+      ...devices.map((device) => device.registeredBy),
+      ...revocations.flatMap((entry) => (entry.actorUserId ? [entry.actorUserId] : [])),
+    ]),
+  ];
+  const users = await db.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, displayName: true },
+  });
+  const names = new Map(users.map((user) => [user.id, user.displayName]));
+  const rejectedByDevice = new Map(rejected.map((row) => [row.deviceId, row._count._all]));
+
+  return {
+    establishment: { ...establishment, enabledModules: modules.map((entry) => entry.module) },
+    devices: devices.map((device) => {
+      const revocation = revocations.find((entry) => entry.entityId === device.id);
+      return {
+        id: device.id,
+        code: device.code,
+        name: device.name,
+        registeredAt: device.registeredAt.toISOString(),
+        registeredByName: names.get(device.registeredBy) ?? "",
+        lastSyncAt: device.lastSyncAt?.toISOString() ?? null,
+        revokedAt: device.revokedAt?.toISOString() ?? null,
+        revokedByName: revocation?.actorUserId ? (names.get(revocation.actorUserId) ?? null) : null,
+        revokedReason: device.revokedAt ? (revocation?.reason ?? null) : null,
+        rejectedOperations: rejectedByDevice.get(device.id) ?? 0,
+      };
+    }),
+  };
+}
+
+/** Dernier contact d'un appareil avec le serveur (envoi ou réception). */
+export async function touchDevice(db: Db, deviceId: string, now: Date = new Date()): Promise<void> {
+  await db.device.update({ where: { id: deviceId }, data: { lastSyncAt: now } });
 }
 
 /** Authentifie un appareil à partir de l'en-tête `Authorization: Device <id>.<secret>`. */

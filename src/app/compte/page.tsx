@@ -1,4 +1,4 @@
-import { ArrowRight, UserRound } from "lucide-react";
+import { ArrowRight, Smartphone, UserRound } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -23,9 +23,8 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 /**
- * Accueil d'un membre du personnel. L'espace de l'établissement sera ouvert
- * ici dès que les appareils se synchronisent avec le serveur (voir
- * guides/walkthrough.md).
+ * Accueil d'un membre du personnel : ouverture de l'espace de
+ * l'établissement et, pour le gérant, gestion des appareils.
  */
 export default function AccountPage() {
   return (
@@ -67,16 +66,25 @@ async function Account() {
       </div>
       <ul className="mt-5 flex flex-col gap-2">
         {memberships.map((membership) => (
-          <li key={membership.id}>
+          <li key={membership.id} className="flex flex-col gap-1">
             <Link
               href={`/e/${membership.establishment.slug}/restaurant`}
-              className="flex items-center justify-between gap-3 rounded-md bg-bg-subtle px-3 py-2 text-sm hover:bg-primary-subtle"
+              className="flex min-h-11 items-center justify-between gap-3 rounded-md bg-bg-subtle px-3 py-2 text-sm hover:bg-primary-subtle"
             >
               <span>
                 {membership.establishment.name} · {ROLE_LABELS[membership.role] ?? membership.role}
               </span>
               <ArrowRight aria-hidden className="size-4 shrink-0" />
             </Link>
+            {membership.role === "manager" ? (
+              <Link
+                href={`/e/${membership.establishment.slug}/appareils`}
+                className="flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm text-link hover:bg-bg-subtle"
+              >
+                <Smartphone aria-hidden className="size-4 shrink-0" />
+                Appareils de {membership.establishment.name}
+              </Link>
+            ) : null}
           </li>
         ))}
       </ul>

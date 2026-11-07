@@ -10,7 +10,8 @@ export function LogoutButton() {
     <form action={logoutAction}>
       <Button type="submit" variant="outline" size="sm">
         <LogOut aria-hidden />
-        Se déconnecter
+        {/* Sur téléphone, l'icône seule ; le libellé reste lu par les lecteurs d'écran. */}
+        <span className="max-sm:sr-only">Se déconnecter</span>
       </Button>
     </form>
   );

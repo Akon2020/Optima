@@ -1,4 +1,5 @@
-import { Building2 } from "lucide-react";
+import { Building2, Smartphone } from "lucide-react";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -92,6 +93,13 @@ async function Establishments() {
               )
               .join(", ") || "aucun"}
           </p>
+          <Link
+            href={`/e/${establishment.slug}/appareils`}
+            className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm text-link hover:underline"
+          >
+            <Smartphone aria-hidden className="size-4" />
+            Appareils
+          </Link>
         </li>
       ))}
     </ul>

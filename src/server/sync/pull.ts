@@ -2,7 +2,7 @@ import { DomainError } from "@/shared/lib/errors";
 
 import type { Db } from "../db/context";
 import { withContext } from "../db/context";
-import type { AuthenticatedDevice } from "./devices";
+import { touchDevice, type AuthenticatedDevice } from "./devices";
 
 /**
  * Diffusion des changements (GET /api/sync/pull?cursor=..., CLAUDE.md § 3.6) :
@@ -39,6 +39,8 @@ export async function pullChanges(
       }),
   );
   const page = rows.slice(0, take);
+  // Dernier contact visible sur l'écran « Appareils », même sans opération à envoyer.
+  await touchDevice(db, device.id);
   return {
     changes: page.map((row) => ({
       seq: row.seq.toString(),

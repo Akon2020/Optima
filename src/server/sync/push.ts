@@ -13,7 +13,7 @@ import { authorize } from "../authz/authorize";
 import type { Db } from "../db/context";
 import { toJson, withContext } from "../db/context";
 import { logger } from "../logger";
-import type { AuthenticatedDevice } from "./devices";
+import { touchDevice, type AuthenticatedDevice } from "./devices";
 import { RESTAURANT_HANDLERS, type OperationHandler } from "./restaurant-handlers";
 
 /**
@@ -52,7 +52,7 @@ export async function pushOperations(
   for (const raw of rawOperations) {
     results.push(await processOperation(db, device, raw, now));
   }
-  await db.device.update({ where: { id: device.id }, data: { lastSyncAt: now } });
+  await touchDevice(db, device.id, now);
   return results;
 }
 
