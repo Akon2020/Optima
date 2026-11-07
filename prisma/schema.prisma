@@ -1,0 +1,374 @@
+// Schéma OPTIMA (CLAUDE.md § 3.8).
+//
+// - Identifiants UUIDv7, générables hors connexion.
+// - Montants en BIGINT dans l'unité minimale, avec leur devise.
+// - Chaque table métier porte establishment_id ; la sécurité au niveau des
+//   lignes (RLS) est posée par la migration 0002_security.
+// - Tables en ajout seul (trigger) : audit_log, sync_operations, change_log,
+//   morning_stock_entries, table_releases, invoice_lines.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Noyau : établissements, comptes, appareils ─────────────────────────────
+
+enum EstablishmentStatus {
+  active
+  suspended
+
+  @@map("establishment_status")
+}
+
+enum Role {
+  manager
+  waiter
+  prep
+  courier
+  reader
+
+  @@map("role")
+}
+
+enum UserStatus {
+  active
+  suspended
+
+  @@map("user_status")
+}
+
+model Establishment {
+  id           String              @id @default(uuid(7)) @db.Uuid
+  slug         String              @unique
+  name         String
+  legalName    String?             @map("legal_name")
+  type         String
+  /// Figée à la création (RG-ETB-01).
+  baseCurrency String              @map("base_currency") @db.Char(3)
+  timeZone     String              @default("Africa/Lubumbashi") @map("time_zone")
+  status       EstablishmentStatus @default(active)
+  suspendedAt  DateTime?           @map("suspended_at") @db.Timestamptz(6)
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  modules      EstablishmentModule[]
+  settings     EstablishmentSettings?
+  memberships  Membership[]
+  devices      Device[]
+
+  @@map("establishments")
+}
+
+model EstablishmentModule {
+  establishmentId String   @map("establishment_id") @db.Uuid
+  module          String
+  enabled         Boolean
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@id([establishmentId, module])
+  @@map("establishment_modules")
+}
+
+model EstablishmentSettings {
+  establishmentId String   @id @map("establishment_id") @db.Uuid
+  /// JSON validé par Zod (CLAUDE.md § 2.5).
+  settings        Json
+  version         Int      @default(1)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@map("establishment_settings")
+}
+
+model User {
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  email              String?    @unique
+  phone              String?    @unique
+  displayName        String     @map("display_name")
+  /// Argon2id (ENF-07). Jamais de mot de passe en clair.
+  passwordHash       String     @map("password_hash")
+  mustChangePassword Boolean    @default(true) @map("must_change_password")
+  isOwner            Boolean    @default(false) @map("is_owner")
+  /// Secret TOTP chiffré (AES-256-GCM), jamais en clair.
+  totpSecretEnc      String?    @map("totp_secret_enc")
+  totpEnabledAt      DateTime?  @map("totp_enabled_at") @db.Timestamptz(6)
+  themePreference    String     @default("system") @map("theme_preference")
+  status             UserStatus @default(active)
+  suspendedReason    String?    @map("suspended_reason")
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships   Membership[]
+  sessions      Session[]
+  recoveryCodes RecoveryCode[]
+
+  @@map("users")
+}
+
+model RecoveryCode {
+  id       String    @id @default(uuid(7)) @db.Uuid
+  userId   String    @map("user_id") @db.Uuid
+  codeHash String    @map("code_hash")
+  usedAt   DateTime? @map("used_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+model Membership {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  userId          String     @map("user_id") @db.Uuid
+  establishmentId String     @map("establishment_id") @db.Uuid
+  role            Role
+  servicePointId  String?    @map("service_point_id") @db.Uuid
+  status          UserStatus @default(active)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User          @relation(fields: [userId], references: [id])
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([userId, establishmentId])
+  @@index([establishmentId])
+  @@map("memberships")
+}
+
+model Session {
+  /// SHA-256 du jeton : le jeton lui-même n'est jamais stocké.
+  idHash     String    @id @map("id_hash")
+  userId     String    @map("user_id") @db.Uuid
+  /// Vrai une fois la double authentification passée (propriétaire).
+  isElevated Boolean   @default(false) @map("is_elevated")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  ip         String?
+  userAgent  String?   @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model LoginAttempt {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  identifier String
+  ip         String
+  succeeded  Boolean
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([identifier, createdAt])
+  @@index([ip, createdAt])
+  @@map("login_attempts")
+}
+
+model Device {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  establishmentId String    @map("establishment_id") @db.Uuid
+  /// D01, D02... utilisé dans la numérotation (EF-DOC-01).
+  code            String
+  name            String
+  secretHash      String    @map("secret_hash")
+  registeredBy    String    @map("registered_by") @db.Uuid
+  registeredAt    DateTime  @default(now()) @map("registered_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([establishmentId, code])
+  @@map("devices")
+}
+
+// ─── Traçabilité et synchronisation ─────────────────────────────────────────
+
+model AuditLog {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  establishmentId String?  @map("establishment_id") @db.Uuid
+  actorUserId     String?  @map("actor_user_id") @db.Uuid
+  actorRole       String?  @map("actor_role")
+  deviceId        String?  @map("device_id") @db.Uuid
+  action          String
+  entity          String
+  entityId        String?  @map("entity_id")
+  before          Json?
+  after           Json?
+  reason          String?
+  ip              String?
+  correlationId   String?  @map("correlation_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, createdAt])
+  @@map("audit_log")
+}
+
+/// Opérations reçues des appareils (patron outbox) : l'identifiant de
+/// l'opération garantit l'idempotence (RG-OFF-01).
+model SyncOperation {
+  id               String   @id @db.Uuid
+  establishmentId  String   @map("establishment_id") @db.Uuid
+  deviceId         String   @map("device_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  type             String
+  payload          Json
+  schemaVersion    Int      @map("schema_version")
+  status           String
+  rejectionCode    String?  @map("rejection_code")
+  rejectionMessage String?  @map("rejection_message")
+  clientCreatedAt  DateTime @map("client_created_at") @db.Timestamptz(6)
+  receivedAt       DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, receivedAt])
+  @@map("sync_operations")
+}
+
+/// Journal des changements diffusés aux appareils (GET /api/sync/pull).
+model ChangeLog {
+  seq             BigInt   @id @default(autoincrement())
+  establishmentId String   @map("establishment_id") @db.Uuid
+  entity          String
+  entityId        String   @map("entity_id")
+  data            Json
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, seq])
+  @@map("change_log")
+}
+
+// ─── Module Restaurant ──────────────────────────────────────────────────────
+
+model ServicePoint {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  kind            String
+  name            String
+  menu            String
+  sortOrder       Int      @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([establishmentId])
+  @@map("service_points")
+}
+
+model MenuItem {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  establishmentId String    @map("establishment_id") @db.Uuid
+  servicePointId  String    @map("service_point_id") @db.Uuid
+  name            String
+  description     String    @default("")
+  category        String    @default("")
+  unit            String
+  /// `null` : prix non fixé, l'élément ne se vend pas (RG-PRX-01).
+  priceMinor      BigInt?   @map("price_minor")
+  currency        String    @db.Char(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@index([establishmentId])
+  @@map("menu_items")
+}
+
+model DiningTable {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  establishmentId String    @map("establishment_id") @db.Uuid
+  label           String
+  sortOrder       Int       @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@index([establishmentId])
+  @@map("dining_tables")
+}
+
+model TableRelease {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  tableId         String   @map("table_id") @db.Uuid
+  releasedAt      DateTime @map("released_at") @db.Timestamptz(6)
+  releasedBy      String   @map("released_by") @db.Uuid
+
+  @@index([establishmentId, releasedAt])
+  @@map("table_releases")
+}
+
+model Order {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  number          String
+  mode            String
+  tableId         String?  @map("table_id") @db.Uuid
+  tableLabel      String?  @map("table_label")
+  waiterId        String   @map("waiter_id") @db.Uuid
+  deviceId        String   @map("device_id") @db.Uuid
+  totalMinor      BigInt   @map("total_minor")
+  currency        String   @db.Char(3)
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@unique([establishmentId, number])
+  @@index([establishmentId, createdAt])
+  @@map("orders")
+}
+
+model AdvanceInvoice {
+  id              String    @id @db.Uuid
+  establishmentId String    @map("establishment_id") @db.Uuid
+  orderId         String    @map("order_id") @db.Uuid
+  servicePointId  String    @map("service_point_id") @db.Uuid
+  number          String
+  totalMinor      BigInt    @map("total_minor")
+  currency        String    @db.Char(3)
+  prepStatus      String    @default("pending") @map("prep_status")
+  paymentStatus   String    @default("unpaid") @map("payment_status")
+  cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason    String?   @map("cancel_reason")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+
+  @@unique([establishmentId, number])
+  @@index([establishmentId, createdAt])
+  @@index([orderId])
+  @@map("advance_invoices")
+}
+
+model InvoiceLine {
+  id              String @id @default(uuid(7)) @db.Uuid
+  establishmentId String @map("establishment_id") @db.Uuid
+  invoiceId       String @map("invoice_id") @db.Uuid
+  menuItemId      String @map("menu_item_id") @db.Uuid
+  name            String
+  unit            String
+  unitPriceMinor  BigInt @map("unit_price_minor")
+  quantity        Int
+  lineTotalMinor  BigInt @map("line_total_minor")
+
+  @@index([invoiceId])
+  @@index([establishmentId])
+  @@map("invoice_lines")
+}
+
+model MorningStockEntry {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  day             String
+  servicePointId  String   @map("service_point_id") @db.Uuid
+  menuItemId      String   @map("menu_item_id") @db.Uuid
+  quantity        Int
+  proposed        Int?
+  reason          String?
+  replacesId      String?  @map("replaces_id") @db.Uuid
+  enteredAt       DateTime @map("entered_at") @db.Timestamptz(6)
+  enteredBy       String   @map("entered_by") @db.Uuid
+
+  @@index([establishmentId, day])
+  @@map("morning_stock_entries")
+}
