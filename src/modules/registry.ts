@@ -81,3 +81,27 @@ export function missingDependencies(module: ModuleId, enabled: ReadonlySet<strin
   const definition = MODULES.find((entry) => entry.id === module);
   return (definition?.dependsOn ?? []).filter((dependency) => !enabled.has(dependency));
 }
+
+/** RG-MOD-02, dans l'autre sens : modules actifs qui empêchent de désactiver celui-ci. */
+export function activeDependents(module: ModuleId, enabled: ReadonlySet<string>): ModuleId[] {
+  return MODULES.filter(
+    (entry) => enabled.has(entry.id) && (entry.dependsOn as readonly string[]).includes(module),
+  ).map((entry) => entry.id);
+}
+
+/** Modules activables par établissement (le noyau et l'espace propriétaire ne le sont pas). */
+export const OPTIONAL_MODULES = MODULES.filter((entry) => !entry.isCore);
+
+/**
+ * Types d'établissement (CLAUDE.md § 2.5) et modules activés à la création.
+ * La boutique de détecteurs (phase 2, D-Q27 à D-Q30) s'ajoutera ici.
+ */
+export const ESTABLISHMENT_TYPES = [
+  {
+    id: "restaurant",
+    name: "Restaurant",
+    defaultModules: ["catalog", "stock", "sales", "documents", "restaurant", "reports"],
+  },
+] as const satisfies readonly { id: string; name: string; defaultModules: readonly ModuleId[] }[];
+
+export type EstablishmentType = (typeof ESTABLISHMENT_TYPES)[number]["id"];

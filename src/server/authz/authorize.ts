@@ -111,3 +111,16 @@ export async function authorize(
     dbContext: { establishmentId: establishment.id, isOwner: actor.isOwner },
   };
 }
+
+/**
+ * Actions réservées au propriétaire, hors d'un établissement précis
+ * (création, vue d'ensemble) : rôle propriétaire et double authentification.
+ */
+export function requireOwner(actor: Actor | null): Actor {
+  if (!actor) throw new DomainError("UNAUTHENTICATED", "Connectez-vous pour continuer.");
+  if (!actor.isOwner) throw new DomainError("FORBIDDEN", "Réservé au propriétaire.");
+  if (!actor.isElevated) {
+    throw new DomainError("MFA_REQUIRED", "Confirmez la double authentification pour continuer.");
+  }
+  return actor;
+}
