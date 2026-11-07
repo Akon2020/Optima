@@ -1,0 +1,21 @@
+/**
+ * Identifiants UUIDv7 (RFC 9562), générables hors connexion et triables par
+ * date (CLAUDE.md § 3.8, RG-OFF-01).
+ */
+export function uuidv7(now: number = Date.now()): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  // 48 bits d'horodatage en millisecondes, gros-boutiste.
+  let timestamp = now;
+  for (let index = 5; index >= 0; index -= 1) {
+    bytes[index] = timestamp % 256;
+    timestamp = Math.floor(timestamp / 256);
+  }
+
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x70; // version 7
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80; // variante RFC 9562
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

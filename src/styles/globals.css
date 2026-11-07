@@ -1,0 +1,99 @@
+/*
+ * Point d'entrée des styles (docs/DESIGN_SYSTEM.md § 2).
+ * Ordre des couches : theme (Tailwind + charte générale claire) < tokens
+ * (thème sombre, chartes de module) < base < components < utilities.
+ */
+@layer theme, tokens, base, components, utilities;
+
+@import "tailwindcss";
+@import "./tokens/primitives.css" layer(tokens);
+@import "./tokens/semantic.light.css";
+@import "./tokens/semantic.dark.css" layer(tokens);
+@import "./modules/restaurant.css" layer(tokens);
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body,
+  [data-module] {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-primary-subtle);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Documents imprimés : toujours en clair (§ 9, D-Q32). */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="dark"] [data-module] {
+    --color-bg: #ffffff;
+    --color-surface: #ffffff;
+    --color-text: #000000;
+    --color-text-muted: #333333;
+    --color-border: #cccccc;
+    color-scheme: light;
+  }
+
+  /* Seule la zone d'impression (factures d'avance) est imprimée. */
+  body:has(.print-area) * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+  }
+  .print-area .ticket {
+    max-width: none;
+    border: none;
+    break-after: page;
+  }
+}

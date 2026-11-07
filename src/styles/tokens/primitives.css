@@ -1,0 +1,79 @@
+/*
+ * Couche 1 : primitives (docs/DESIGN_SYSTEM.md § 4.1 et § 5.2).
+ * Palettes brutes, jamais utilisées directement dans un composant.
+ */
+:root {
+  /* Charte générale */
+  --navy-50: #eef2f8; /* [CONFIRMÉ] encadrés */
+  --navy-100: #dce3f0;
+  --navy-200: #b9c7e1;
+  --navy-300: #8aa4d0;
+  --navy-400: #5e80bc;
+  --navy-500: #3e62a3;
+  --navy-600: #2c4d88;
+  --navy-700: #1f3864; /* [CONFIRMÉ] couleur principale */
+  --navy-800: #172a4b;
+  --navy-900: #101d34;
+  --navy-950: #0a1324;
+
+  --slate-0: #ffffff;
+  --slate-50: #f7f8fa;
+  --slate-100: #eef0f3;
+  --slate-200: #d0d5dd; /* [CONFIRMÉ] filets */
+  --slate-300: #b4bbc6;
+  --slate-400: #8c95a3;
+  --slate-500: #6b6b6b; /* [CONFIRMÉ] texte secondaire */
+  --slate-600: #4b5563;
+  --slate-700: #344054;
+  --slate-800: #1d2939;
+  --slate-900: #1a1a1a; /* [CONFIRMÉ] texte */
+  --slate-950: #0b1220;
+
+  --green-600: #1e8e5a;
+  --green-100: #ddf3e8;
+  --red-600: #c8322b;
+  --red-100: #fbe1df;
+  --amber-600: #b45309;
+  --amber-100: #fef0d9;
+
+  /* Charte Restaurant (mesurée sur les maquettes, [DÉDUIT]) */
+  --ink-950: #161616;
+  --ink-900: #1f1f1f;
+  --ink-800: #2f2f2f;
+  --ink-700: #3a3a3a;
+  --ink-600: #474747;
+  --ink-400: #6e6e6e;
+  --ink-300: #b5b5b5;
+  --ink-200: #d9d9d9;
+  --ink-150: #e3e3e3;
+  --ink-100: #f1f1f1;
+  --ink-0: #ffffff;
+
+  --gold-600: #b9861a;
+  --gold-500: #d9a22a;
+  --gold-400: #e5b54a;
+  --gold-100: #f8f1c8;
+
+  --orange-600: #b24a16;
+  --orange-500: #e2691c;
+  --orange-400: #eda84b;
+  --orange-100: #fce9d6;
+
+  /* Les teintes -fg sont assombries par rapport aux maquettes (contraste 3:1 des icônes). */
+  --kpi-green-bg: #ecf4c6;
+  --kpi-green-fg: #5f7f1f;
+  --kpi-rose-bg: #f0cdc2;
+  --kpi-rose-fg: #b23e28;
+  --kpi-yellow-bg: #f8f1c8;
+  --kpi-yellow-fg: #8a6b12;
+  --kpi-peach-bg: #fae2dd;
+  --kpi-peach-fg: #b0553f;
+  --kpi-grey-bg: #ecede8;
+  --kpi-grey-fg: #4a4a4a;
+
+  --status-green: #2f9e5c;
+  --status-yellow: #e3b530;
+  --status-amber: #c97412;
+  --status-grey: #8f8f8f;
+  --status-red: #d64532;
+}

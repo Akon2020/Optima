@@ -1,0 +1,130 @@
+/*
+ * Couche 3 : charte Restaurant (maquettes « Yum Slice », § 5.3, D-009, D-017).
+ * Ne réassigne que des tokens sémantiques existants, dans la portée
+ * [data-module="restaurant"] posée par <ModuleScope module="restaurant">.
+ */
+[data-module="restaurant"] {
+  --color-bg: var(--ink-100);
+  --color-bg-subtle: #eaeaea;
+  --color-surface: var(--ink-0);
+  --color-surface-raised: var(--ink-0);
+  --color-surface-inverse: var(--ink-700);
+  --color-border: #ececec;
+  --color-border-strong: var(--ink-200);
+  --color-text: var(--ink-900);
+  --color-text-muted: var(--ink-400);
+  --color-text-subtle: var(--ink-300);
+  --color-text-inverse: #ffffff;
+  --color-text-inverse-muted: rgb(255 255 255 / 0.74);
+
+  --color-action: var(--ink-800);
+  --color-action-hover: var(--ink-950);
+  --color-on-action: #ffffff;
+
+  --color-primary: var(--gold-500);
+  --color-primary-hover: var(--gold-400);
+  --color-on-primary: var(--ink-900); /* D-017 (c) : jamais de blanc sur doré */
+  --color-primary-subtle: var(--gold-100);
+
+  --color-accent: var(--orange-500);
+  --color-accent-subtle: var(--orange-100);
+  --color-link: var(--orange-600);
+  --color-focus-ring: var(--gold-500);
+
+  --color-success: var(--status-green);
+  --color-success-subtle: #e3f5ea;
+  --color-warning: var(--status-amber);
+  --color-warning-subtle: #fdefd9;
+  --color-danger: var(--status-red);
+  --color-danger-subtle: #fbe3df;
+  --color-neutral: var(--status-grey);
+
+  --color-chart-1: var(--orange-500);
+  --color-chart-2: var(--gold-500);
+  --color-chart-fill: var(--orange-100);
+  --color-chart-grid: #ededed;
+
+  --color-nav-active-bg: var(--ink-800);
+  --color-nav-active-text: #ffffff;
+  --color-badge-bg: var(--orange-400);
+  --color-badge-text: var(--ink-900);
+
+  --color-kpi-green-bg: var(--kpi-green-bg);
+  --color-kpi-green-fg: var(--kpi-green-fg);
+  --color-kpi-rose-bg: var(--kpi-rose-bg);
+  --color-kpi-rose-fg: var(--kpi-rose-fg);
+  --color-kpi-yellow-bg: var(--kpi-yellow-bg);
+  --color-kpi-yellow-fg: var(--kpi-yellow-fg);
+  --color-kpi-peach-bg: var(--kpi-peach-bg);
+  --color-kpi-peach-fg: var(--kpi-peach-fg);
+  --color-kpi-grey-bg: var(--kpi-grey-bg);
+  --color-kpi-grey-fg: var(--kpi-grey-fg);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 16px;
+  --shadow-card: 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-raised: 0 10px 28px rgb(0 0 0 / 0.1);
+  --font-sans: var(--font-restaurant), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-theme="dark"] [data-module="restaurant"] {
+  --color-bg: #121212;
+  --color-bg-subtle: #1a1a1a;
+  --color-surface: #1c1c1c;
+  --color-surface-raised: #242424;
+  --color-surface-inverse: #2a2a2a;
+  --color-border: #2c2c2c;
+  --color-border-strong: #3d3d3d;
+  --color-text: #f2f2f2;
+  --color-text-muted: #a6a6a6;
+  --color-text-subtle: #737373;
+
+  --color-action: #f2f2f2;
+  --color-action-hover: #ffffff;
+  --color-on-action: #121212;
+
+  --color-primary: #e2ae3d;
+  --color-primary-hover: #ecbe58;
+  --color-on-primary: #161616;
+  --color-primary-subtle: rgb(226 174 61 / 0.16);
+
+  --color-accent: #ef7f37;
+  --color-accent-subtle: rgb(239 127 55 / 0.16);
+  --color-link: #f09a5c;
+  --color-focus-ring: #e2ae3d;
+
+  --color-success: #4cc38a;
+  --color-success-subtle: rgb(61 180 109 / 0.18);
+  --color-warning: #f0a24a;
+  --color-warning-subtle: rgb(232 144 46 / 0.18);
+  --color-danger: #f07167;
+  --color-danger-subtle: rgb(214 69 50 / 0.2);
+  --color-neutral: #8a8a8a;
+
+  --color-chart-1: #ef7f37;
+  --color-chart-2: #e2ae3d;
+  --color-chart-fill: rgb(239 127 55 / 0.18);
+  --color-chart-grid: #2a2a2a;
+
+  --color-nav-active-bg: #f2f2f2;
+  --color-nav-active-text: #121212;
+  --color-badge-bg: #eda84b;
+  --color-badge-text: #161616;
+
+  /* Tuiles KPI en sombre : fond = teinte à 16 %, icône éclaircie (§ 5.3). */
+  --color-kpi-green-bg: rgb(169 204 77 / 0.16);
+  --color-kpi-green-fg: #b9d873;
+  --color-kpi-rose-bg: rgb(226 104 80 / 0.16);
+  --color-kpi-rose-fg: #f0a08e;
+  --color-kpi-yellow-bg: rgb(226 182 61 / 0.16);
+  --color-kpi-yellow-fg: #ecc767;
+  --color-kpi-peach-bg: rgb(230 140 115 / 0.16);
+  --color-kpi-peach-fg: #f2b3a0;
+  --color-kpi-grey-bg: rgb(255 255 255 / 0.08);
+  --color-kpi-grey-fg: #d4d4d4;
+
+  --shadow-card: 0 0 0 1px var(--color-border);
+  --shadow-raised: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px var(--color-border);
+}
