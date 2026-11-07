@@ -1,0 +1,63 @@
+/* Couche 2 : charte générale, thème sombre (§ 4.2). Valeurs [PROPOSÉ]. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #0b1220;
+  --color-bg-subtle: #0f172a;
+  --color-surface: #111b2e;
+  --color-surface-raised: #16233b;
+  --color-surface-inverse: #1a2b4c;
+  --color-border: #24324d;
+  --color-border-strong: #33456a;
+  --color-text: #e6ebf3;
+  --color-text-muted: #a3aec2;
+  --color-text-subtle: #7c889e;
+  --color-text-inverse: #ffffff;
+
+  --color-primary: #4c6fb0;
+  --color-primary-hover: #5e80bc;
+  --color-on-primary: #ffffff;
+  --color-primary-subtle: rgb(94 128 188 / 0.16);
+  --color-link: #9db4de;
+  --color-action: #4c6fb0;
+  --color-action-hover: #5e80bc;
+  --color-on-action: #ffffff;
+  --color-accent: #8aa4d0;
+  --color-accent-subtle: rgb(138 164 208 / 0.16);
+  --color-focus-ring: #8aa4d0;
+
+  --color-success: #4cc38a;
+  --color-success-subtle: rgb(76 195 138 / 0.16);
+  --color-warning: #f2a93b;
+  --color-warning-subtle: rgb(242 169 59 / 0.16);
+  --color-danger: #f07167;
+  --color-danger-subtle: rgb(240 113 103 / 0.16);
+  --color-neutral: #7c889e;
+
+  --color-chart-1: #8aa4d0;
+  --color-chart-2: #5e80bc;
+  --color-chart-fill: rgb(138 164 208 / 0.18);
+  --color-chart-grid: #1c2840;
+
+  --color-nav-active-bg: #4c6fb0;
+  --color-badge-bg: rgb(138 164 208 / 0.2);
+  --color-badge-text: #dce3f0;
+
+  --color-kpi-green-bg: rgb(76 195 138 / 0.16);
+  --color-kpi-green-fg: #6fd3a2;
+  --color-kpi-rose-bg: rgb(240 113 103 / 0.16);
+  --color-kpi-rose-fg: #f59a92;
+  --color-kpi-yellow-bg: rgb(242 169 59 / 0.16);
+  --color-kpi-yellow-fg: #f5bf6a;
+  --color-kpi-peach-bg: rgb(138 164 208 / 0.16);
+  --color-kpi-peach-fg: #b9c7e1;
+  --color-kpi-grey-bg: rgb(255 255 255 / 0.08);
+  --color-kpi-grey-fg: #d0d5dd;
+
+  --color-overlay: rgb(0 0 0 / 0.6);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 1px var(--color-border);
+  --shadow-raised: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px var(--color-border);
+}

@@ -1,0 +1,116 @@
+/*
+ * Couche 2 : tokens sémantiques, charte générale, thème clair (§ 4.2).
+ *
+ * Ils sont déclarés dans @theme pour que Tailwind génère les utilitaires
+ * (bg-surface, text-text-muted, rounded-card...). Les couleurs par défaut de
+ * Tailwind sont retirées (`--color-*: initial`) : seules les couleurs
+ * sémantiques existent, ce qui empêche d'utiliser une palette brute.
+ *
+ * Note : le mapping `@theme inline { --color-x: var(--color-x) }` suggéré dans
+ * la documentation produit une variable cyclique (vérifié avec Tailwind 4).
+ * Les surcharges (sombre, modules) vivent donc dans la couche `tokens`,
+ * placée après la couche `theme` de Tailwind.
+ */
+@theme {
+  --color-*: initial;
+
+  --color-bg: var(--slate-0);
+  --color-bg-subtle: var(--slate-50);
+  --color-surface: var(--slate-0);
+  --color-surface-raised: var(--slate-0);
+  --color-surface-inverse: var(--navy-700);
+  --color-border: var(--slate-200);
+  --color-border-strong: var(--slate-300);
+  --color-text: var(--slate-900);
+  --color-text-muted: var(--slate-500);
+  --color-text-subtle: var(--slate-400);
+  --color-text-inverse: var(--slate-0);
+  --color-text-inverse-muted: rgb(255 255 255 / 0.74);
+
+  --color-primary: var(--navy-700);
+  --color-primary-hover: var(--navy-800);
+  --color-on-primary: #ffffff;
+  --color-primary-subtle: var(--navy-50);
+  --color-link: var(--navy-600);
+  --color-action: var(--navy-700);
+  --color-action-hover: var(--navy-800);
+  --color-on-action: #ffffff;
+  --color-accent: var(--navy-500);
+  --color-accent-subtle: var(--navy-50);
+  --color-focus-ring: var(--navy-500);
+
+  --color-success: var(--green-600);
+  --color-success-subtle: var(--green-100);
+  --color-warning: var(--amber-600);
+  --color-warning-subtle: var(--amber-100);
+  --color-danger: var(--red-600);
+  --color-danger-subtle: var(--red-100);
+  --color-neutral: var(--slate-400);
+
+  --color-chart-1: var(--navy-700);
+  --color-chart-2: var(--navy-400);
+  --color-chart-fill: var(--navy-100);
+  --color-chart-grid: var(--slate-100);
+
+  --color-nav-active-bg: var(--navy-700);
+  --color-nav-active-text: #ffffff;
+  --color-badge-bg: var(--navy-100);
+  --color-badge-text: var(--navy-800);
+
+  --color-kpi-green-bg: var(--green-100);
+  --color-kpi-green-fg: var(--green-600);
+  --color-kpi-rose-bg: var(--red-100);
+  --color-kpi-rose-fg: var(--red-600);
+  --color-kpi-yellow-bg: var(--amber-100);
+  --color-kpi-yellow-fg: var(--amber-600);
+  --color-kpi-peach-bg: var(--navy-50);
+  --color-kpi-peach-fg: var(--navy-600);
+  --color-kpi-grey-bg: var(--slate-100);
+  --color-kpi-grey-fg: var(--slate-700);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 12px;
+  --radius-xl: 20px;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md: 0 4px 12px rgb(16 24 40 / 0.08);
+  --shadow-lg: 0 12px 32px rgb(16 24 40 / 0.12);
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.06), 0 0 0 1px var(--color-border);
+  --shadow-raised: 0 12px 32px rgb(16 24 40 / 0.12);
+
+  --font-sans: var(--font-general), ui-sans-serif, system-ui, sans-serif;
+
+  --color-overlay: rgb(16 24 40 / 0.45);
+
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Mouvement (§ 7) : 120 ms survol, 200 ms menus, 300 ms panneaux. */
+  --animate-fade-in: fade-in 200ms ease-out;
+  --animate-slide-in-right: slide-in-right 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-left: slide-in-left 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-rise: rise 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+}
