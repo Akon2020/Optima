@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
@@ -16,14 +16,40 @@ import type {
 } from "../domain/types";
 import { useRestaurant } from "../components/restaurant-provider";
 
-/** Instant courant, rafraîchi périodiquement (temps écoulé, journée en cours). */
-export function useNow(intervalMs = 30_000): string {
-  const [now, setNow] = useState(() => new Date().toISOString());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date().toISOString()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
+const CLOCK_INTERVAL_MS = 30_000;
+let clock: string | null = null;
+let clockTimer: number | undefined;
+const clockListeners = new Set<() => void>();
+
+function subscribeClock(listener: () => void) {
+  clockListeners.add(listener);
+  if (clockTimer === undefined) {
+    clockTimer = window.setInterval(() => {
+      clock = new Date().toISOString();
+      clockListeners.forEach((notify) => notify());
+    }, CLOCK_INTERVAL_MS);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (clockListeners.size === 0) {
+      window.clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  };
+}
+
+function readClock(): string {
+  clock ??= new Date().toISOString();
+  return clock;
+}
+
+/**
+ * Instant courant, rafraîchi toutes les 30 secondes (temps écoulé, journée en
+ * cours). `null` pendant le rendu serveur : l'heure n'est lue que sur
+ * l'appareil, jamais figée au prérendu.
+ */
+export function useNow(): string | null {
+  return useSyncExternalStore(subscribeClock, readClock, () => null);
 }
 
 export type DayData = {
@@ -49,11 +75,11 @@ export function useDayData(): DayData | undefined {
   const { db, ctx, status } = useRestaurant();
   const now = useNow();
   const { businessDayStartHour, timeZone, lowStockThreshold } = ctx.settings;
-  const dayStart = businessDayStart(now, businessDayStartHour, timeZone);
-  const day = businessDayKey(now, businessDayStartHour, timeZone);
+  const dayStart = now ? businessDayStart(now, businessDayStartHour, timeZone) : null;
+  const day = now ? businessDayKey(now, businessDayStartHour, timeZone) : null;
 
   const raw = useLiveQuery(async () => {
-    if (status !== "ready") return undefined;
+    if (status !== "ready" || dayStart === null || day === null) return undefined;
     const [servicePoints, menuItems, tables, staff, orders, invoices, morningStock] =
       await Promise.all([
         db.servicePoints.orderBy("sortOrder").toArray(),
@@ -68,7 +94,7 @@ export function useDayData(): DayData | undefined {
   }, [db, status, dayStart, day]);
 
   return useMemo(() => {
-    if (!raw) return undefined;
+    if (!raw || now === null || dayStart === null || day === null) return undefined;
     const soldByItem = new Map<string, number>();
     for (const invoice of raw.invoices) {
       if (invoice.paymentStatus === "cancelled") continue;

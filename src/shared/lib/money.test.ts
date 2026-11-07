@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   addMoney,
+  averageMoney,
   formatMoney,
   moneyFromMajor,
   moneyFromMinor,
@@ -41,5 +42,10 @@ describe("money", () => {
     expect(text).toMatch(/^15 000/);
     expect(text).not.toMatch(/,00/);
     expect(formatMoney(moneyFromMajor(12.5, "USD"))).toMatch(/12,50/);
+  });
+
+  it("calcule une moyenne arrondie au franc", () => {
+    expect(averageMoney(moneyFromMajor(282000, "CDF"), 14).amountMinor).toBe(2_014_300);
+    expect(averageMoney(moneyFromMajor(100, "CDF"), 0).amountMinor).toBe(0);
   });
 });

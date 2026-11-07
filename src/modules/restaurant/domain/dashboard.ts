@@ -1,4 +1,4 @@
-import { addMoney, zero, type Currency, type Money } from "@/shared/lib/money";
+import { addMoney, averageMoney, zero, type Currency, type Money } from "@/shared/lib/money";
 
 import type { AdvanceInvoice, PrepStatus } from "./types";
 
@@ -89,10 +89,7 @@ export function summarizeDay(
     }
   }
 
-  const averageOrder =
-    orders.size === 0
-      ? zero(currency)
-      : { amountMinor: Math.round(billed.amountMinor / orders.size), currency };
+  const averageOrder = averageMoney(billed, orders.size);
 
   return {
     billed,

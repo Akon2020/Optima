@@ -76,4 +76,24 @@
     --color-border: #cccccc;
     color-scheme: light;
   }
+
+  /* Seule la zone d'impression (factures d'avance) est imprimée. */
+  body:has(.print-area) * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+  }
+  .print-area .ticket {
+    max-width: none;
+    border: none;
+    break-after: page;
+  }
 }

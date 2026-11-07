@@ -77,6 +77,16 @@ export function sumMoney(values: readonly Money[], currency: Currency): Money {
   return values.reduce<Money>((total, value) => addMoney(total, value), zero(currency));
 }
 
+/**
+ * Moyenne d'une somme sur un effectif, arrondie à l'unité principale
+ * (ex. panier moyen en francs entiers).
+ */
+export function averageMoney(total: Money, count: number): Money {
+  if (count <= 0) return zero(total.currency);
+  const factor = 10 ** MINOR_EXPONENT[total.currency];
+  return moneyFromMinor(Math.round(total.amountMinor / count / factor) * factor, total.currency);
+}
+
 export function toMajor(value: Money): number {
   return value.amountMinor / 10 ** MINOR_EXPONENT[value.currency];
 }

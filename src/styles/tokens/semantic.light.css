@@ -84,6 +84,11 @@
 
   --color-overlay: rgb(16 24 40 / 0.45);
 
+  /* Documents imprimés : toujours en clair, jamais redéfinis par un thème (§ 9). */
+  --color-ticket-bg: #ffffff;
+  --color-ticket-ink: #111111;
+  --color-ticket-border: #8a8a8a;
+
   --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Mouvement (§ 7) : 120 ms survol, 200 ms menus, 300 ms panneaux. */

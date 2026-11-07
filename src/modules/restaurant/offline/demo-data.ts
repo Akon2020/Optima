@@ -332,10 +332,23 @@ function pickWeighted<T extends { weight: number }>(items: readonly T[], random:
 
 const SEED_FLAG = "demo-seeded-at";
 
-/** Remplit la base locale avec les données de démonstration si elle est vide. */
-export async function ensureDemoData(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
-  if (await db.meta.get(SEED_FLAG)) return;
-  await seedDemo(db, ctx);
+const seeding = new WeakMap<RestaurantDb, Promise<void>>();
+
+/**
+ * Remplit la base locale avec les données de démonstration si elle est vide.
+ * Un seul remplissage à la fois par base (le double montage de React en
+ * développement appelle cette fonction deux fois).
+ */
+export function ensureDemoData(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
+  let pending = seeding.get(db);
+  if (!pending) {
+    pending = (async () => {
+      if (await db.meta.get(SEED_FLAG)) return;
+      await seedDemo(db, ctx);
+    })().finally(() => seeding.delete(db));
+    seeding.set(db, pending);
+  }
+  return pending;
 }
 
 /** Efface la base locale de démonstration et la remplit à nouveau. */
@@ -409,7 +422,13 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
       const lines = new Map<string, number>();
       const lineCount = 1 + Math.floor(random() * 4);
       for (let l = 0; l < lineCount; l += 1) {
-        const item = pickWeighted(sellable, random);
+        // Une commande sur trois passe aussi par la grillade, pour que la démo
+        // montre les trois factures d'avance.
+        const item =
+          l === 0 && index % 3 === 1
+            ? (sellable.find((entry) => entry.point === "sp-grill") ??
+              pickWeighted(sellable, random))
+            : pickWeighted(sellable, random);
         lines.set(
           `item-${item.key}`,
           (lines.get(`item-${item.key}`) ?? 0) + 1 + Math.floor(random() * 2),
