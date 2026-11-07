@@ -1,4 +1,5 @@
-import { UserRound } from "lucide-react";
+import { ArrowRight, UserRound } from "lucide-react";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -47,7 +48,7 @@ async function Account() {
 
   const memberships = await getPrisma().membership.findMany({
     where: { userId: session.user.id, status: "active", establishment: { status: "active" } },
-    include: { establishment: { select: { name: true } } },
+    include: { establishment: { select: { name: true, slug: true } } },
   });
 
   return (
@@ -66,14 +67,23 @@ async function Account() {
       </div>
       <ul className="mt-5 flex flex-col gap-2">
         {memberships.map((membership) => (
-          <li key={membership.id} className="rounded-md bg-bg-subtle px-3 py-2 text-sm">
-            {membership.establishment.name} · {ROLE_LABELS[membership.role] ?? membership.role}
+          <li key={membership.id}>
+            <Link
+              href={`/e/${membership.establishment.slug}/restaurant`}
+              className="flex items-center justify-between gap-3 rounded-md bg-bg-subtle px-3 py-2 text-sm hover:bg-primary-subtle"
+            >
+              <span>
+                {membership.establishment.name} · {ROLE_LABELS[membership.role] ?? membership.role}
+              </span>
+              <ArrowRight aria-hidden className="size-4 shrink-0" />
+            </Link>
           </li>
         ))}
       </ul>
       <p className="mt-4 text-sm text-text-muted">
-        L&apos;espace de votre établissement s&apos;ouvrira ici quand les appareils seront reliés au
-        serveur.
+        Sur le téléphone ou la tablette du restaurant, ouvrez l&apos;établissement : un gérant
+        appaire l&apos;appareil une fois, puis chacun s&apos;y connecte avec son mot de passe et
+        choisit son code PIN.
       </p>
       <div className="mt-5">
         <LogoutButton />

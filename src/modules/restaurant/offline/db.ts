@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from "dexie";
 
 import type { OutboxOperation } from "@/offline/outbox";
+import type { PinVerifier } from "@/offline/pin";
 
 import type {
   AdvanceInvoice,
@@ -17,6 +18,22 @@ export type Counter = { key: string; value: number };
 export type Meta = { key: string; value: string };
 
 /**
+ * Utilisateur ayant ouvert une session sur cet appareil avec son mot de passe
+ * (EF-AUT-05). Le PIN n'est conservé que sous forme de vérificateur.
+ */
+export type DeviceUserRecord = {
+  userId: string;
+  name: string;
+  role: StaffMember["role"];
+  pinVerifier: PinVerifier | null;
+  failedPinAttempts: number;
+  /** Verrouillé après 5 erreurs : le mot de passe est exigé à nouveau. */
+  lockedAt: string | null;
+  /** Dernière vérification du mot de passe (actions de gérant, CLAUDE.md § 5.1). */
+  passwordVerifiedAt: string;
+};
+
+/**
  * Base locale d'un établissement (CLAUDE.md § 3.5 et § 5.5) : une base par
  * établissement, uniquement les données nécessaires au travail du jour.
  */
@@ -29,6 +46,7 @@ export class RestaurantDb extends Dexie {
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
   tableReleases!: EntityTable<TableRelease, "id">;
+  deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
   meta!: EntityTable<Meta, "key">;
@@ -99,6 +117,8 @@ export class RestaurantDb extends Dexie {
             table.archivedAt ??= null;
           });
       });
+    // v5 : utilisateurs de l'appareil (connexion par mot de passe, puis PIN).
+    this.version(5).stores({ deviceUsers: "userId" });
   }
 }
 

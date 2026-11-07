@@ -133,5 +133,5 @@ export type StaffMember = {
   id: string;
   establishmentId: string;
   name: string;
-  role: "manager" | "waiter";
+  role: "manager" | "waiter" | "prep" | "courier" | "reader";
 };

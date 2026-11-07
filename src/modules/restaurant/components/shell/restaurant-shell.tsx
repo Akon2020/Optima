@@ -1,6 +1,14 @@
 "use client";
 
-import { Calculator, FlaskConical, Menu, RotateCcw, Search } from "lucide-react";
+import {
+  Calculator,
+  FlaskConical,
+  KeyRound,
+  Menu,
+  RotateCcw,
+  Search,
+  UserRoundCog,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -14,8 +22,10 @@ import { Sheet } from "@/shared/ui/sheet";
 import { ModuleScope } from "@/shared/theme/module-scope";
 import { ThemeSwitcher } from "@/shared/theme/theme-switcher";
 
-import { DEMO_ESTABLISHMENT_SLUG } from "../../offline/demo-data";
 import { useDayData } from "../../offline/hooks";
+import { LinkUserForm } from "../device/link-user-form";
+import { PairingScreen } from "../device/pairing-screen";
+import { UserGate } from "../device/user-gate";
 import { orderPrepStatus } from "../../domain/dashboard";
 import { RestaurantProvider, useRestaurant } from "../restaurant-provider";
 import { NAV_ITEMS, isNavItemActive, restaurantHref } from "./nav-items";
@@ -32,29 +42,26 @@ export function RestaurantShell({ children }: { children: ReactNode }) {
 
   return (
     <ModuleScope module="restaurant">
-      {slug === DEMO_ESTABLISHMENT_SLUG ? (
-        <RestaurantProvider slug={slug}>
+      <RestaurantProvider slug={slug}>
+        <DeviceGate>
           <ShellLayout>{children}</ShellLayout>
-        </RestaurantProvider>
-      ) : (
-        <main className="grid min-h-dvh place-items-center px-4">
-          <EmptyState
-            icon={FlaskConical}
-            title="Établissement introuvable"
-            description="Seul l'établissement de démonstration est disponible tant que la connexion n'est pas en place."
-            action={
-              <Link
-                href={restaurantHref(DEMO_ESTABLISHMENT_SLUG, "")}
-                className={buttonClasses("action")}
-              >
-                Ouvrir la démonstration
-              </Link>
-            }
-          />
-        </main>
-      )}
+        </DeviceGate>
+      </RestaurantProvider>
     </ModuleScope>
   );
+}
+
+/**
+ * Établissement réel : l'appareil doit être appairé, puis un utilisateur
+ * identifié (mot de passe une fois, puis PIN). La démonstration n'a ni l'un
+ * ni l'autre.
+ */
+function DeviceGate({ children }: { children: ReactNode }) {
+  const { isDemo, status, activeUser } = useRestaurant();
+  if (isDemo) return children;
+  if (status === "unpaired") return <PairingScreen />;
+  if (status === "ready" && !activeUser) return <UserGate />;
+  return children;
 }
 
 function useOpenOrderCount(): number {
@@ -126,6 +133,15 @@ function ShellLayout({ children }: { children: ReactNode }) {
   );
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  manager: "Gérant",
+  waiter: "Serveur",
+  prep: "Préparation",
+  courier: "Livreur",
+  reader: "Lecteur",
+  owner: "Propriétaire",
+};
+
 function Brand() {
   return (
     <span className="flex items-center gap-2.5">
@@ -147,9 +163,11 @@ function SidebarContent({
   onNavigate?: () => void;
   isInDrawer?: boolean;
 }) {
-  const { slug, establishmentName, ctx } = useRestaurant();
+  const { slug, establishmentName, ctx, isDemo, activeUser, lock } = useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
+  const [isConfirmingPassword, setIsConfirmingPassword] = useState(false);
+  const needsPassword = !isDemo && activeUser?.role === "manager" && ctx.role !== "manager";
 
   return (
     <div className={cn("flex h-full flex-col", isInDrawer ? "-mx-2" : "px-5 py-6")}>
@@ -218,9 +236,43 @@ function SidebarContent({
         <Avatar name={ctx.userName} presence="online" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{ctx.userName}</p>
-          <p className="truncate text-xs text-text-muted">Gérant · appareil {ctx.deviceCode}</p>
+          <p className="truncate text-xs text-text-muted">
+            {ROLE_LABELS[ctx.role] ?? ctx.role} · appareil {ctx.deviceCode}
+          </p>
         </div>
+        {isDemo ? null : (
+          <IconButton
+            label="Changer d'utilisateur"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onNavigate();
+              void lock();
+            }}
+          >
+            <UserRoundCog />
+          </IconButton>
+        )}
       </div>
+      {needsPassword ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() => setIsConfirmingPassword(true)}
+        >
+          <KeyRound aria-hidden />
+          Actions de gérant : mot de passe
+        </Button>
+      ) : null}
+      <Sheet
+        open={isConfirmingPassword}
+        onOpenChange={setIsConfirmingPassword}
+        title="Confirmer votre mot de passe"
+        description="Entré par code PIN, un gérant agit comme un serveur. Le mot de passe rouvre les actions de gérant pendant 15 minutes."
+      >
+        <LinkUserForm submitLabel="Confirmer" onLinked={() => setIsConfirmingPassword(false)} />
+      </Sheet>
       {isInDrawer ? (
         <div className="mt-4 flex items-center justify-between gap-3 px-2 sm:hidden">
           <span className="text-xs text-text-muted">Thème</span>
