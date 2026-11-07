@@ -196,23 +196,43 @@ export async function touchDevice(db: Db, deviceId: string, now: Date = new Date
   await db.device.update({ where: { id: deviceId }, data: { lastSyncAt: now } });
 }
 
+/**
+ * Résultat détaillé de l'authentification d'un appareil. Un établissement
+ * suspendu (EF-ETB-03) n'est pas une révocation : l'appareil garde ses
+ * données et ses opérations en attente, qui partiront à la réactivation.
+ */
+export type DeviceAuthResult =
+  { status: "ok"; device: AuthenticatedDevice } | { status: "unknown" } | { status: "suspended" };
+
+export async function resolveDevice(
+  db: Db,
+  authorization: string | null,
+): Promise<DeviceAuthResult> {
+  const match = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})$/.exec(authorization ?? "");
+  if (!match?.[1] || !match[2]) return { status: "unknown" };
+  const device = await db.device.findUnique({
+    where: { id: match[1] },
+    include: { establishment: { select: { status: true, baseCurrency: true } } },
+  });
+  if (!device || device.revokedAt) return { status: "unknown" };
+  if (!safeEqualHex(device.secretHash, sha256(match[2]))) return { status: "unknown" };
+  if (device.establishment.status !== "active") return { status: "suspended" };
+  return {
+    status: "ok",
+    device: {
+      id: device.id,
+      code: device.code,
+      establishmentId: device.establishmentId,
+      currency: device.establishment.baseCurrency,
+    },
+  };
+}
+
 /** Authentifie un appareil à partir de l'en-tête `Authorization: Device <id>.<secret>`. */
 export async function authenticateDevice(
   db: Db,
   authorization: string | null,
 ): Promise<AuthenticatedDevice | null> {
-  const match = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})$/.exec(authorization ?? "");
-  if (!match?.[1] || !match[2]) return null;
-  const device = await db.device.findUnique({
-    where: { id: match[1] },
-    include: { establishment: { select: { status: true, baseCurrency: true } } },
-  });
-  if (!device || device.revokedAt || device.establishment.status !== "active") return null;
-  if (!safeEqualHex(device.secretHash, sha256(match[2]))) return null;
-  return {
-    id: device.id,
-    code: device.code,
-    establishmentId: device.establishmentId,
-    currency: device.establishment.baseCurrency,
-  };
+  const result = await resolveDevice(db, authorization);
+  return result.status === "ok" ? result.device : null;
 }
