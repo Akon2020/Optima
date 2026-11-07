@@ -69,3 +69,22 @@ export function formatElapsed(fromIso: string, nowIso: string): string {
   const hours = Math.floor(minutes / 60);
   return `${hours} h ${String(minutes % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Instant passé, lisible : « à l'instant », « il y a 12 min »,
+ * « aujourd'hui à 14:05 », « le 06/11/2026 à 18:30 ».
+ */
+export function formatRelativeInstant(
+  iso: string,
+  nowIso: string,
+  timeZone = DEFAULT_TIME_ZONE,
+): string {
+  const time = formatTime(iso, timeZone);
+  if (localDayKey(iso, timeZone) === localDayKey(nowIso, timeZone)) {
+    const elapsed = new Date(nowIso).getTime() - new Date(iso).getTime();
+    if (elapsed < 60_000) return "à l'instant";
+    if (elapsed < 3_600_000) return `il y a ${formatElapsed(iso, nowIso)}`;
+    return `aujourd'hui à ${time}`;
+  }
+  return `le ${formatDate(iso, timeZone)} à ${time}`;
+}

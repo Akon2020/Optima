@@ -4,10 +4,10 @@ import { z } from "zod";
 
 import { DomainError } from "@/shared/lib/errors";
 
-import { getCurrentSession, requestMeta } from "@/server/auth/current";
-import { getPrisma } from "@/server/db/client";
 import { runAction, type ActionResult } from "@/server/errors";
 import { revokeDevice } from "@/server/sync/devices";
+
+import { actionContext } from "../_lib/actions";
 
 const revokeSchema = z.object({
   slug: z.string().min(1).max(80),
@@ -34,24 +34,12 @@ export async function revokeDeviceAction(input: {
     if (!parsed.success) {
       throw new DomainError("INVALID_INPUT", parsed.error.issues[0]?.message ?? "Saisie invalide.");
     }
-    const session = await getCurrentSession();
-    if (!session)
-      throw new DomainError("UNAUTHENTICATED", "Votre session a expiré : reconnectez-vous.");
-    const db = getPrisma();
-    const establishment = await db.establishment.findUnique({
-      where: { slug: parsed.data.slug },
-      select: { id: true },
-    });
-    if (!establishment) throw new DomainError("NOT_FOUND", "Établissement introuvable.");
+    const { db, actor, establishmentId, ip } = await actionContext(parsed.data.slug);
     await revokeDevice(
       db,
-      { userId: session.user.id, isOwner: session.user.isOwner, isElevated: session.isElevated },
-      {
-        establishmentId: establishment.id,
-        deviceId: parsed.data.deviceId,
-        reason: parsed.data.reason,
-      },
-      { ip: (await requestMeta()).ip },
+      actor,
+      { establishmentId, deviceId: parsed.data.deviceId, reason: parsed.data.reason },
+      { ip },
     );
     return undefined;
   });

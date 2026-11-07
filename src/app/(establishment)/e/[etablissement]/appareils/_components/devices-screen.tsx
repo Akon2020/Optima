@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { cn } from "@/shared/lib/cn";
-import { formatDate, formatElapsed, formatTime, localDayKey } from "@/shared/lib/dates";
+import { formatDate, formatRelativeInstant, formatTime } from "@/shared/lib/dates";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
@@ -29,18 +29,6 @@ type Props = {
   devices: DeviceSummary[];
   pairingPath: string | null;
 };
-
-function describeInstant(iso: string, nowIso: string, timeZone: string): string {
-  const time = formatTime(iso, timeZone);
-  if (localDayKey(iso, timeZone) === localDayKey(nowIso, timeZone)) {
-    const elapsed = new Date(nowIso).getTime() - new Date(iso).getTime();
-    if (elapsed < 60 * 1000) return "à l'instant";
-    return elapsed < 60 * 60 * 1000
-      ? `il y a ${formatElapsed(iso, nowIso)}`
-      : `aujourd'hui à ${time}`;
-  }
-  return `le ${formatDate(iso, timeZone)} à ${time}`;
-}
 
 function isStale(device: DeviceSummary, nowIso: string): boolean {
   const reference = device.lastSyncAt ?? device.registeredAt;
@@ -211,7 +199,9 @@ function DeviceCard({
         <div className="flex flex-wrap justify-between gap-x-3">
           <dt className="text-text-muted">Dernière synchronisation</dt>
           <dd className={cn("font-medium", stale && "text-text")}>
-            {device.lastSyncAt ? describeInstant(device.lastSyncAt, nowIso, timeZone) : "jamais"}
+            {device.lastSyncAt
+              ? formatRelativeInstant(device.lastSyncAt, nowIso, timeZone)
+              : "jamais"}
           </dd>
         </div>
         <div className="flex flex-wrap justify-between gap-x-3">
@@ -339,7 +329,7 @@ function RevokeSheet({
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
             <span>
               {device.lastSyncAt
-                ? `Dernière synchronisation ${describeInstant(device.lastSyncAt, nowIso, timeZone)}. `
+                ? `Dernière synchronisation ${formatRelativeInstant(device.lastSyncAt, nowIso, timeZone)}. `
                 : "Cet appareil ne s'est jamais synchronisé. "}
               Ce qui y a été saisi depuis, et pas encore envoyé, ne pourra plus arriver au serveur.
             </span>
