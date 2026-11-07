@@ -6,6 +6,7 @@ import { moneyFromMajor } from "@/shared/lib/money";
 
 import { RestaurantDb } from "./db";
 import {
+  applyStaffMember,
   effectiveRole,
   getActiveUserId,
   rememberDeviceUser,
@@ -99,5 +100,35 @@ describe("appareil", () => {
     });
     await applyChange(db, { seq: "2", entity: "inconnue", entityId: "x", data: {} });
     expect((await db.menuItems.get("i1"))?.name).toBe("Primus 72 cl");
+  });
+});
+
+describe("personnel diffusé par le serveur (EF-CPT-05)", () => {
+  it("un membre suspendu perd l'appareil, même s'il était l'utilisateur actif", async () => {
+    await rememberDeviceUser(db, { userId: "u1", name: "Amani", role: "waiter" });
+    await setUserPin(db, "u1", "2580");
+    await unlockWithPin(db, "u1", "2580");
+    await applyStaffMember(db, {
+      id: "u1",
+      establishmentId: "e1",
+      name: "Amani",
+      role: "waiter",
+      status: "suspended",
+    });
+    expect(await db.deviceUsers.get("u1")).toBeUndefined();
+    expect(await getActiveUserId(db)).toBeNull();
+  });
+
+  it("un changement de rôle s'applique aux droits sur l'appareil", async () => {
+    await rememberDeviceUser(db, { userId: "m1", name: "Gérant", role: "manager" });
+    await applyStaffMember(db, {
+      id: "m1",
+      establishmentId: "e1",
+      name: "Gérant B.",
+      role: "waiter",
+      status: "active",
+    });
+    expect(await db.deviceUsers.get("m1")).toMatchObject({ name: "Gérant B.", role: "waiter" });
+    expect((await db.staff.get("m1"))?.role).toBe("waiter");
   });
 });

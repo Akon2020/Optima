@@ -1,4 +1,4 @@
-import { ArrowRight, Smartphone, UserRound } from "lucide-react";
+import { ArrowRight, UserRound, Users } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -78,11 +78,11 @@ async function Account() {
             </Link>
             {membership.role === "manager" ? (
               <Link
-                href={`/e/${membership.establishment.slug}/appareils`}
+                href={`/e/${membership.establishment.slug}/equipe`}
                 className="flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm text-link hover:bg-bg-subtle"
               >
-                <Smartphone aria-hidden className="size-4 shrink-0" />
-                Appareils de {membership.establishment.name}
+                <Users aria-hidden className="size-4 shrink-0" />
+                Équipe et appareils de {membership.establishment.name}
               </Link>
             ) : null}
           </li>

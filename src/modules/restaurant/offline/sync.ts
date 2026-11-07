@@ -11,7 +11,14 @@ import type {
   TableRelease,
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
-import { getCursor, saveCursor, type DeviceInfo } from "./device";
+import {
+  applyStaffMember,
+  getCursor,
+  pruneDeviceUsers,
+  saveCursor,
+  type DeviceInfo,
+  type StaffMemberChange,
+} from "./device";
 
 /**
  * Client de synchronisation (patron outbox, CLAUDE.md § 3.6, EF-OFF-01 à 04) :
@@ -80,6 +87,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.invoices,
       db.morningStockEntries,
       db.tableReleases,
+      db.deviceUsers,
       db.meta,
     ],
     async () => {
@@ -88,6 +96,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.diningTables.bulkPut(snapshot.tables);
       await db.staff.clear();
       await db.staff.bulkPut(snapshot.staff);
+      // Un membre suspendu pendant que l'appareil était éteint perd son accès ici.
+      await pruneDeviceUsers(db, snapshot.staff);
       await db.orders.bulkPut(snapshot.orders);
       await db.invoices.bulkPut(snapshot.invoices);
       await db.morningStockEntries.bulkPut(snapshot.morningEntries);
@@ -123,6 +133,9 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "morning_stock_entry":
       await db.morningStockEntries.put(change.data as MorningStockEntry);
+      break;
+    case "staff_member":
+      await applyStaffMember(db, change.data as StaffMemberChange);
       break;
     default:
       // Entité d'un module plus récent : ignorée par cette version de l'appareil.

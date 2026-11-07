@@ -1,6 +1,6 @@
 import type { User } from "@/generated/prisma/client";
 
-import type { Db } from "../db/context";
+import type { Db, Tx } from "../db/context";
 import { randomToken, sha256 } from "./crypto";
 import { AUTH_POLICY } from "./policy";
 
@@ -122,7 +122,7 @@ export async function revokeSession(db: Db, token: string, now: Date = new Date(
 
 /** Déconnexion forcée (EF-CPT-01) : toutes les sessions de l'utilisateur. */
 export async function revokeAllSessions(
-  db: Db,
+  db: Db | Tx,
   userId: string,
   options: { exceptIdHash?: string; now?: Date } = {},
 ): Promise<number> {

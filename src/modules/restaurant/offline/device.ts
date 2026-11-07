@@ -1,6 +1,7 @@
 import { DomainError } from "@/shared/lib/errors";
 import { MAX_PIN_ATTEMPTS, checkPinPolicy, createPinVerifier, verifyPin } from "@/offline/pin";
 
+import type { StaffMember } from "../domain/types";
 import type { RestaurantRole } from "../permissions";
 import type { RestaurantDb, DeviceUserRecord } from "./db";
 
@@ -62,6 +63,49 @@ export async function getActiveUserId(db: RestaurantDb): Promise<string | null> 
 export async function setActiveUser(db: RestaurantDb, userId: string | null): Promise<void> {
   if (userId === null) await db.meta.delete(ACTIVE_USER_KEY);
   else await db.meta.put({ key: ACTIVE_USER_KEY, value: userId });
+}
+
+/** État d'un membre diffusé par le serveur (gestion du personnel). */
+export type StaffMemberChange = StaffMember & { status: "active" | "suspended" };
+
+/**
+ * EF-CPT-05 : un membre suspendu disparaît de l'appareil (plus de reprise de
+ * main par PIN) ; un changement de nom ou de rôle s'applique aussitôt, y
+ * compris aux droits de l'utilisateur actif.
+ */
+export async function applyStaffMember(db: RestaurantDb, member: StaffMemberChange): Promise<void> {
+  await db.transaction("rw", db.staff, db.deviceUsers, db.meta, async () => {
+    if (member.status === "suspended") {
+      await db.staff.delete(member.id);
+      await db.deviceUsers.delete(member.id);
+      if ((await getActiveUserId(db)) === member.id) await setActiveUser(db, null);
+      return;
+    }
+    await db.staff.put({
+      id: member.id,
+      establishmentId: member.establishmentId,
+      name: member.name,
+      role: member.role,
+    });
+    await db.deviceUsers.update(member.id, { name: member.name, role: member.role });
+  });
+}
+
+/** Retire de l'appareil les utilisateurs qui ne font plus partie du personnel actif. */
+export async function pruneDeviceUsers(
+  db: RestaurantDb,
+  staff: readonly StaffMember[],
+): Promise<void> {
+  const active = new Map(staff.map((member) => [member.id, member]));
+  for (const user of await db.deviceUsers.toArray()) {
+    const member = active.get(user.userId);
+    if (!member) {
+      await db.deviceUsers.delete(user.userId);
+      if ((await getActiveUserId(db)) === user.userId) await setActiveUser(db, null);
+    } else if (member.role !== user.role || member.name !== user.name) {
+      await db.deviceUsers.update(user.userId, { name: member.name, role: member.role });
+    }
+  }
 }
 
 /** Utilisateur dont le mot de passe vient d'être vérifié en ligne. */
