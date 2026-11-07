@@ -11,7 +11,7 @@ Légende des statuts : **[CONFIRMÉ]** décidé par le porteur du projet · **[D
 | Identité | Périmètre | Source |
 |---|---|---|
 | **Charte générale** | Landing page, pages publiques et institutionnelles, connexion, espace propriétaire, interfaces communes, tout module sans charte propre | Cahier des charges, chapitre 7 **[CONFIRMÉ]** |
-| **Charte Restaurant** | Uniquement les écrans du module Restaurant (`/e/[etablissement]/restaurant/...`) et les écrans du socle quand ils sont affichés à l'intérieur d'un établissement de type restaurant **[À DÉCIDER, voir D-Q12]** | Maquettes « Yum Slice » transmises le 7 novembre 2026 **[CONFIRMÉ comme référence]** |
+| **Charte Restaurant** | Uniquement les écrans du module Restaurant (`/e/[etablissement]/restaurant/...`) et les écrans du socle quand ils sont affichés à l'intérieur d'un établissement de type restaurant **[CONFIRMÉ, D-017]** | Maquettes « Yum Slice » transmises le 7 novembre 2026 **[CONFIRMÉ comme référence]** |
 
 Règles absolues :
 
@@ -378,7 +378,7 @@ Tuiles KPI en sombre **[PROPOSÉ]** : fond = couleur `-fg` à 16 % d'opacité, i
 
 ### 5.4 Typographie Restaurant
 
-- Police **[PROPOSÉ, À DÉCIDER, voir D-Q11]** : **Plus Jakarta Sans** (licence OFL, via `next/font`, variable `--font-restaurant`). C'est l'équivalent libre le plus proche de la géométrique des maquettes. Alternative : Satoshi (licence Fontshare gratuite, à auto-héberger).
+- Police **[CONFIRMÉ, D-017]** : **Plus Jakarta Sans** (licence OFL, via `next/font`, variable `--font-restaurant`). C'est l'équivalent libre le plus proche de la géométrique des maquettes. Alternative : Satoshi (licence Fontshare gratuite, à auto-héberger).
 - Hiérarchie mesurée sur les maquettes :
 
 | Rôle | Taille | Graisse | Couleur |
@@ -398,7 +398,7 @@ Tuiles KPI en sombre **[PROPOSÉ]** : fond = couleur `-fg` à 16 % d'opacité, i
 Tous ces composants sont des **compositions de composants partagés** (`src/shared/ui`). Ils sont stylés uniquement par les tokens ci-dessus.
 
 - **Barre latérale.** Fond `--color-surface`, logo en haut, éléments icône et libellé de 40px de haut avec un rayon de 8px. L'élément actif est une pastille pleine `--color-nav-active-bg`. Le compteur est une pastille arrondie `--color-badge-bg`. En bas se trouvent un encart d'action (dans les maquettes, « Done for the day? » et un bouton doré) puis le bloc utilisateur (avatar rond, nom, menu).
-  - **[À DÉCIDER, voir D-Q12]** : la maquette « Products » montre une seconde variante de l'élément actif (dégradé pêche et filet orange à gauche). Il faut en retenir **une seule**. Recommandation : la pastille encre, présente sur trois écrans sur quatre.
+  - **[CONFIRMÉ, D-017]** : l'élément actif est la pastille encre. La variante « dégradé pêche et filet orange » de la maquette « Products » n'est pas retenue.
   - **[PROPOSÉ]** : l'encart du bas devient « Fin du service ? » avec le bouton « Clôturer mon service » (EF-CLO-01), ce qui donne une fonction réelle à ce motif des maquettes.
 - **Barre supérieure.** Champ de recherche souligné (sans cadre) avec une loupe. À droite : statistiques du jour, bouton contour « Exporter », état de synchronisation (EF-OFF-02) et sélecteur de thème.
 - **Carte.** Fond `--color-surface`, rayon `--radius-card` (16px), ombre `--shadow-card`, marge intérieure de 24px (16px sur mobile). Titre à gauche, action secondaire à droite (bouton contour « Voir tout › » ou sélecteur de période).
@@ -468,7 +468,7 @@ Les maquettes affichent des « Restaurants » (plusieurs adresses). Dans OPTIMA,
 ## 8. Accessibilité (applicable aux quatre combinaisons)
 
 - Contraste **WCAG 2.2 AA** au minimum : 4,5:1 pour le texte normal, 3:1 pour le texte de 18px ou plus et pour les composants d'interface (bordures de champs, focus, icônes porteuses de sens).
-- **Écart volontaire par rapport aux maquettes [PROPOSÉ, voir D-Q12]** : les maquettes mettent du **texte blanc sur le doré** `#D9A22A`, soit un contraste de 2,3:1, insuffisant. OPTIMA met du **texte encre** `#1F1F1F` sur le doré (7,2:1). Si le porteur du projet tient au blanc, le fond de ce bouton doit être assombri au moins jusqu'à `#9A6B0F` (4,7:1).
+- **Écart volontaire par rapport aux maquettes [CONFIRMÉ, D-017]** : les maquettes mettent du **texte blanc sur le doré** `#D9A22A`, soit un contraste de 2,3:1, insuffisant. OPTIMA met du **texte encre** `#1F1F1F` sur le doré (7,2:1). Si le porteur du projet tient au blanc, le fond de ce bouton doit être assombri au moins jusqu'à `#9A6B0F` (4,7:1).
 - Le texte gris très clair des maquettes (libellés `#BDBDBD` à `#D2D2D2` sur blanc) est également insuffisant. Le texte secondaire utilise donc `--color-text-muted` = `#6E6E6E` (5,1:1 sur blanc, 4,5:1 sur le fond `#F1F1F1`), plus foncé que les maquettes. `--color-text-subtle` (`#B5B5B5` en clair, `#737373` en sombre) est réservé aux placeholders et aux éléments non essentiels, jamais à une information nécessaire.
 - Focus visible sur tout élément interactif : anneau de 2px `--color-focus-ring` avec un décalage de 2px, jamais supprimé.
 - Un statut n'est jamais porté par la seule couleur : toujours un libellé ou une icône (exigence du cahier, chapitre 7).

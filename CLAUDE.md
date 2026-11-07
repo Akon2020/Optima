@@ -236,7 +236,7 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 
 ## 3. Architecture technique
 
-### 3.1 Pile technique [PROPOSÉ par le cahier, chapitre 6 ; à confirmer : D-Q18]
+### 3.1 Pile technique [CONFIRMÉ : D-014]
 
 | Domaine | Choix | Raison |
 |---|---|---|
@@ -257,7 +257,7 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 | Tests | **Vitest**, Testing Library, **Playwright** (e2e, accessibilité, captures) | Voir § 6 |
 | Gestionnaire de paquets | **pnpm** | Rapide, verrouillage strict |
 | Hébergement | **Docker** sur VPS Linux (Hetzner, Contabo ou équivalent), **Caddy** pour HTTPS | Cahier, § 6.3 |
-| Authentification | **[À DÉCIDER : D-Q19]** Better Auth (recommandé) ou implémentation maison | Voir § 5.1 |
+| Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id, sessions en base, TOTP, PIN | Voir § 5.1 |
 
 Règle : **ne remplace aucune de ces briques** une fois le projet initialisé sans exposer la raison, les conséquences et l'alternative, puis consigner la décision dans `docs/DECISIONS.md`.
 
@@ -511,7 +511,7 @@ Le détail complet se trouve dans **`docs/DESIGN_SYSTEM.md`**. L'essentiel :
 
 La sécurité fait partie de la conception. Aucune fonctionnalité n'est livrée en la contournant, même temporairement, même en développement.
 
-### 5.1 Authentification [exigences SPÉCIFIÉES ; bibliothèque À DÉCIDER : D-Q19]
+### 5.1 Authentification [exigences SPÉCIFIÉES ; implémentation maison CONFIRMÉE : D-015]
 
 - Identifiant : adresse e-mail ou numéro de téléphone. Mot de passe d'au moins 10 caractères, haché en **Argon2id** (ENF-07). Jamais stocké en clair, jamais envoyé par e-mail (RG-AUT-01).
 - Mot de passe provisoire à la création, **changement obligatoire** à la première connexion (EF-AUT-02).
@@ -673,7 +673,7 @@ Les tests citent les identifiants d'exigences. Une correction de bug commence pa
 
 | Environnement | Branche | Usage |
 |---|---|---|
-| Local | toute branche de travail | Développement (Docker Compose : PostgreSQL) |
+| Local | toute branche de travail | Développement (PostgreSQL natif Windows, D-016) |
 | Préproduction | `develop` | Démonstrations, recette (cahier, § 6.3) |
 | Production | `main` | Établissements réels. Déploiement validé manuellement |
 

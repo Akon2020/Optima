@@ -29,6 +29,11 @@ Ce registre est la **source de vérité** pour ce qui a été décidé (D-xxx) e
 | D-011 | 07/11/2026 | Développement sur la branche **`develop`**. Commits petits et réguliers, push après chaque commit cohérent. Jamais de push sur `main` ou `master`, jamais de force sans autorisation. **Aucune mention de Claude ou d'Anthropic dans les commits.** | Porteur du projet |
 | D-012 | 07/11/2026 | Première réalisation d'interface : la **landing page**, en charte générale, avec les deux thèmes, **sans statistiques, témoignages, clients, certifications ni tarifs inventés**. | Porteur du projet |
 | D-013 | 07/11/2026 | Le cahier des charges v1.0 (6 novembre 2026) sert de base aux spécifications. Il est soumis pour validation et pas encore signé. | Porteur du projet |
+| D-014 | 07/11/2026 | **Pile technique confirmée** (répond à D-Q18) : celle du `CLAUDE.md` § 3.1. Le projet est initialisé avec Next.js 16.4.5, React 19.3, TypeScript, Tailwind CSS v4 et pnpm 12 (Node.js 26 en local). | Porteur du projet |
+| D-015 | 07/11/2026 | **Authentification maison** (répond à D-Q19) : Argon2id, sessions en base (table `sessions`), TOTP pour le propriétaire, code PIN par appareil, sans bibliothèque d'authentification tierce. Conséquences : tout le code d'authentification est écrit et testé dans `src/server/auth/` ; les exigences du `CLAUDE.md` § 5.1 et 5.2 s'appliquent sans changement. | Porteur du projet |
+| D-016 | 07/11/2026 | **PostgreSQL installé nativement sous Windows** pour le développement local (Docker n'est pas disponible sur le poste). L'URL de connexion est fournie par `DATABASE_URL` dans `.env.local`. Docker Compose reste prévu pour la préproduction, la production et l'intégration continue. | Porteur du projet |
+| D-017 | 07/11/2026 | **Charte Restaurant** (répond à D-Q12) : (a) elle s'applique à tout l'espace d'un établissement dont le module Restaurant est actif, l'espace propriétaire restant en charte générale ; (b) l'élément de navigation actif est la pastille encre ; (c) le texte du bouton doré est encre et non blanc ; (d) la police est Plus Jakarta Sans. | Porteur du projet |
+| D-018 | 07/11/2026 | **Ordre de réalisation** : le module Restaurant (interface responsive, mobile d'abord) est réalisé avant la landing page complète et avant le socle serveur. Il fonctionne d'abord sur une base locale (IndexedDB) alimentée par des **données de démonstration** clairement signalées ; le socle serveur (base, authentification, synchronisation) se branche ensuite sur la même couche. Remplace l'ordre des étapes 4 à 6 du `CLAUDE.md` § 10. | Porteur du projet |
 
 ---
 
@@ -99,7 +104,7 @@ Recommandation : sorties déclarées à part, avec un motif (EF-CLO-03), sans pa
 **D-Q11. Charte générale : éléments manquants.** · *Recommandation suffisante pour démarrer la landing page*
 Existe-t-il un **logo OPTIMA** ? Le bleu nuit `#1F3864` est-il confirmé, ou le propriétaire a-t-il sa propre identité (le cahier prévoit cette possibilité) ? Police web : Inter est recommandée (le cahier est en Calibri, qui n'est pas une police web libre). Recommandation : logotype textuel provisoire « OPTIMA », bleu nuit, Inter.
 
-**D-Q12. Charte Restaurant : quatre points.** · *Recommandation suffisante*
+**D-Q12. Charte Restaurant : quatre points.** · *Tranchée le 07/11/2026 : D-017 (recommandations retenues)*
 - (a) **Portée** : s'applique-t-elle aussi aux écrans du socle (catalogue, stock, caisse) quand on est dans l'établissement restaurant ? Recommandation : **oui**, à tout l'espace d'un établissement dont le module Restaurant est actif, pour éviter de changer de charte en passant de « Commandes » à « Stock ». L'espace propriétaire, lui, reste en charte générale.
 - (b) **Élément de navigation actif** : les maquettes en montrent deux variantes. Recommandation : la pastille encre `#2F2F2F`.
 - (c) **Texte sur le bouton doré** : blanc dans les maquettes (contraste 2,3:1, non conforme). Recommandation : texte encre (7,2:1).
@@ -115,10 +120,10 @@ Recommandation : oui (économie d'encre, lisibilité des tickets thermiques).
 
 ### E. Technique et exploitation
 
-**D-Q18. Confirmation de la pile technique.** · *Indispensable avant l'initialisation du projet*
+**D-Q18. Confirmation de la pile technique.** · *Tranchée le 07/11/2026 : D-014*
 La pile proposée par le cahier est : Next.js, TypeScript, PostgreSQL, Prisma, Tailwind CSS v4, Radix UI, Serwist et Dexie pour le hors connexion, pg-boss, Playwright, Docker et Caddy (voir `CLAUDE.md` § 3.1). L'équipe a-t-elle une autre pile imposée ou préférée ? Une version de Node.js, un gestionnaire de paquets ?
 
-**D-Q19. Bibliothèque d'authentification.** · *Indispensable avant le socle serveur*
+**D-Q19. Bibliothèque d'authentification.** · *Tranchée le 07/11/2026 : D-015 (implémentation maison)*
 - Option 1 : **Better Auth** (recommandé : sessions en base, 2FA TOTP, extensible au code PIN par plugin).
 - Option 2 : Auth.js.
 - Option 3 : implémentation maison avec Argon2id et des sessions en base.
