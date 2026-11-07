@@ -60,7 +60,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 ---
 
-## 3. Créer la base de données locale ⬜ (à faire une fois, par vous)
+## 3. Créer la base de données locale ✅ (faite sur le poste de développement le 07/11/2026)
 
 Le script crée la base `optima` et deux rôles :
 - **`optima_migrator`** : migrations, propriétaire du schéma ;
@@ -78,6 +78,12 @@ node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
 psql -U postgres -h localhost -f scripts/db/setup-local.sql
 ```
 
+Sans questions (script, poste neuf), passez les deux mots de passe en variables ; le mot de passe `postgres` se donne alors par la variable d'environnement `PGPASSWORD`, jamais dans un fichier :
+
+```bash
+psql -U postgres -h localhost -v migrator_password=<mot de passe optima_migrator> -v app_password=<mot de passe optima_app> -f scripts/db/setup-local.sql
+```
+
 **3. Complétez `.env.local`** :
 
 ```
@@ -91,7 +97,7 @@ MIGRATION_DATABASE_URL=postgresql://optima_migrator:<mot de passe optima_migrato
 pnpm db:migrate
 ```
 
-**5. Créez les données de développement.** Les mots de passe provisoires s'affichent **une seule fois** : notez-les.
+**5. Créez les données de développement.** Les mots de passe provisoires s'affichent **une seule fois** : notez-les (sur le poste de développement, ils sont gardés dans `.env.accounts.local`, non versionné).
 
 ```bash
 pnpm db:seed
@@ -129,7 +135,15 @@ Ouvrez `http://localhost:3000/connexion`.
 
 **Gérant ou serveur** : mot de passe provisoire, puis nouveau mot de passe, puis `/compte`.
 
-**Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`.
+**Restaurant sur les vraies données** :
+1. Sur `/compte`, le gérant ouvre l'établissement (`/e/restaurant-dev/restaurant`).
+2. **Appairage** (une fois par appareil) : il nomme l'appareil (« Téléphone salle 1 ») et l'enregistre. L'appareil reçoit son code (D01, D02…) et charge les points de service, le menu, les tables, le personnel et les commandes du jour.
+3. **« Qui travaille ? »** : chaque utilisateur s'ajoute une fois avec son identifiant et son mot de passe (réseau nécessaire), puis choisit un **code PIN à 4 chiffres** (ni chiffres répétés, ni suite).
+4. Ensuite, on change d'utilisateur en deux gestes : bouton « Changer d'utilisateur », puis le PIN. Après 5 erreurs, le PIN est verrouillé et le mot de passe est redemandé.
+5. Un gérant entré par PIN agit comme serveur. Pour le stock du matin, les menus ou les tables, il confirme son mot de passe (« Actions de gérant ») : ses droits valent 15 minutes (D-024).
+6. Les opérations partent au serveur toutes les 30 secondes, 3 secondes après chaque saisie et au retour du réseau. Le bouton d'état ouvre le détail : opérations en attente, dernière synchronisation, refus avec leur motif.
+
+**Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`. Rien n'y est envoyé au serveur.
 
 ---
 
@@ -139,8 +153,8 @@ Ouvrez `http://localhost:3000/connexion`.
 |---|---|
 | `pnpm typecheck` | À chaque modification |
 | `pnpm lint` | À chaque modification |
-| `pnpm test` | Logique métier, utilitaires, base locale (89 tests) |
-| `pnpm test:integration` | Sécurité, authentification, droits, synchronisation, sur PostgreSQL 18 embarqué, sans serveur ni mot de passe (36 tests) |
+| `pnpm test` | Logique métier, utilitaires, base locale, PIN (98 tests) |
+| `pnpm test:integration` | Sécurité, authentification, droits, synchronisation, sur PostgreSQL 18 embarqué, sans serveur ni mot de passe (41 tests) |
 | `pnpm build` | Quand les routes ou la configuration changent |
 | `pnpm format` | Avant de committer |
 
@@ -173,22 +187,24 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022** et **D-023**.
+10. Valider les propositions **D-022**, **D-023** et **D-024**.
 11. Faire signer le cahier des charges (D-013).
 
-### 7.2 Relier le Restaurant au serveur ⬜ (priorité suivante)
+### 7.2 Relier le Restaurant au serveur (en grande partie fait)
 
-- [ ] Écran « Appareils » (gérant) : enregistrer un appareil, révoquer, voir la dernière synchronisation (EF-CPT-04, EF-PRO-04).
-- [ ] Première connexion d'un appareil avec mot de passe (RG-OFF-02), stockage local du jeton d'appareil.
-- [ ] **Code PIN** à 4 chiffres par utilisateur et par appareil, haché, 5 essais (EF-AUT-01, EF-AUT-05).
-- [ ] Client de synchronisation :
+- [ ] Écran « Appareils » (gérant) : liste, révocation, dernière synchronisation (EF-CPT-04, EF-PRO-04). Le service existe ; l'appairage se fait déjà depuis l'appareil.
+- [x] Première connexion d'un appareil avec mot de passe (RG-OFF-02), stockage local du jeton d'appareil.
+- [x] **Code PIN** à 4 chiffres par utilisateur et par appareil, vérificateur local, 5 essais (EF-AUT-01, EF-AUT-05, D-024).
+- [x] Client de synchronisation :
   - envoi de la file toutes les 30 secondes et après chaque opération ;
   - affichage des refus (EF-OFF-01 à 04) ;
   - réception par curseur ;
   - application locale des changements.
-- [ ] Chargement initial des menus, tables et points de service depuis le serveur ; numérotation avec le vrai code appareil.
-- [ ] Contrôle serveur dans le layout `/e/[etablissement]/restaurant` (session, appartenance, module, permission).
-- [ ] Effacement des données locales d'un appareil révoqué (ENF-09).
+- [x] Chargement initial des menus, tables et points de service depuis le serveur (`/api/sync/bootstrap`) ; numérotation avec le vrai code appareil.
+- [ ] Contrôle serveur dans le layout `/e/[etablissement]/restaurant`. Aujourd'hui la page est une coquille statique sans donnée : tout passe par le jeton d'appareil, revérifié à chaque requête. Le contrôle restera nécessaire pour les écrans en ligne (rapports).
+- [x] Effacement des données locales d'un appareil révoqué (ENF-09).
+- [ ] Opérations d'un utilisateur suspendu : marquées pour revue au lieu d'être refusées (`CLAUDE.md` § 5.1).
+- [ ] Confirmation du mot de passe d'un gérant hors connexion : impossible aujourd'hui (réseau nécessaire).
 - [ ] Thème par utilisateur, rattaché au profil (D-Q31).
 
 ### 7.3 Espace propriétaire et administration ⬜
@@ -381,12 +397,13 @@ docker compose -f docker-compose.prod.yml up -d
 |---|---|---|---|
 | Se connecter, changer de mot de passe | Tous | `/connexion` | ✅ |
 | Double authentification, codes de secours | Propriétaire | `/connexion/activer-2fa` | ✅ |
-| Prendre une commande, imprimer les factures d'avance | Serveur | Restaurant, « Commander » | ✅ en local |
-| Stock du matin | Gérant | Restaurant, « Stock du matin » | ✅ en local |
-| Tables, addition | Serveur, gérant | Restaurant, « Tables » | ✅ en local |
+| Appairer un appareil, ajouter un utilisateur, choisir son PIN | Gérant, puis chacun | Restaurant, au premier lancement | ✅ |
+| Prendre une commande, imprimer les factures d'avance | Serveur | Restaurant, « Commander » | ✅ synchronisé |
+| Stock du matin | Gérant | Restaurant, « Stock du matin » | ✅ synchronisé |
+| Tables, addition | Serveur, gérant | Restaurant, « Tables » | ✅ synchronisé |
 | Menus et prix | Gérant | Restaurant, « Menus » | ✅ ajout ; modification des prix ⬜ |
 | Créer un compte, réinitialiser un mot de passe, suspendre | Gérant, propriétaire | Équipe | ⬜ |
-| Enregistrer ou révoquer un appareil | Gérant | Appareils | ⬜ (service prêt, écran à faire) |
+| Révoquer un appareil, voir sa dernière synchronisation | Gérant | Appareils | ⬜ (service prêt, écran à faire) |
 | Encaisser, clôturer | Serveur, gérant | Restaurant | ⬜ 🔒 |
 | Suspendre, exporter un établissement, modules | Propriétaire | Espace propriétaire | ⬜ |
 | Consulter le journal d'audit | Gérant, propriétaire | Audit | ⬜ (journal écrit, écran à faire) |
@@ -407,3 +424,7 @@ docker compose -f docker-compose.prod.yml up -d
 | « Trop de tentatives » | 5 échecs en 15 minutes (RG-AUT-02) | Attendre 15 minutes |
 | Téléphone de double authentification perdu | — | Utiliser un code de secours ; puis réactiver la double authentification (écran de réinitialisation ⬜) |
 | L'aperçu Restaurant montre d'anciennes données | Base locale du navigateur | « Réinitialiser » dans le bandeau de démonstration |
+| « Changez d'abord votre mot de passe provisoire… » en ajoutant un utilisateur | Compte jamais utilisé | Se connecter une fois sur `/connexion` pour choisir son mot de passe |
+| « PIN verrouillé » | 5 erreurs de PIN | « Ajouter un utilisateur » avec le mot de passe : le PIN redevient utilisable |
+| L'appareil revient à l'écran d'appairage avec un message de révocation | Appareil révoqué (ENF-09) | Ses données locales ont été effacées ; un gérant l'appaire de nouveau |
+| Le bouton d'état affiche « N opérations refusées » | Le serveur a refusé une opération (droit, prix, établissement) | Ouvrir le détail : chaque refus a son motif ; le gérant le revoit |

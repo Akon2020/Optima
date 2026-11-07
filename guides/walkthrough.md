@@ -16,14 +16,16 @@
 | 4 | Module Restaurant, interface locale | Fait sur données de démonstration | `9c44090`, `9df9a5b`, `0b38c1b`, `6a41638` |
 | 5 | Stock du matin | Fait, proposition simplifiée (D-Q14) | `e15882e`, `4c18be0` |
 | 6 | Tables | Fait, libération manuelle (D-Q04) | `9e00932`, `48b4cb2` |
-| 7 | Socle serveur | Fait côté serveur, **pas encore relié à l'interface** | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
+| 7 | Socle serveur | Fait | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
+| 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation. Restent l'écran « Appareils » et la PWA | voir `git log` |
 
-**En une phrase :** l'interface Restaurant fonctionne sur un téléphone avec des données de démonstration. Le serveur sécurisé est prêt et testé, mais les deux ne sont pas encore reliés.
+**En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 89 tests unitaires passent ;
-- `pnpm test:integration` : 36 tests d'intégration passent, sur PostgreSQL 18 embarqué.
+- `pnpm test` : 98 tests unitaires passent ;
+- `pnpm test:integration` : 41 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
 
@@ -164,12 +166,7 @@
 - **Tests** : 36 tests d'intégration sur PostgreSQL 18 embarqué (RLS, IDOR, ajout seul, connexion, blocage, sessions, 2FA, matrice des droits, idempotence et refus de synchronisation).
 
 **Bloque encore**
-- **La base locale n'est pas créée.** Le mot de passe du super-utilisateur PostgreSQL est le vôtre : vous devez lancer `scripts/db/setup-local.sql` vous-même, puis `pnpm db:migrate` et `pnpm db:seed` (voir `guide.md`). Le seed n'a donc **pas encore tourné contre votre PostgreSQL** ; il est vérifié par le typage seulement.
-- **L'interface Restaurant n'est pas reliée au serveur** :
-  - pas de client de synchronisation (envoi de la file, réception des changements) ;
-  - pas d'écran d'enregistrement d'appareil ;
-  - pas de **code PIN** (EF-AUT-05) ;
-  - le layout du module n'applique pas encore le contrôle serveur pour un établissement réel.
+- La base locale et l'interface sont désormais reliées : voir l'étape 8.
 - Les données de démonstration locales utilisent des identifiants non UUID (`item-primus`…) : elles **ne seront jamais synchronisées**, c'est voulu.
 - **Espace propriétaire** réduit à une liste : tableau de bord consolidé, gestion des établissements, des modules et des gérants à faire.
 - **Gestion du personnel** (création des comptes, réinitialisation des mots de passe, suspension) : services et écrans à faire.
@@ -179,6 +176,44 @@
   - D-022 : lecture consolidée du propriétaire par drapeau RLS ;
   - D-023 : durées de session.
 - **D-Q20** (hébergeur, domaine, administration du serveur) bloque la préproduction et la production.
+
+---
+
+## Étape 8 : relier l'interface au serveur
+
+**Fait**
+- **Base locale créée** sur le PostgreSQL du poste : base `optima`, rôles `optima_migrator` et `optima_app` (mots de passe aléatoires dans `.env.local`), migrations appliquées, seed exécuté. Les mots de passe provisoires des comptes de développement sont dans `.env.accounts.local` (non versionné). `scripts/db/setup-local.sql` accepte maintenant les mots de passe en variables (`-v`), pour une installation sans questions.
+- **Appairage d'un appareil** : un gérant connecté ouvre `/e/<slug>/restaurant`, nomme l'appareil et l'enregistre. L'appareil reçoit son code (D01…) et son jeton, gardés dans sa base locale.
+- **État initial** `GET /api/sync/bootstrap` : établissement, points de service, menu, tables, personnel actif, commandes, factures, stock du matin et libérations de table depuis la veille, curseur de départ. Uniquement l'établissement de l'appareil.
+- **Utilisateurs de l'appareil** (EF-AUT-01, EF-AUT-05, RG-OFF-02) :
+  - « Qui travaille ? » : chacun s'ajoute une fois avec son mot de passe, vérifié par le serveur (blocage après 5 échecs, audit, propriétaire refusé, mot de passe provisoire refusé) ;
+  - puis il choisit un code PIN à 4 chiffres (PIN trivial refusé) ;
+  - « Changer d'utilisateur » puis le PIN : deux gestes ;
+  - 5 erreurs de PIN : verrouillage jusqu'au mot de passe ;
+  - un gérant entré par PIN agit comme serveur ; ses droits de gérant valent 15 minutes après une saisie du mot de passe (« Actions de gérant »).
+- **Client de synchronisation** (EF-OFF-01, 02, 04) :
+  - envoi de la file par lots de 200 : immédiatement, toutes les 30 secondes, 3 secondes après chaque opération et au retour du réseau ;
+  - réception des changements par curseur, appliqués dans la base locale ;
+  - le serveur diffuse maintenant des enregistrements complets (commande avec ses lignes, ses prix recalculés, le nom du serveur et le code appareil) ;
+  - bouton d'état : en attente, dernière synchronisation, « Synchroniser maintenant », liste des refus avec leur motif.
+- **Appareil révoqué** (ENF-09) : refus à la synchronisation suivante, effacement de toutes les données locales, retour à l'écran d'appairage avec un message.
+- **Vérification de bout en bout** dans le navigateur, contre la base locale :
+  - connexion du gérant, changement du mot de passe provisoire, appairage (D01), choix du PIN ;
+  - commande table 3 : `CMD-2026-D01-000001`, deux factures d'avance `FAC-2026-D01-000001` et `000002`, opération **acceptée** et visible dans PostgreSQL ;
+  - indicateur « En ligne, tout est synchronisé » ;
+  - ajout du serveur sur l'appareil avec son mot de passe provisoire : refusé avec le message demandant de le changer d'abord.
+- **Tests** : PIN et utilisateurs de l'appareil, effacement, application des changements (unitaires) ; état initial, connexion d'un membre sur l'appareil, commande complète dans le pull (intégration).
+
+**Bloque encore**
+- **Écran « Appareils »** du gérant (liste, révocation, dernière synchronisation) : le service existe, l'écran reste à faire. Aujourd'hui, révoquer un appareil demande une requête en base.
+- **Gestion du personnel** : création des comptes, réinitialisation, suspension.
+- **Hors connexion** :
+  - l'ajout d'un utilisateur et la confirmation du mot de passe d'un gérant exigent le réseau ;
+  - sans PWA (Serwist), un rechargement complet de la page sans réseau échoue ; les données restent dans l'appareil.
+- **Jeton d'appareil dans IndexedDB** : la CSP stricte avec nonce (`CLAUDE.md` § 5.4) devient d'autant plus importante.
+- **Layout du module** : coquille statique sans donnée ; tout passe par le jeton d'appareil, revérifié à chaque requête. Un contrôle serveur sera ajouté pour les écrans en ligne (rapports).
+- **Utilisateur suspendu** entre deux synchronisations : ses opérations sont refusées, avec motif ; le marquage « pour revue » prévu par le `CLAUDE.md` § 5.1 reste à faire.
+- **À valider par vous** : D-024 (PIN local en PBKDF2-SHA256 au lieu d'Argon2id, droits de gérant limités à 15 minutes après le mot de passe).
 
 ---
 
@@ -199,7 +234,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022, D-023 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022, D-023, D-024 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -214,15 +249,9 @@
 
 ## Prochaines étapes recommandées
 
-1. **Créer votre base locale** et vous connecter une première fois en propriétaire (voir `guide.md`, § 3 et 4).
-2. **Relier l'interface au serveur** :
-   - enregistrement d'appareil ;
-   - code PIN ;
-   - client de synchronisation (envoi et réception) ;
-   - contrôle serveur dans le layout du module ;
-   - bascule de la démonstration vers les vraies données.
-3. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, appareils, journal d'audit.
-4. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
-5. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-6. **PWA hors connexion** (Serwist), puis tests Playwright hors connexion et sur deux appareils.
-7. **D-Q20**, puis préproduction.
+1. **Vous connecter une première fois en propriétaire** (comptes dans `.env.accounts.local`) et activer la double authentification (voir `guide.md`, § 4).
+2. **Espace propriétaire et gestion du personnel** : établissements, modules, gérants, comptes, **appareils** (révocation), journal d'audit.
+3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
+4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
+5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
+6. **D-Q20**, puis préproduction.
