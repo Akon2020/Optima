@@ -10,8 +10,16 @@
 
 \set ON_ERROR_STOP on
 
-\prompt 'Mot de passe à créer pour optima_migrator (migrations) : ' migrator_password
-\prompt 'Mot de passe à créer pour optima_app (application) : ' app_password
+-- Les mots de passe peuvent aussi être passés sans saisie :
+--   psql ... -v migrator_password=... -v app_password=... -f scripts/db/setup-local.sql
+\if :{?migrator_password}
+\else
+  \prompt 'Mot de passe à créer pour optima_migrator (migrations) : ' migrator_password
+\endif
+\if :{?app_password}
+\else
+  \prompt 'Mot de passe à créer pour optima_app (application) : ' app_password
+\endif
 
 -- Rôle des migrations : propriétaire du schéma.
 CREATE ROLE optima_migrator LOGIN PASSWORD :'migrator_password';
