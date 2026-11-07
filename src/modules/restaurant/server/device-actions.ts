@@ -4,7 +4,13 @@ import { z } from "zod";
 
 import { DomainError } from "@/shared/lib/errors";
 
-import { requestMeta, getCurrentSession } from "@/server/auth/current";
+import {
+  clearSessionCookie,
+  getCurrentSession,
+  getSessionToken,
+  requestMeta,
+} from "@/server/auth/current";
+import { revokeSession } from "@/server/auth/sessions";
 import { verifyDeviceUser, type DeviceUser } from "@/server/auth/device-users";
 import { getPrisma } from "@/server/db/client";
 import { runAction, type ActionResult } from "@/server/errors";
@@ -33,6 +39,7 @@ const pairSchema = z.object({
 /**
  * Appairage d'un appareil (EF-CPT-04) par un gérant connecté sur ce
  * navigateur. Le secret de l'appareil n'est renvoyé qu'ici, une seule fois.
+ * La session web du gérant est ensuite fermée sur ce navigateur.
  */
 export async function pairDeviceAction(input: {
   slug: string;
@@ -75,6 +82,11 @@ export async function pairDeviceAction(input: {
             userId_establishmentId: { userId: session.user.id, establishmentId: establishment.id },
           },
         });
+    // Un appareil partagé ne garde pas la session web du gérant : sinon un
+    // serveur pourrait ensuite ouvrir l'espace de gestion (appareils, équipe).
+    const sessionToken = await getSessionToken();
+    if (sessionToken) await revokeSession(db, sessionToken);
+    await clearSessionCookie();
     return {
       ...registered,
       establishmentId: establishment.id,
