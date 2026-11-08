@@ -189,6 +189,16 @@ async function processOperation(
     });
     return { id: operation.id, status: "accepted" };
   } catch (error) {
+    // RG-MOD-01 : désactiver un module n'efface rien. Une opération d'un module
+    // désactivé n'est donc pas refusée pour de bon : elle reste sur l'appareil
+    // et partira à la réactivation.
+    if (error instanceof DomainError && error.code === "MODULE_DISABLED") {
+      return {
+        id: operation.id,
+        status: "retry",
+        message: "Module désactivé par le propriétaire : l'opération attend sa réactivation.",
+      };
+    }
     if (error instanceof DomainError) {
       return storeRejection(db, device, operation, error.code, error.message);
     }
