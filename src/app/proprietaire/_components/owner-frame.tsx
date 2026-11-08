@@ -6,11 +6,12 @@ import { ThemeSwitcher } from "@/shared/theme/theme-switcher";
 
 import { LogoutButton } from "../../_components/logout-button";
 
-export type OwnerSection = "overview" | "establishments";
+export type OwnerSection = "overview" | "establishments" | "audit";
 
 const SECTIONS: { id: OwnerSection; label: string; href: string }[] = [
   { id: "overview", label: "Vue d'ensemble", href: "/proprietaire" },
   { id: "establishments", label: "Établissements", href: "/proprietaire/etablissements" },
+  { id: "audit", label: "Journal", href: "/proprietaire/audit" },
 ];
 
 /** Cadre de l'espace propriétaire, en charte générale (D-008). */
