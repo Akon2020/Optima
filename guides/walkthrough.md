@@ -19,14 +19,15 @@
 | 7 | Socle serveur | Fait | `91ca948`, `5614168`, `a9b4345`, `fb56335` |
 | 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, `e8850c1`, `2bef4be` |
 | 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | `e9e9ef6`, `5cbe87b`, `4ff970d`, `5aaaa1d` |
-| 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports, suppression, journal consultable | voir `git log` |
+| 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports et suppression | `5f058f1`, `728d315`, `b26d45e` |
+| 11 | Journal d'audit consultable | Fait : filtres, détail, export CSV. Restent Excel et PDF | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 116 tests unitaires passent ;
-- `pnpm test:integration` : 63 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test` : 124 tests unitaires passent ;
+- `pnpm test:integration` : 71 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -280,6 +281,28 @@
 
 ---
 
+## Étape 11 : journal d'audit consultable
+
+**Fait**
+- **Deux écrans** :
+  - `/e/<slug>/journal` : le gérant (permission `core.audit.read`) et le propriétaire, pour un établissement ; onglet « Journal » à côté d'« Équipe » et d'« Appareils » ;
+  - `/proprietaire/audit` : tous les établissements, plus les événements hors établissement (connexions, mot de passe, double authentification).
+- **Fil chronologique** (EF-AUD-02) : libellé français de l'action, domaine, auteur et rôle, appareil, établissement, motif ; « Détails » montre les changements « avant → après », l'adresse IP et la référence. Échecs et refus sont signalés par une étiquette.
+- **Filtres** en formulaire GET (ils marchent sans JavaScript et se partagent par lien) : établissement, domaine, action, auteur, appareil, du… au… (dates locales de l'établissement). Les valeurs invalides sont ignorées, jamais transmises à la base.
+- **Pagination** par curseur (identifiants UUIDv7, donc chronologiques), 50 entrées par page.
+- **Export CSV** (EF-AUD-04, en partie) : lisible par Excel en français (« ; », BOM, CRLF), 10 000 entrées au plus. Une cellule qui commence par `=`, `+`, `-` ou `@` est neutralisée (injection de formules). L'export passe par une Server Action (aucune écriture par GET) et s'inscrit lui-même au journal : dans l'établissement concerné, ou au journal global pour un export de tous les établissements.
+- **Défaut corrigé, révélé par le journal** : une connexion sur un appareil avec le bon mot de passe mais refusée (propriétaire, mot de passe provisoire, compte suspendu, autre établissement) était inscrite comme une **connexion réussie**. Elle l'est désormais comme « Connexion refusée sur un appareil », avec son motif et le rôle de la personne. Les entrées anciennes restent telles quelles : le journal ne se modifie pas (RG-AUD-01).
+- **Utilitaires** : `zonedDayStart` (date locale vers UTC) et `toCsv` dans `src/shared/lib/`, avec leurs tests.
+- **Tests** : catalogue et utilitaires (unitaires), 7 tests d'intégration (accès du gérant, du serveur et du propriétaire, journal global, filtres, valeurs invalides, pages sans doublon, export et neutralisation des formules, export audité) et 1 test qui reproduit le défaut de connexion.
+- **Vérifié dans le navigateur** : journal du propriétaire filtré sur « Équipe », détails, export (3 entrées), journal de l'établissement sous la charte Restaurant ; 360 et 1280 px, clair et sombre.
+
+**Bloque encore**
+- **Exports Excel et PDF** : ExcelJS et Playwright (prévus par la pile, D-014) ne sont pas encore installés.
+- Les **connexions web** du personnel sont au journal global (elles ne sont rattachées à aucun établissement) : le gérant ne les voit pas, le propriétaire si.
+- Les actions de la caisse et des clôtures apparaîtront avec ces écrans.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Recommandation actuelle |
@@ -312,8 +335,8 @@
 
 ## Prochaines étapes recommandées
 
-1. **Journal d'audit consultable et exportable** (EF-AUD-02 à 04), pour le gérant et le propriétaire.
-2. **Menus adaptés aux modules actifs** (EF-MOD-02).
+1. **Menus adaptés aux modules actifs** (EF-MOD-02).
+2. **Exports Excel et PDF** du journal et des rapports (ExcelJS, Playwright).
 3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
 5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.

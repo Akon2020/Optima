@@ -230,7 +230,8 @@ Par ordre d'urgence :
 - [ ] Droits ajustables par le gérant : remise maximale, accès aux rapports (EF-CPT-03).
 - [ ] Changement d'identifiant (e-mail ou téléphone) d'un membre.
 - [ ] Gestion des propriétaires ; le dernier propriétaire ne peut pas se retirer son rôle (RG-CPT-01).
-- [ ] Journal d'audit consultable, filtrable et exportable (EF-AUD-02 à 04).
+- [x] Journal d'audit consultable et filtrable, export CSV (EF-AUD-02, 03, 04 en partie) : `/e/<slug>/journal` et `/proprietaire/audit`.
+- [ ] Exports du journal en Excel et en PDF (EF-AUD-04), avec ExcelJS et Playwright.
 - [ ] Paramètres d'établissement validés par Zod (`establishment_settings`).
 
 ### 7.4 Module Restaurant ⬜
@@ -421,7 +422,7 @@ docker compose -f docker-compose.prod.yml up -d
 | Créer un établissement, modifier son identité, activer des modules, suspendre | Propriétaire | `/proprietaire/etablissements` | ✅ |
 | Exporter ou supprimer un établissement | Propriétaire | Espace propriétaire | ⬜ |
 | Suivre les ventes et les alertes de tous les établissements | Propriétaire | `/proprietaire` | ✅ (ventes ; marge et cash à venir) |
-| Consulter le journal d'audit | Gérant, propriétaire | Audit | ⬜ (journal écrit, écran à faire) |
+| Consulter et exporter le journal d'audit | Gérant (son établissement), propriétaire (tous) | « Journal » de l'établissement, ou `/proprietaire/audit` | ✅ (CSV ; Excel et PDF ⬜) |
 
 ---
 
