@@ -27,6 +27,7 @@ import {
   effectiveRole,
   getActiveUserId,
   getDevice,
+  getEnabledModules,
   rememberDeviceUser,
   saveDevice,
   setActiveUser,
@@ -75,6 +76,12 @@ type RestaurantContextValue = {
   }) => Promise<void>;
   addDeviceUser: (user: { userId: string; name: string; role: string }) => Promise<void>;
   lock: () => Promise<void>;
+  /**
+   * EF-MOD-02 : module actif dans l'établissement. Vrai en démonstration, et
+   * tant que l'appareil ne connaît pas encore la liste. Confort d'interface
+   * seulement : le serveur revérifie chaque opération (`authorize`).
+   */
+  isModuleEnabled: (module: string) => boolean;
 };
 
 const RestaurantContext = createContext<RestaurantContextValue | null>(null);
@@ -115,6 +122,11 @@ export function RestaurantProvider({ slug, children }: { slug: string; children:
       [db, device],
     ) ?? 0;
   const activeUser = deviceUsers.find((user) => user.userId === activeUserId) ?? null;
+  const storedModules = useLiveQuery(() => getEnabledModules(db), [db]);
+  const isModuleEnabled = useCallback(
+    (module: string) => (isDemo || !storedModules ? true : storedModules.includes(module)),
+    [isDemo, storedModules],
+  );
 
   // Le rôle effectif dépend de l'ancienneté du mot de passe : réévalué chaque minute.
   useEffect(() => {
@@ -329,6 +341,7 @@ export function RestaurantProvider({ slug, children }: { slug: string; children:
       completePairing,
       addDeviceUser,
       lock,
+      isModuleEnabled,
     }),
     [
       db,
@@ -346,6 +359,7 @@ export function RestaurantProvider({ slug, children }: { slug: string; children:
       completePairing,
       addDeviceUser,
       lock,
+      isModuleEnabled,
     ],
   );
 

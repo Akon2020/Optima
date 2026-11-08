@@ -395,6 +395,18 @@ export async function setModuleEnabled(
       create: { establishmentId: establishment.id, module: definition.id, enabled: input.enabled },
       update: { enabled: input.enabled },
     });
+    // EF-MOD-02 : les appareils adaptent aussitôt leurs menus.
+    const nextEnabled = new Set(enabled);
+    if (input.enabled) nextEnabled.add(definition.id);
+    else nextEnabled.delete(definition.id);
+    await tx.changeLog.create({
+      data: {
+        establishmentId: establishment.id,
+        entity: "establishment_modules",
+        entityId: establishment.id,
+        data: toJson({ modules: [...nextEnabled].sort() }),
+      },
+    });
     await audit(
       tx,
       owner,

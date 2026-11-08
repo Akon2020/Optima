@@ -7,6 +7,7 @@ import { moneyFromMajor } from "@/shared/lib/money";
 import { RestaurantDb } from "./db";
 import {
   applyStaffMember,
+  getEnabledModules,
   effectiveRole,
   getActiveUserId,
   rememberDeviceUser,
@@ -130,5 +131,25 @@ describe("personnel diffusé par le serveur (EF-CPT-05)", () => {
     });
     expect(await db.deviceUsers.get("m1")).toMatchObject({ name: "Gérant B.", role: "waiter" });
     expect((await db.staff.get("m1"))?.role).toBe("waiter");
+  });
+});
+
+describe("modules actifs reçus du serveur (EF-MOD-02)", () => {
+  it("inconnus au départ, puis mis à jour par les changements", async () => {
+    expect(await getEnabledModules(db)).toBeNull();
+    await applyChange(db, {
+      seq: "10",
+      entity: "establishment_modules",
+      entityId: "e1",
+      data: { modules: ["restaurant", "catalog", "delivery"] },
+    });
+    expect(await getEnabledModules(db)).toEqual(["catalog", "delivery", "restaurant"]);
+    await applyChange(db, {
+      seq: "11",
+      entity: "establishment_modules",
+      entityId: "e1",
+      data: { modules: ["catalog"] },
+    });
+    expect(await getEnabledModules(db)).toEqual(["catalog"]);
   });
 });

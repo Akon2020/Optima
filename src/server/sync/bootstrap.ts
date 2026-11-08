@@ -40,6 +40,8 @@ export type DeviceBootstrap = {
   invoices: AdvanceInvoice[];
   morningEntries: MorningStockEntry[];
   releases: TableRelease[];
+  /** Modules actifs (EF-MOD-02) : l'appareil masque les écrans des autres. */
+  modules: string[];
   cursor: string;
 };
 
@@ -64,7 +66,7 @@ export async function buildBootstrap(
 
   return withContext(db, { establishmentId: establishment.id, isOwner: false }, async (tx) => {
     const where = { establishmentId: establishment.id };
-    const [servicePoints, menuItems, tables, activity, morningEntries, releases, last] =
+    const [servicePoints, menuItems, tables, activity, morningEntries, releases, modules, last] =
       await Promise.all([
         tx.servicePoint.findMany({ where, orderBy: { sortOrder: "asc" } }),
         tx.menuItem.findMany({ where }),
@@ -72,6 +74,7 @@ export async function buildBootstrap(
         orderSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
         morningEntrySnapshots(tx, establishment.id, { enteredAt: { gte: since } }),
         tableReleaseSnapshots(tx, establishment.id, { releasedAt: { gte: since } }),
+        tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
         tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
       ]);
     return {
@@ -96,6 +99,7 @@ export async function buildBootstrap(
       invoices: activity.invoices,
       morningEntries,
       releases,
+      modules: modules.map((entry) => entry.module).sort(),
       cursor: last?.seq.toString() ?? "0",
     };
   });

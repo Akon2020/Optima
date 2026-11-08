@@ -243,8 +243,8 @@ export function ModulesPanel({ establishment }: { establishment: EstablishmentDe
           })}
         </ul>
         <p className="text-xs text-text-muted">
-          Les appareils de l&apos;établissement voient leurs opérations d&apos;un module désactivé
-          refusées, avec un motif.
+          Les appareils masquent aussitôt les écrans d&apos;un module désactivé. Leurs opérations en
+          attente sont conservées et partent à la réactivation.
         </p>
       </div>
     </Card>

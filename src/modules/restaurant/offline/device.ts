@@ -24,6 +24,7 @@ export type DeviceInfo = {
 const DEVICE_KEY = "device";
 const ACTIVE_USER_KEY = "active-user";
 const CURSOR_KEY = "sync-cursor";
+const MODULES_KEY = "modules";
 
 /** Délai pendant lequel un gérant connecté par mot de passe garde ses droits de gérant. */
 export const PASSWORD_FRESH_MS = 15 * 60_000;
@@ -47,6 +48,21 @@ export async function getCursor(db: RestaurantDb): Promise<string> {
 
 export async function saveCursor(db: RestaurantDb, cursor: string): Promise<void> {
   await db.meta.put({ key: CURSOR_KEY, value: cursor });
+}
+
+/**
+ * Modules actifs de l'établissement (EF-MOD-02), reçus du serveur. `null`
+ * tant que l'appareil ne les connaît pas : rien n'est alors masqué.
+ */
+export async function getEnabledModules(db: RestaurantDb): Promise<string[] | null> {
+  return readJson<string[]>(db, MODULES_KEY);
+}
+
+export async function saveEnabledModules(
+  db: RestaurantDb,
+  modules: readonly string[],
+): Promise<void> {
+  await db.meta.put({ key: MODULES_KEY, value: JSON.stringify([...modules].sort()) });
 }
 
 /** ENF-09 : un appareil révoqué perd toutes ses données locales. */

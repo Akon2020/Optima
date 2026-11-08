@@ -3,6 +3,7 @@
 import {
   Calculator,
   FlaskConical,
+  PackageX,
   KeyRound,
   Menu,
   RotateCcw,
@@ -28,7 +29,14 @@ import { PairingScreen } from "../device/pairing-screen";
 import { UserGate } from "../device/user-gate";
 import { orderPrepStatus } from "../../domain/dashboard";
 import { RestaurantProvider, useRestaurant } from "../restaurant-provider";
-import { NAV_ITEMS, isNavItemActive, restaurantHref } from "./nav-items";
+import {
+  NAV_ITEMS,
+  enabledNavItems,
+  isNavItemActive,
+  navItemForPath,
+  navItemModule,
+  restaurantHref,
+} from "./nav-items";
 import { SyncStatus } from "./sync-status";
 
 /**
@@ -76,8 +84,15 @@ function useOpenOrderCount(): number {
 }
 
 function ShellLayout({ children }: { children: ReactNode }) {
-  const { status } = useRestaurant();
+  const { status, slug, isModuleEnabled } = useRestaurant();
   const pathname = usePathname();
+  const isRestaurantEnabled = isModuleEnabled("restaurant");
+  const currentItem = navItemForPath(pathname, slug);
+  const disabledModule = !isRestaurantEnabled
+    ? "restaurant"
+    : currentItem && !isModuleEnabled(navItemModule(currentItem))
+      ? navItemModule(currentItem)
+      : null;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const isOrderEntry = pathname.endsWith("/commandes/nouvelle");
 
@@ -115,7 +130,9 @@ function ShellLayout({ children }: { children: ReactNode }) {
             isOrderEntry ? "pb-28 lg:pb-8" : "pb-28 lg:pb-10",
           )}
         >
-          {status === "ready" ? (
+          {status === "ready" && disabledModule ? (
+            <ModuleDisabled module={disabledModule} />
+          ) : status === "ready" ? (
             children
           ) : status === "error" ? (
             <EmptyState
@@ -127,7 +144,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
             <LoadingState />
           )}
         </main>
-        {isOrderEntry ? null : <BottomNav />}
+        {isOrderEntry || !isRestaurantEnabled ? null : <BottomNav />}
       </div>
     </div>
   );
@@ -163,10 +180,12 @@ function SidebarContent({
   onNavigate?: () => void;
   isInDrawer?: boolean;
 }) {
-  const { slug, establishmentName, ctx, isDemo, activeUser, lock } = useRestaurant();
+  const { slug, establishmentName, ctx, isDemo, activeUser, lock, isModuleEnabled } =
+    useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
   const [isConfirmingPassword, setIsConfirmingPassword] = useState(false);
+  const items = enabledNavItems(NAV_ITEMS, isModuleEnabled);
   const needsPassword = !isDemo && activeUser?.role === "manager" && ctx.role !== "manager";
 
   return (
@@ -179,7 +198,7 @@ function SidebarContent({
       <p className="mb-2 px-3 text-xs font-medium text-text-muted">{establishmentName}</p>
       <nav aria-label="Navigation du restaurant" className="flex-1">
         <ul className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {items.map((item) => {
             const isActive = isNavItemActive(pathname, slug, item.segment);
             const Icon = item.icon;
             return (
@@ -395,12 +414,15 @@ const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "menus"] as const;
 
 /** Barre d'onglets inférieure du serveur, en dessous de `lg` (§ 6). */
 function BottomNav() {
-  const { slug } = useRestaurant();
+  const { slug, isModuleEnabled } = useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
-  const items = BOTTOM_ITEMS.map((segment) =>
-    NAV_ITEMS.find((item) => item.segment === segment),
-  ).filter((item) => item !== undefined);
+  const items = enabledNavItems(
+    BOTTOM_ITEMS.map((segment) => NAV_ITEMS.find((item) => item.segment === segment)).filter(
+      (item) => item !== undefined,
+    ),
+    isModuleEnabled,
+  );
 
   return (
     <nav
@@ -455,5 +477,44 @@ function LoadingState() {
       <Skeleton className="h-48 lg:col-span-2" />
       <Skeleton className="h-48" />
     </div>
+  );
+}
+
+const MODULE_NAMES: Record<string, string> = {
+  restaurant: "Restaurant",
+  delivery: "Livraison",
+  preparation: "Postes de préparation",
+  recipes: "Fiches recettes",
+};
+
+/**
+ * EF-MOD-02, RG-MOD-01 : écran d'un module désactivé par le propriétaire. Les
+ * données restent sur l'appareil ; les opérations en attente partiront à la
+ * réactivation.
+ */
+function ModuleDisabled({ module }: { module: string }) {
+  const { slug } = useRestaurant();
+  const name = MODULE_NAMES[module] ?? module;
+  return (
+    <EmptyState
+      icon={PackageX}
+      title={
+        module === "restaurant"
+          ? "Le module Restaurant est désactivé"
+          : `Le module « ${name} » est désactivé`
+      }
+      description={
+        module === "restaurant"
+          ? "Le propriétaire a désactivé le module Restaurant pour cet établissement. Les données de l'appareil sont conservées, et les opérations en attente partiront à sa réactivation."
+          : "Le propriétaire n'a pas activé ce module pour cet établissement. Ses données, s'il y en a, sont conservées."
+      }
+      action={
+        module === "restaurant" ? undefined : (
+          <Link href={restaurantHref(slug, "")} className={buttonClasses("outline")}>
+            Retour au tableau de bord
+          </Link>
+        )
+      }
+    />
   );
 }

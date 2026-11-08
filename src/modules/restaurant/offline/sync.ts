@@ -16,6 +16,7 @@ import {
   getCursor,
   pruneDeviceUsers,
   saveCursor,
+  saveEnabledModules,
   type DeviceInfo,
   type StaffMemberChange,
 } from "./device";
@@ -44,6 +45,8 @@ export type Bootstrap = {
   invoices: AdvanceInvoice[];
   morningEntries: MorningStockEntry[];
   releases: TableRelease[];
+  /** Modules actifs (EF-MOD-02) ; absent d'un serveur plus ancien. */
+  modules?: string[];
   cursor: string;
 };
 
@@ -102,6 +105,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.invoices.bulkPut(snapshot.invoices);
       await db.morningStockEntries.bulkPut(snapshot.morningEntries);
       await db.tableReleases.bulkPut(snapshot.releases);
+      if (snapshot.modules) await saveEnabledModules(db, snapshot.modules);
       if (BigInt(snapshot.cursor) > BigInt(await getCursor(db))) {
         await saveCursor(db, snapshot.cursor);
       }
@@ -133,6 +137,9 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "morning_stock_entry":
       await db.morningStockEntries.put(change.data as MorningStockEntry);
+      break;
+    case "establishment_modules":
+      await saveEnabledModules(db, (change.data as { modules: string[] }).modules);
       break;
     case "staff_member":
       await applyStaffMember(db, change.data as StaffMemberChange);
