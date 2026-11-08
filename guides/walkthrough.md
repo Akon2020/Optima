@@ -20,14 +20,15 @@
 | 8 | Relier l'interface au serveur | Fait : appairage, PIN, synchronisation, écran « Appareils ». Reste la PWA | `305ef80`, `74c5bfd`, `ceebded`, `711e749`, `e8850c1`, `2bef4be` |
 | 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | `e9e9ef6`, `5cbe87b`, `4ff970d`, `5aaaa1d` |
 | 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports et suppression | `5f058f1`, `728d315`, `b26d45e` |
-| 11 | Journal d'audit consultable | Fait : filtres, détail, export CSV. Restent Excel et PDF | voir `git log` |
+| 11 | Journal d'audit consultable | Fait : filtres, détail, export CSV. Restent Excel et PDF | `a35eb0f`, `be1919b`, `2ae73cb` |
+| 12 | Menus selon les modules | Fait : menus et écrans des appareils suivent les modules actifs | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 124 tests unitaires passent ;
-- `pnpm test:integration` : 71 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test` : 128 tests unitaires passent ;
+- `pnpm test:integration` : 74 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -274,7 +275,6 @@
 **Bloque encore**
 - **Exports et suppression définitive** (EF-ETB-04, EF-ETB-05, RG-ETB-02) : attendent les tâches de fond (pg-boss).
 - **Logo et couleur** de l'en-tête : attendent le stockage des fichiers (**D-Q23**).
-- **Menus adaptés aux modules** (EF-MOD-02) : un module désactivé refuse ses opérations, mais ses écrans restent dans le menu de l'appareil.
 - **Indicateurs financiers** (marge, cash, manquants, stock) : attendent l'encaissement et les clôtures (**D-Q03**, **D-Q04**, **D-Q10**) et le stock (**D-Q14**).
 - **Journal d'audit consultable** (EF-AUD-02 à 04) : il est écrit partout, l'écran reste à faire.
 - **À valider par vous** : D-025.
@@ -303,6 +303,24 @@
 
 ---
 
+## Étape 12 : menus selon les modules actifs
+
+**Fait**
+- **Les appareils connaissent les modules actifs** (EF-MOD-02) : la liste arrive avec l'état initial (`/api/sync/bootstrap`), puis chaque activation ou désactivation par le propriétaire est diffusée (entité `establishment_modules` du journal des changements).
+- **Navigation** : chaque élément du menu déclare son module (`nav-items.ts`, « Livraisons » → module Livraison, le reste → Restaurant). Le menu latéral, le tiroir et la barre inférieure n'affichent que les modules actifs, sans rechargement.
+- **Écrans** : une adresse d'un module désactivé affiche « Le module … est désactivé » avec un retour au tableau de bord. Si le module Restaurant lui-même est désactivé, l'appareil n'affiche plus que cet écran (sans menu) et garde toutes ses données.
+- **Aucune perte** (RG-MOD-01, D-026) : une opération envoyée pour un module désactivé n'est plus refusée pour de bon ; le serveur répond « à réessayer », elle reste sur l'appareil et part à la réactivation.
+- Tant qu'un appareil ne connaît pas la liste (première ouverture hors ligne), rien n'est masqué ; le serveur revérifie de toute façon chaque opération.
+- **Tests** : navigation selon les modules (unitaires), mémorisation des modules sur l'appareil (unitaire), état initial, diffusion et opération mise en attente puis acceptée à la réactivation (intégration).
+- **Vérifié dans le navigateur**, appareil D03 et espace propriétaire côte à côte : « Livraisons » absent puis présent dès l'activation du module, écran « Restaurant désactivé » (sans menu ni barre inférieure), puis retour à la normale à la réactivation ; état initial rétabli (Restaurant actif, Livraison inactif) ; 360 px, clair et sombre.
+
+**Bloque encore**
+- **Droits ajustables** par le gérant (remise maximale, accès aux rapports, EF-CPT-03).
+- Les écrans des modules à venir (préparation, fiches recettes) déclareront leur module de la même façon en arrivant.
+- **À valider par vous** : D-026.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Recommandation actuelle |
@@ -320,7 +338,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022, D-023, D-024, D-025 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-026 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -335,9 +353,8 @@
 
 ## Prochaines étapes recommandées
 
-1. **Menus adaptés aux modules actifs** (EF-MOD-02).
-2. **Exports Excel et PDF** du journal et des rapports (ExcelJS, Playwright).
-3. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
-4. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-5. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
-6. **D-Q20**, puis préproduction.
+1. **Exports Excel et PDF** du journal et des rapports (ExcelJS, Playwright).
+2. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
+3. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
+4. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
+5. **D-Q20**, puis préproduction.

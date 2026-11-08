@@ -194,7 +194,7 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022**, **D-023**, **D-024** et **D-025**.
+10. Valider les propositions **D-022**, **D-023**, **D-024**, **D-025** et **D-026**.
 11. Faire signer le cahier des charges (D-013).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
@@ -221,7 +221,7 @@ Par ordre d'urgence :
 - [x] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), identité, suspension et réactivation (03).
 - [ ] Logo et couleur de l'en-tête 🔒 D-Q23 ; suppression en deux temps (EF-ETB-04, RG-ETB-02) et exports (EF-ETB-05), avec pg-boss.
 - [x] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, RG-MOD-01, 02).
-- [ ] Menus de l'interface adaptés aux modules actifs (EF-MOD-02) : aujourd'hui, les opérations d'un module désactivé sont refusées à la synchronisation, mais ses écrans restent visibles.
+- [x] Menus de l'interface adaptés aux modules actifs (EF-MOD-02) : les appareils masquent aussitôt les écrans d'un module désactivé ; ses opérations en attente sont conservées jusqu'à la réactivation (D-026).
 - [x] Comptes (écran « Équipe », `/e/<slug>/equipe`) :
   - gérants créés et gérés par le propriétaire, personnel par le gérant (EF-CPT-01, 02, 05) ;
   - réinitialisation des mots de passe par le gérant ou le propriétaire (EF-AUT-04) ;
