@@ -45,16 +45,55 @@ export async function verifyDeviceUser(
   await db.loginAttempt.create({
     data: { identifier, ip: meta.ip, succeeded: Boolean(user && isValid), createdAt: now },
   });
+
+  // Le résultat est décidé AVANT l'écriture du journal : un mot de passe
+  // correct mais refusé (compte suspendu, propriétaire, mot de passe provisoire,
+  // autre établissement) est un refus, jamais une connexion réussie.
+  let refusal: DomainError | null = null;
+  let role: string | null = null;
+  if (user && isValid) {
+    const membership = user.isOwner
+      ? null
+      : await db.membership.findUnique({
+          where: {
+            userId_establishmentId: { userId: user.id, establishmentId: device.establishmentId },
+          },
+        });
+    role = user.isOwner ? "owner" : (membership?.role ?? null);
+    if (user.status !== "active") {
+      refusal = new DomainError("SUSPENDED", "Ce compte est suspendu. Contactez votre gérant.");
+    } else if (user.isOwner) {
+      refusal = new DomainError(
+        "OWNER_NOT_ON_DEVICE",
+        "Le propriétaire travaille depuis l'espace propriétaire, protégé par la double authentification.",
+      );
+    } else if (user.mustChangePassword) {
+      refusal = new DomainError(
+        "MUST_CHANGE_PASSWORD",
+        "Changez d'abord votre mot de passe provisoire en vous connectant sur la page Connexion.",
+      );
+    } else if (!membership || membership.status !== "active") {
+      refusal = new DomainError("NOT_A_MEMBER", "Ce compte n'appartient pas à cet établissement.");
+    }
+  }
+
+  const action =
+    !user || !isValid
+      ? "auth.device-login.failed"
+      : refusal
+        ? "auth.device-login.refused"
+        : "auth.device-login.succeeded";
   await withContext(db, { establishmentId: device.establishmentId, isOwner: false }, (tx) =>
     writeAudit(tx, {
       establishmentId: device.establishmentId,
       actorUserId: user && isValid ? user.id : null,
-      actorRole: null,
+      actorRole: role,
       deviceId: device.id,
-      action: user && isValid ? "auth.device-login.succeeded" : "auth.device-login.failed",
+      action,
       entity: "device",
       entityId: device.id,
       after: { identifier },
+      reason: refusal?.code ?? null,
       ip: meta.ip,
     }),
   );
@@ -62,28 +101,6 @@ export async function verifyDeviceUser(
   if (!user || !isValid) {
     throw new DomainError("INVALID_CREDENTIALS", "Identifiant ou mot de passe incorrect.");
   }
-  if (user.status !== "active") {
-    throw new DomainError("SUSPENDED", "Ce compte est suspendu. Contactez votre gérant.");
-  }
-  if (user.isOwner) {
-    throw new DomainError(
-      "OWNER_NOT_ON_DEVICE",
-      "Le propriétaire travaille depuis l'espace propriétaire, protégé par la double authentification.",
-    );
-  }
-  if (user.mustChangePassword) {
-    throw new DomainError(
-      "MUST_CHANGE_PASSWORD",
-      "Changez d'abord votre mot de passe provisoire en vous connectant sur la page Connexion.",
-    );
-  }
-  const membership = await db.membership.findUnique({
-    where: {
-      userId_establishmentId: { userId: user.id, establishmentId: device.establishmentId },
-    },
-  });
-  if (!membership || membership.status !== "active") {
-    throw new DomainError("NOT_A_MEMBER", "Ce compte n'appartient pas à cet établissement.");
-  }
-  return { userId: user.id, name: user.displayName, role: membership.role };
+  if (refusal) throw refusal;
+  return { userId: user.id, name: user.displayName, role: role ?? "waiter" };
 }

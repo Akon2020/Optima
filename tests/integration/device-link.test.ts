@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { verifyDeviceUser } from "@/server/auth/device-users";
+import { withContext } from "@/server/db/context";
 import { buildBootstrap } from "@/server/sync/bootstrap";
 import {
   authenticateDevice,
@@ -117,6 +118,59 @@ describe("connexion d'un membre sur l'appareil (EF-AUT-01, RG-OFF-02)", () => {
         meta,
       ),
     ).rejects.toMatchObject({ code: "MUST_CHANGE_PASSWORD" });
+  });
+
+  it("journalise un refus comme un refus, avec son motif, jamais comme une connexion", async () => {
+    const lastDeviceLogin = () =>
+      withContext(db.prisma, { establishmentId: fx.a.id, isOwner: false }, (tx) =>
+        tx.auditLog.findFirst({
+          where: { action: { startsWith: "auth.device-login." } },
+          orderBy: { id: "desc" },
+        }),
+      );
+    await expect(
+      verifyDeviceUser(
+        db.prisma,
+        device,
+        { identifier: "proprietaire@optima.test", password: PASSWORD },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "OWNER_NOT_ON_DEVICE" });
+    expect(await lastDeviceLogin()).toMatchObject({
+      action: "auth.device-login.refused",
+      actorUserId: fx.owner.id,
+      actorRole: "owner",
+      reason: "OWNER_NOT_ON_DEVICE",
+    });
+    await expect(
+      verifyDeviceUser(
+        db.prisma,
+        device,
+        { identifier: "gerant.a@optima.test", password: PASSWORD },
+        meta,
+      ),
+    ).rejects.toMatchObject({ code: "MUST_CHANGE_PASSWORD" });
+    expect(await lastDeviceLogin()).toMatchObject({
+      action: "auth.device-login.refused",
+      actorRole: "manager",
+      reason: "MUST_CHANGE_PASSWORD",
+    });
+    await db.asAdmin();
+    await db.prisma.user.update({
+      where: { id: fx.managerA.id },
+      data: { mustChangePassword: false },
+    });
+    await db.asApp();
+    await verifyDeviceUser(
+      db.prisma,
+      device,
+      { identifier: "gerant.a@optima.test", password: PASSWORD },
+      meta,
+    );
+    expect(await lastDeviceLogin()).toMatchObject({
+      action: "auth.device-login.succeeded",
+      actorRole: "manager",
+    });
   });
 });
 
