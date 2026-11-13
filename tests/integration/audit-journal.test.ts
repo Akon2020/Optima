@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { login } from "@/server/auth/login";
-import { GLOBAL_SCOPE, exportAuditCsv, listAuditEntries } from "@/server/audit/journal";
+import ExcelJS from "exceljs";
+import { chromium } from "playwright-core";
+
+import { GLOBAL_SCOPE, exportAudit, listAuditEntries } from "@/server/audit/journal";
+import { closePdfBrowser } from "@/server/exports/pdf";
 import { createStaffMember, suspendStaffMember } from "@/server/staff/staff";
 import { registerDevice, revokeDevice } from "@/server/sync/devices";
 
@@ -80,6 +84,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await closePdfBrowser();
   await db.prisma.$disconnect();
   await db.pg.close();
 });
@@ -187,35 +192,107 @@ describe("filtres et pages (EF-AUD-02)", () => {
   });
 });
 
-describe("export CSV (EF-AUD-04)", () => {
-  it("exporte pour Excel, neutralise les formules et s'inscrit au journal", async () => {
-    const result = await exportAuditCsv(
+/** Navigateur local pour le PDF : le test PDF est sauté s'il n'y en a pas (intégration continue). */
+const pdfChannel = process.env.PDF_BROWSER_CHANNEL ?? "chrome";
+const hasPdfBrowser = await chromium
+  .launch({ channel: pdfChannel, headless: true })
+  .then(async (browser) => {
+    await browser.close();
+    return true;
+  })
+  .catch(() => false);
+
+const text = (base64: string) => Buffer.from(base64, "base64").toString("utf8");
+
+describe("exports (EF-AUD-04)", () => {
+  it("CSV : lisible par Excel, formules neutralisées, export inscrit au journal", async () => {
+    const result = await exportAudit(
       db.prisma,
       manager(),
-      { scope: inA(), filters: { ...none, domain: "core.staff" } },
+      { scope: inA(), filters: { ...none, domain: "core.staff" }, format: "csv" },
       { ip: "10.7.0.2", now: new Date("2026-11-08T10:00:00.000Z") },
     );
-    expect(result.filename).toBe("journal-audit-2026-11-08.csv");
-    expect(result.count).toBe(2);
-    expect(result.csv.startsWith("﻿Date;Heure;Action;Auteur;")).toBe(true);
-    expect(result.csv).toContain("Accès suspendu");
+    expect(result).toMatchObject({
+      filename: "journal-audit-2026-11-08.csv",
+      mimeType: "text/csv;charset=utf-8",
+      count: 2,
+    });
+    const csv = text(result.base64);
+    expect(csv.startsWith("\uFEFFDate;Heure;Action;Auteur;")).toBe(true);
+    expect(csv).toContain("Accès suspendu");
     // Une cellule qui commence par une formule est neutralisée par une apostrophe.
-    expect(result.csv).toContain(`"'=HYPERLINK(""http://pirate.test"";""Clic"")"`);
-    expect(result.csv).not.toMatch(/(^|;)"?=/m);
+    expect(csv).toContain(`"'=HYPERLINK(""http://pirate.test"";""Clic"")"`);
+    expect(csv).not.toMatch(/(^|;)"?=/m);
 
     const page = await listAuditEntries(db.prisma, manager(), { scope: inA(), filters: none });
     expect(page.entries[0]).toMatchObject({
       action: "core.audit.exported",
       label: "Journal exporté",
     });
+    expect(page.entries[0]?.changes).toContainEqual({
+      field: "Format",
+      before: null,
+      after: "csv",
+    });
+  });
+
+  it("Excel : classeur titré, en-tête figé, aucune cellule transformée en formule", async () => {
+    const result = await exportAudit(db.prisma, manager(), {
+      scope: inA(),
+      filters: { ...none, domain: "core.staff" },
+      format: "xlsx",
+    });
+    expect(result.filename).toMatch(/\.xlsx$/);
+    const workbook = new ExcelJS.Workbook();
+    const bytes = Buffer.from(result.base64, "base64");
+    await workbook.xlsx.load(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    );
+    const sheet = workbook.getWorksheet("Journal");
+    if (!sheet) throw new Error("feuille attendue");
+    expect(sheet.getCell("A1").value).toBe("Journal d'audit");
+    expect(sheet.getCell("A2").value).toBe("Établissement : Restaurant A");
+    const values: unknown[] = [];
+    sheet.eachRow((row) => row.eachCell((cell) => values.push(cell.value)));
+    expect(values).toContain("Accès suspendu");
+    // Le motif piégé reste un texte : ExcelJS ne produit pas de formule.
+    expect(values).toContain('=HYPERLINK("http://pirate.test";"Clic")');
+    expect(
+      values.some((value) => typeof value === "object" && value !== null && "formula" in value),
+    ).toBe(false);
+    expect(sheet.views[0]).toMatchObject({ state: "frozen" });
+  });
+
+  it.runIf(hasPdfBrowser)("PDF : document A4 généré par le navigateur", async () => {
+    process.env.PDF_BROWSER_CHANNEL = pdfChannel;
+    const result = await exportAudit(db.prisma, manager(), {
+      scope: inA(),
+      filters: none,
+      format: "pdf",
+    });
+    const pdf = Buffer.from(result.base64, "base64");
+    expect(result.mimeType).toBe("application/pdf");
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect(pdf.length).toBeGreaterThan(1_000);
+  });
+
+  it("refuse un format inconnu", async () => {
+    await expect(
+      exportAudit(db.prisma, manager(), {
+        scope: inA(),
+        filters: none,
+        format: "docx" as "csv",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
   it("l'export du propriétaire sur tous les établissements va au journal global", async () => {
-    const result = await exportAuditCsv(db.prisma, owner(), {
+    const result = await exportAudit(db.prisma, owner(), {
       scope: { kind: "owner", establishmentId: null },
       filters: none,
+      format: "csv",
     });
-    expect(result.csv.split("\r\n")[0]).toContain("Établissement");
+    expect(text(result.base64).split("\r\n")[0]).toContain("Établissement");
     const global = await listAuditEntries(db.prisma, owner(), {
       scope: { kind: "owner", establishmentId: GLOBAL_SCOPE },
       filters: { ...none, action: "owner.audit.exported" },

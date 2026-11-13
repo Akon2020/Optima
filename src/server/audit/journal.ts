@@ -7,8 +7,12 @@ import { DomainError } from "@/shared/lib/errors";
 import { authorize, requireOwner, type Actor } from "../authz/authorize";
 import type { Db } from "../db/context";
 import { withContext } from "../db/context";
+import { renderPdf } from "../exports/pdf";
+import { buildTableDocument } from "../exports/table-document";
+import { buildWorkbook } from "../exports/xlsx";
 import { writeAudit } from "./audit";
 import {
+  AUDIT_DOMAINS,
   ROLE_LABELS,
   actionLabel,
   describeChanges,
@@ -279,26 +283,90 @@ export async function listAuditEntries(
   };
 }
 
+export const AUDIT_EXPORT_FORMATS = ["csv", "xlsx", "pdf"] as const;
+export type AuditExportFormat = (typeof AUDIT_EXPORT_FORMATS)[number];
+
+/** Un PDF de plus de 2 000 lignes devient illisible et lent à produire. */
+export const AUDIT_PDF_MAX = 2_000;
+
+const MIME_TYPES: Record<AuditExportFormat, string> = {
+  csv: "text/csv;charset=utf-8",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pdf: "application/pdf",
+};
+
+export type AuditExportFile = {
+  filename: string;
+  mimeType: string;
+  /** Contenu du fichier en base64 (les Server Actions ne transportent que du texte). */
+  base64: string;
+  count: number;
+};
+
+/** Lignes d'en-tête du document : périmètre et filtres appliqués. */
+async function describeExport(db: Db, access: Access, filters: AuditFilters): Promise<string[]> {
+  let scope = "Tous les établissements, et les événements hors établissement";
+  if (access.establishmentFilter === null) scope = "Hors établissement (connexions et sécurité)";
+  else if (access.establishmentFilter) {
+    const establishment = await db.establishment.findUnique({
+      where: { id: access.establishmentFilter },
+      select: { name: true },
+    });
+    scope = `Établissement : ${establishment?.name ?? "inconnu"}`;
+  }
+  const parts: string[] = [];
+  if (filters.from || filters.to) {
+    parts.push(`période ${filters.from ?? "…"} → ${filters.to ?? "…"}`);
+  }
+  if (filters.domain && isAuditDomain(filters.domain)) {
+    const label = AUDIT_DOMAINS.find((domain) => domain.id === filters.domain)?.label;
+    parts.push(`domaine « ${label} »`);
+  }
+  if (filters.action) parts.push(`action « ${actionLabel(filters.action)} »`);
+  if (filters.actorUserId && UUID.test(filters.actorUserId)) {
+    const user = await db.user.findUnique({
+      where: { id: filters.actorUserId },
+      select: { displayName: true },
+    });
+    parts.push(`auteur ${user?.displayName ?? "inconnu"}`);
+  }
+  if (filters.deviceId && UUID.test(filters.deviceId)) {
+    const device = await db.device.findUnique({
+      where: { id: filters.deviceId },
+      select: { code: true },
+    });
+    parts.push(`appareil ${device?.code ?? "inconnu"}`);
+  }
+  return [scope, parts.length > 0 ? `Filtres : ${parts.join(", ")}.` : "Aucun filtre."];
+}
+
 /**
- * Export CSV (EF-AUD-04), lisible par Excel. L'export est lui-même inscrit au
- * journal : dans l'établissement concerné (visible du gérant, RG-PRO-01) ou,
- * pour un export de tous les établissements, au journal global.
+ * Export du journal (EF-AUD-04) en CSV, Excel ou PDF. L'export est lui-même
+ * inscrit au journal, avec son format : dans l'établissement concerné
+ * (visible du gérant, RG-PRO-01) ou, pour tous les établissements, au
+ * journal global.
  */
-export async function exportAuditCsv(
+export async function exportAudit(
   db: Db,
   actor: Actor | null,
-  input: { scope: AuditScope; filters: AuditFilters },
+  input: { scope: AuditScope; filters: AuditFilters; format: AuditExportFormat },
   meta: { ip?: string | null; now?: Date } = {},
-): Promise<{ filename: string; csv: string; count: number }> {
+): Promise<AuditExportFile> {
+  if (!AUDIT_EXPORT_FORMATS.includes(input.format)) {
+    throw new DomainError("INVALID_INPUT", "Format d'export inconnu.");
+  }
   const access = await resolveAccess(db, actor, input.scope);
   const where = buildWhere(access, input.filters);
+  const max = input.format === "pdf" ? AUDIT_PDF_MAX : AUDIT_EXPORT_MAX;
   const rows = await withContext(db, access.dbContext, (tx) =>
-    tx.auditLog.findMany({ where, orderBy: { id: "desc" }, take: AUDIT_EXPORT_MAX + 1 }),
+    tx.auditLog.findMany({ where, orderBy: { id: "desc" }, take: max + 1 }),
   );
-  if (rows.length > AUDIT_EXPORT_MAX) {
+  if (rows.length > max) {
     throw new DomainError(
       "EXPORT_TOO_LARGE",
-      `Plus de ${AUDIT_EXPORT_MAX.toLocaleString("fr-FR")} entrées : resserrez les dates ou les filtres.`,
+      input.format === "pdf"
+        ? `Plus de ${max.toLocaleString("fr-FR")} entrées pour un PDF : resserrez les filtres, ou choisissez Excel.`
+        : `Plus de ${max.toLocaleString("fr-FR")} entrées : resserrez les dates ou les filtres.`,
     );
   }
   const entries = await enrich(db, rows);
@@ -316,24 +384,44 @@ export async function exportAuditCsv(
     "Adresse IP",
     "Code de l'action",
   ];
-  const csv = toCsv(
+  const weights = [1.5, 0.8, ...(withEstablishment ? [1.6] : []), 2, 1.3, 1, 0.8, 1.6, 2.8, 1, 1.8];
+  const body = entries.map((entry) => [
+    formatDate(entry.createdAt, access.timeZone),
+    formatTime(entry.createdAt, access.timeZone),
+    ...(withEstablishment ? [entry.establishmentName ?? "Hors établissement"] : []),
+    entry.label,
+    entry.actorName,
+    entry.actorRole ? (ROLE_LABELS[entry.actorRole] ?? entry.actorRole) : null,
+    entry.deviceCode,
+    entry.reason,
+    entry.changes
+      .map((change) => `${change.field} : ${change.before ?? "—"} → ${change.after ?? "—"}`)
+      .join(" | "),
+    entry.ip,
+    entry.action,
+  ]);
+
+  const now = meta.now ?? new Date();
+  const nowIso = now.toISOString();
+  const table = {
+    title: "Journal d'audit",
+    details: await describeExport(db, access, input.filters),
     header,
-    entries.map((entry) => [
-      formatDate(entry.createdAt, access.timeZone),
-      formatTime(entry.createdAt, access.timeZone),
-      ...(withEstablishment ? [entry.establishmentName ?? "Global"] : []),
-      entry.label,
-      entry.actorName,
-      entry.actorRole ? (ROLE_LABELS[entry.actorRole] ?? entry.actorRole) : null,
-      entry.deviceCode,
-      entry.reason,
-      entry.changes
-        .map((change) => `${change.field} : ${change.before ?? "—"} → ${change.after ?? "—"}`)
-        .join(" | "),
-      entry.ip,
-      entry.action,
-    ]),
-  );
+    rows: body,
+    generatedAt: `${formatDate(nowIso, access.timeZone)} à ${formatTime(nowIso, access.timeZone)}`,
+    columnWeights: weights,
+  };
+  let content: Buffer;
+  if (input.format === "csv") {
+    content = Buffer.from(toCsv(header, body), "utf8");
+  } else if (input.format === "xlsx") {
+    content = await buildWorkbook({ ...table, sheetName: "Journal" });
+  } else {
+    content = await renderPdf(buildTableDocument(table), {
+      landscape: true,
+      footerLabel: `OPTIMA · Journal d'audit · ${table.details[0] ?? ""}`,
+    });
+  }
 
   const target = access.establishmentFilter ?? null;
   await withContext(db, { establishmentId: target, isOwner: access.role === "owner" }, (tx) =>
@@ -343,11 +431,15 @@ export async function exportAuditCsv(
       actorRole: access.role,
       action: access.role === "owner" && !target ? "owner.audit.exported" : "core.audit.exported",
       entity: "audit_log",
-      after: { count: entries.length, filters: input.filters },
+      after: { format: input.format, count: entries.length, filters: input.filters },
       ip: meta.ip ?? null,
     }),
   );
 
-  const day = (meta.now ?? new Date()).toISOString().slice(0, 10);
-  return { filename: `journal-audit-${day}.csv`, csv, count: entries.length };
+  return {
+    filename: `journal-audit-${nowIso.slice(0, 10)}.${input.format}`,
+    mimeType: MIME_TYPES[input.format],
+    base64: content.toString("base64"),
+    count: entries.length,
+  };
 }
