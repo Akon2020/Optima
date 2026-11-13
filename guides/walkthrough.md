@@ -22,13 +22,14 @@
 | 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports et suppression | `5f058f1`, `728d315`, `b26d45e` |
 | 11 | Journal d'audit consultable | Fait : filtres, détail, export CSV. Restent Excel et PDF | `a35eb0f`, `be1919b`, `2ae73cb` |
 | 12 | Menus selon les modules | Fait : menus et écrans des appareils suivent les modules actifs | `6a4acfe`, `9140150`, `a8985b6` |
-| 13 | Exports Excel et PDF | Fait pour le journal ; briques prêtes pour les rapports | voir `git log` |
+| 13 | Exports Excel et PDF | Fait pour le journal ; briques prêtes pour les rapports | `4268b50`, `506b552`, `60736b6`, `7409ba5` |
+| 14 | PWA hors connexion | Fait : installable, pages du Restaurant sans réseau | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 131 tests unitaires passent ;
+- `pnpm test` : 136 tests unitaires passent ;
 - `pnpm test:integration` : 77 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
@@ -109,7 +110,7 @@
 - **Livraison** désactivée : **D-Q07**.
 - **Accompagnements** (frites, foufou…) vendus seuls pour l'instant : **D-Q06**.
 - **Impression** : le navigateur seulement. Le matériel n'est pas connu (**D-Q13**), donc pas d'ESC/POS.
-- **Hors connexion réel** : sans service worker (Serwist), un rechargement complet sans réseau échoue. Les données, elles, restent dans l'appareil.
+- **Hors connexion réel** : fait à l'étape 14 (PWA).
 - **Annulation et remise** (RG-CMD-02, RG-ENC-01) non faites.
 
 ---
@@ -218,7 +219,6 @@
 **Bloque encore**
 - **Hors connexion** :
   - l'ajout d'un utilisateur et la confirmation du mot de passe d'un gérant exigent le réseau ;
-  - sans PWA (Serwist), un rechargement complet de la page sans réseau échoue ; les données restent dans l'appareil.
 - **Jeton d'appareil dans IndexedDB** : la CSP stricte avec nonce (`CLAUDE.md` § 5.4) devient d'autant plus importante.
 - **Layout du module** : coquille statique sans donnée ; tout passe par le jeton d'appareil, revérifié à chaque requête. Un contrôle serveur sera ajouté pour les écrans en ligne (rapports).
 - **Utilisateur suspendu** entre deux synchronisations : ses opérations sont refusées, avec motif ; le marquage « pour revue » prévu par le `CLAUDE.md` § 5.1 reste à faire.
@@ -343,6 +343,28 @@
 
 ---
 
+## Étape 14 : PWA hors connexion
+
+**Fait**
+- **Application installable** (EF-OFF-05) : manifeste (`/manifest.webmanifest`), icônes provisoires (un « O » blanc sur le bleu nuit, en attendant le logo D-Q11), ouverture sur `/ouvrir`, qui reprend le dernier établissement ouvert sur l'appareil.
+- **Service worker Serwist** (D-028) :
+  - fichiers statiques précachés au déploiement (54 fichiers, 1,7 Mo, téléchargés une fois en arrière-plan) ;
+  - pages du Restaurant : réseau d'abord, copie locale sans réseau ; à chaque ouverture du Restaurant, l'appareil fait préparer les pages de son menu (modules actifs) ;
+  - **jamais en cache** : l'API (dont la synchronisation), l'espace propriétaire, la connexion, le compte, l'équipe, les appareils, le journal ; hors connexion, ils sont remplacés par la page « Pas de connexion » ;
+  - message de préparation contrôlé : seules des adresses relatives de pages Restaurant sont acceptées.
+- **Construction** : `pnpm build` lance `next build`, puis `scripts/build-sw.mts` (esbuild et `@serwist/build`) qui écrit `public/sw.js`. `@serwist/turbopack` n'a pas pu être utilisé : son binaire natif `@swc/core` est bloqué par la politique de sécurité Windows du poste (je n'ai pas touché à cette politique).
+- **Vérifié sur un serveur de production avec Chrome** (`pnpm check:offline`) : service worker actif, 9 pages du menu préparées ; réseau coupé : rechargement du tableau de bord, page Tables jamais ouverte, prise de commande avec son menu, `/proprietaire` remplacé par « Pas de connexion » ; `/ouvrir` hors ligne rouvre le restaurant ; aucune réponse d'API ni page d'administration dans les caches.
+- **Tests** : règles de cache (unitaires) ; page « Pas de connexion » contrôlée à 360 et 1280 px, en clair et en sombre.
+
+**Bloque encore**
+- **Logo définitif** (D-Q11) pour les icônes.
+- **Tests Playwright de bout en bout** (`@playwright/test`, hors connexion et deux appareils) : `pnpm check:offline` en tient lieu pour l'instant.
+- **CSP avec nonce** (`CLAUDE.md` § 5.4) : à poser, en autorisant `/sw.js`.
+- **Production** : HTTPS obligatoire pour le service worker (Caddy) ; `public/sw.js` doit être produit par `pnpm build` avant la copie dans l'image Docker.
+- **À valider par vous** : D-028.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Recommandation actuelle |
@@ -360,7 +382,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-027 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-028 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -377,5 +399,5 @@
 
 1. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 2. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-3. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
+3. **CSP avec nonce**, puis tests Playwright de bout en bout (hors connexion, deux appareils).
 4. **D-Q20**, puis préproduction.

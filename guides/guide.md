@@ -150,6 +150,8 @@ Ouvrez `http://localhost:3000/connexion`.
 
 **Appareils** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/appareils` liste les appareils, leur dernière synchronisation et leurs opérations refusées. Un appareil perdu, volé ou remplacé se révoque avec un motif : il ne peut plus rien envoyer ni recevoir, et il efface ses données locales à sa prochaine connexion. Ce qui y a été saisi après sa dernière synchronisation est perdu : l'écran le rappelle avant de confirmer.
 
+**Installer l'application sur un téléphone ou une tablette** (production, en HTTPS) : ouvrir l'adresse d'OPTIMA dans Chrome, puis menu « Ajouter à l'écran d'accueil » (ou « Installer l'application »). Ouvrir une première fois le restaurant **avec le réseau** : l'appareil garde alors les pages du menu. Ensuite, l'application s'ouvre et se recharge même sans Internet ; les écrans qui exigent le réseau (espace propriétaire, équipe, journal) affichent « Pas de connexion ». En développement (`pnpm dev`), le service worker est désactivé : pour l'essayer, `pnpm build`, puis `pnpm exec next start -p 3100`, puis `pnpm check:offline`.
+
 **Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`. Rien n'y est envoyé au serveur.
 
 ---
@@ -194,7 +196,7 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022** à **D-027**.
+10. Valider les propositions **D-022** à **D-028**.
 11. Faire signer le cahier des charges (D-013).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
@@ -259,11 +261,12 @@ Par ordre d'urgence :
 - [ ] Fichiers : contrôle par signature, réencodage par sharp, stockage hors du dossier public (`CLAUDE.md` § 3.11) 🔒 D-Q23.
 - [ ] Tâches de fond pg-boss : exports, rapports, alertes.
 
-### 7.6 Hors connexion et application installable ⬜
+### 7.6 Hors connexion et application installable (en grande partie fait)
 
-- [ ] Service worker (Serwist), manifeste, icônes, installation sur l'écran d'accueil (EF-OFF-05).
-- [ ] Ouverture de l'application sans réseau, y compris après un rechargement.
-- [ ] Tests de bout en bout hors connexion et sur deux appareils synchronisés.
+- [x] Service worker (Serwist), manifeste, icônes provisoires, installation sur l'écran d'accueil (EF-OFF-05, D-028).
+- [x] Ouverture de l'application sans réseau, y compris après un rechargement (`pnpm check:offline`).
+- [ ] Logo définitif (D-Q11), puis `pnpm exec tsx scripts/generate-icons.mts`.
+- [ ] Tests Playwright de bout en bout (`@playwright/test`) : hors connexion et deux appareils synchronisés.
 
 ### 7.7 Sécurité restante ⬜
 

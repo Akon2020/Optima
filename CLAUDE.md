@@ -45,7 +45,8 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
   - l'**espace propriétaire** (`/proprietaire`) : vue d'ensemble des ventes et alertes, établissements (création avec aperçu de l'en-tête, identité, modules avec dépendances, suspension et réactivation). Logique pure dans `src/modules/owner/`, services dans `src/server/owner/` ;
   - le **journal d'audit consultable** : `/e/<slug>/journal` (gérant) et `/proprietaire/audit` (propriétaire), filtres, détail des changements, export CSV audité. Catalogue des actions dans `src/server/audit/catalog.ts`, requêtes dans `src/server/audit/journal.ts` ;
   - les **menus selon les modules actifs** : les appareils reçoivent la liste des modules et masquent les écrans des modules désactivés ; leurs opérations restent en attente jusqu'à la réactivation (D-026) ;
-  - les **exports Excel et PDF** du journal (ExcelJS, `playwright-core`, D-027) : briques réutilisables dans `src/server/exports/` (document tabulaire, classeur, rendu PDF) pour les rapports à venir.
+  - les **exports Excel et PDF** du journal (ExcelJS, `playwright-core`, D-027) : briques réutilisables dans `src/server/exports/` (document tabulaire, classeur, rendu PDF) pour les rapports à venir ;
+  - la **PWA hors connexion** (Serwist, D-028) : application installable, pages du Restaurant disponibles sans réseau après une première visite, page « Pas de connexion » pour les écrans en ligne. Règles de cache dans `src/offline/cache-rules.ts`, service worker dans `src/offline/sw/sw.ts`, construit par `scripts/build-sw.mts`.
 - `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
 - La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
 - Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
@@ -738,7 +739,9 @@ Scripts existants dans `package.json` :
 | Commande | Rôle |
 |---|---|
 | `pnpm dev` | Serveur de développement |
-| `pnpm build` / `pnpm start` | Build et démarrage de production |
+| `pnpm build` / `pnpm start` | Build et démarrage de production ; `pnpm build` produit aussi le service worker `public/sw.js` (D-028) |
+| `pnpm check:offline` | Vérifie la PWA hors connexion sur un serveur de production lancé (`next start -p 3100`), avec le Chrome installé |
+| `pnpm exec tsx scripts/generate-icons.mts` | Régénère les icônes de l'application installable (provisoires, D-Q11) |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint (règles Next.js) |
 | `pnpm format` / `pnpm format:check` | Prettier |
@@ -761,8 +764,8 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Style
 | 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Restent Stylelint et Playwright |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
-| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
-| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. Restent l'export complet et la suppression d'établissement, et la PWA ; D-Q20 (hébergement) reste ouverte |
+| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
+| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. PWA hors connexion faite le 13/11/2026. Restent l'export complet et la suppression d'établissement ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
 L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).
