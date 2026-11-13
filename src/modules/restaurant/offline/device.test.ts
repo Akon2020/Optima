@@ -44,7 +44,9 @@ describe("utilisateurs de l'appareil (EF-AUT-05)", () => {
     // Nouvelle vérification du mot de passe : le PIN existant redevient utilisable.
     await rememberDeviceUser(db, { userId: "u1", name: "Amani", role: "waiter" });
     expect(await unlockWithPin(db, "u1", "2580")).toEqual({ ok: true });
-  });
+    // Sept vérifications PBKDF2 à 210 000 itérations (D-024) : lent par conception,
+    // et plus encore quand toute la suite tourne en parallèle.
+  }, 15_000);
 
   it("refuse un PIN trop facile", async () => {
     await rememberDeviceUser(db, { userId: "u1", name: "Amani", role: "waiter" });
