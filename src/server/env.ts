@@ -21,6 +21,12 @@ const envSchema = z.object({
     ),
   /** Origine publique de l'application, contrôlée sur les requêtes modifiantes. */
   APP_ORIGIN: z.string().url().optional(),
+  /**
+   * Navigateur des exports PDF (lu par `src/server/exports/pdf.ts`) : chemin
+   * de l'exécutable (Chromium de l'image Docker), sinon canal installé.
+   */
+  PDF_BROWSER_PATH: z.string().min(1).optional(),
+  PDF_BROWSER_CHANNEL: z.enum(["chrome", "msedge", "chromium"]).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
