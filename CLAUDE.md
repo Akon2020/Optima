@@ -44,7 +44,8 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
   - l'écran **« Équipe »** (`/e/<slug>/equipe`) : création des comptes (mot de passe provisoire), rôle et poste, réinitialisation, déconnexion forcée, suspension avec motif et réactivation, diffusées aux appareils. Règles dans `src/server/staff/rules.ts`, services dans `src/server/staff/staff.ts` ;
   - l'**espace propriétaire** (`/proprietaire`) : vue d'ensemble des ventes et alertes, établissements (création avec aperçu de l'en-tête, identité, modules avec dépendances, suspension et réactivation). Logique pure dans `src/modules/owner/`, services dans `src/server/owner/` ;
   - le **journal d'audit consultable** : `/e/<slug>/journal` (gérant) et `/proprietaire/audit` (propriétaire), filtres, détail des changements, export CSV audité. Catalogue des actions dans `src/server/audit/catalog.ts`, requêtes dans `src/server/audit/journal.ts` ;
-  - les **menus selon les modules actifs** : les appareils reçoivent la liste des modules et masquent les écrans des modules désactivés ; leurs opérations restent en attente jusqu'à la réactivation (D-026).
+  - les **menus selon les modules actifs** : les appareils reçoivent la liste des modules et masquent les écrans des modules désactivés ; leurs opérations restent en attente jusqu'à la réactivation (D-026) ;
+  - les **exports Excel et PDF** du journal (ExcelJS, `playwright-core`, D-027) : briques réutilisables dans `src/server/exports/` (document tabulaire, classeur, rendu PDF) pour les rapports à venir.
 - `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
 - La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
 - Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
@@ -263,7 +264,7 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 | Composants de base | **Radix UI** (primitives accessibles), stylées par nos tokens | Accessibilité clavier et lecteurs d'écran |
 | Thèmes | **next-themes** (`attribute="data-theme"`) | Script anti-flash, mode système, persistance |
 | Hors connexion | **Service Worker** (via Serwist) et **IndexedDB** (via Dexie) | PWA installable, file d'attente d'opérations |
-| PDF | **Playwright / Chromium** côté serveur | Rendu A4 identique à l'aperçu |
+| PDF | **Playwright / Chromium** côté serveur (`playwright-core` et navigateur installé, D-027) | Rendu A4 identique à l'aperçu |
 | Tâches de fond | **pg-boss** (file adossée à PostgreSQL) | Exports, rapports, alertes, sans serveur supplémentaire |
 | Excel et CSV | **ExcelJS** | Imports et exports |
 | Images | **sharp** | Réencodage et redimensionnement des photos |
@@ -761,7 +762,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Style
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
 | 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
-| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Restent les exports Excel et PDF, la suppression d'établissement, et la PWA ; D-Q20 (hébergement) reste ouverte |
+| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. Restent l'export complet et la suppression d'établissement, et la PWA ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
 L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).

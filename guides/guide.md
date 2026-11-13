@@ -194,7 +194,7 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022**, **D-023**, **D-024**, **D-025** et **D-026**.
+10. Valider les propositions **D-022** à **D-027**.
 11. Faire signer le cahier des charges (D-013).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
@@ -231,7 +231,7 @@ Par ordre d'urgence :
 - [ ] Changement d'identifiant (e-mail ou téléphone) d'un membre.
 - [ ] Gestion des propriétaires ; le dernier propriétaire ne peut pas se retirer son rôle (RG-CPT-01).
 - [x] Journal d'audit consultable et filtrable, export CSV (EF-AUD-02, 03, 04 en partie) : `/e/<slug>/journal` et `/proprietaire/audit`.
-- [ ] Exports du journal en Excel et en PDF (EF-AUD-04), avec ExcelJS et Playwright.
+- [x] Exports du journal en Excel et en PDF (EF-AUD-04), avec ExcelJS et `playwright-core` (D-027).
 - [ ] Paramètres d'établissement validés par Zod (`establishment_settings`).
 
 ### 7.4 Module Restaurant ⬜
@@ -320,7 +320,7 @@ Par ordre d'urgence :
 
 | Fichier | Contenu attendu |
 |---|---|
-| `Dockerfile` | Construction en plusieurs étapes sur `node:24-bookworm-slim` : `pnpm install --frozen-lockfile`, `pnpm build` avec `output: "standalone"` dans `next.config.ts`, image finale sans outils de build, utilisateur non-root |
+| `Dockerfile` | Construction en plusieurs étapes sur `node:24-bookworm-slim` : `pnpm install --frozen-lockfile`, `pnpm build` avec `output: "standalone"` dans `next.config.ts`, image finale sans outils de build, utilisateur non-root. Pour les exports PDF : `apt-get install chromium fonts-dejavu-core` dans l'image finale, et `PDF_BROWSER_PATH=/usr/bin/chromium` (D-027) |
 | `docker-compose.prod.yml` | Services `db` (postgres:18, volume persistant, aucun port exposé), `app` (image OPTIMA, variables d'environnement, dépend de `db`), `caddy` (ports 80 et 443, certificats automatiques) |
 | `Caddyfile` | `optima.exemple.cd { reverse_proxy app:3000 }`, plus les en-têtes de sécurité si la CSP n'est pas posée par Next.js |
 | `scripts/db/setup-production.sql` | Même rôle que `setup-local.sql`, sans saisie interactive (mots de passe passés par des secrets) |
@@ -339,6 +339,7 @@ L'application doit rester **derrière Caddy** : elle se fie à l'en-tête `X-For
 | `AUTH_ENCRYPTION_KEY` | **Nouvelle** clé de 32 octets en base64, jamais celle du développement. La perdre rend les doubles authentifications illisibles : conservez-la dans un coffre |
 | `APP_ORIGIN` | `https://optima.exemple.cd` (obligatoire : l'application refuse de démarrer sans) |
 | `NEXT_PUBLIC_SITE_INDEXABLE` | `false` tant que D-Q01 n'est pas tranchée |
+| `PDF_BROWSER_PATH` | `/usr/bin/chromium` (Chromium installé dans l'image), pour les exports PDF |
 
 Les secrets sont fournis par un fichier `.env` sur le serveur (droits `600`, hors du dépôt) ou par les secrets Docker. Ils ne sont jamais dans l'image ni dans Git.
 
@@ -422,7 +423,7 @@ docker compose -f docker-compose.prod.yml up -d
 | Créer un établissement, modifier son identité, activer des modules, suspendre | Propriétaire | `/proprietaire/etablissements` | ✅ |
 | Exporter ou supprimer un établissement | Propriétaire | Espace propriétaire | ⬜ |
 | Suivre les ventes et les alertes de tous les établissements | Propriétaire | `/proprietaire` | ✅ (ventes ; marge et cash à venir) |
-| Consulter et exporter le journal d'audit | Gérant (son établissement), propriétaire (tous) | « Journal » de l'établissement, ou `/proprietaire/audit` | ✅ (CSV ; Excel et PDF ⬜) |
+| Consulter et exporter le journal d'audit | Gérant (son établissement), propriétaire (tous) | « Journal » de l'établissement, ou `/proprietaire/audit` | ✅ (Excel, PDF, CSV) |
 
 ---
 

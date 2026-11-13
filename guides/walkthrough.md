@@ -21,14 +21,15 @@
 | 9 | Gestion du personnel | Fait : écran « Équipe ». Restent les droits ajustables (EF-CPT-03) | `e9e9ef6`, `5cbe87b`, `4ff970d`, `5aaaa1d` |
 | 10 | Espace propriétaire | Fait : vue d'ensemble, établissements, modules, suspension. Restent exports et suppression | `5f058f1`, `728d315`, `b26d45e` |
 | 11 | Journal d'audit consultable | Fait : filtres, détail, export CSV. Restent Excel et PDF | `a35eb0f`, `be1919b`, `2ae73cb` |
-| 12 | Menus selon les modules | Fait : menus et écrans des appareils suivent les modules actifs | voir `git log` |
+| 12 | Menus selon les modules | Fait : menus et écrans des appareils suivent les modules actifs | `6a4acfe`, `9140150`, `a8985b6` |
+| 13 | Exports Excel et PDF | Fait pour le journal ; briques prêtes pour les rapports | voir `git log` |
 
 **En une phrase :** un appareil du restaurant s'appaire au serveur, chaque serveur y reprend la main par son code PIN, et les commandes, le stock du matin et les tables se synchronisent avec PostgreSQL. L'aperçu `/e/demo/restaurant` reste local.
 
 **Vérifications au dernier commit :**
 - `pnpm typecheck`, `pnpm lint` et `pnpm build` passent ;
-- `pnpm test` : 128 tests unitaires passent ;
-- `pnpm test:integration` : 74 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
+- `pnpm test` : 131 tests unitaires passent ;
+- `pnpm test:integration` : 77 tests d'intégration passent, sur PostgreSQL 18 embarqué ;
 - parcours vérifié dans le navigateur contre la base locale (étape 8).
 
 ---
@@ -297,7 +298,6 @@
 - **Vérifié dans le navigateur** : journal du propriétaire filtré sur « Équipe », détails, export (3 entrées), journal de l'établissement sous la charte Restaurant ; 360 et 1280 px, clair et sombre.
 
 **Bloque encore**
-- **Exports Excel et PDF** : ExcelJS et Playwright (prévus par la pile, D-014) ne sont pas encore installés.
 - Les **connexions web** du personnel sont au journal global (elles ne sont rattachées à aucun établissement) : le gérant ne les voit pas, le propriétaire si.
 - Les actions de la caisse et des clôtures apparaîtront avec ces écrans.
 
@@ -321,6 +321,28 @@
 
 ---
 
+## Étape 13 : exports Excel et PDF
+
+**Fait**
+- **Trois formats** pour le journal d'audit (EF-AUD-04), sur les deux écrans : boutons « Excel », « PDF » et « CSV », qui exportent les entrées filtrées.
+- **Excel** (ExcelJS 4.4.0) : titre, périmètre et filtres en tête, ligne d'en-tête figée aux couleurs de la charte, filtres automatiques, colonnes dimensionnées, mise en page A4 paysage. Les valeurs sont écrites comme du texte : une cellule « =… » ne devient jamais une formule.
+- **PDF** (`playwright-core` 1.65.0) : A4 paysage, en-tête OPTIMA, lignes alternées, pied de page numéroté « Page 1 / 3 », toujours en clair. Rendu par un navigateur installé (Chrome en local, Chromium dans l'image Docker en production), sans téléchargement de navigateur.
+- **Sécurité du rendu PDF** : contenu entièrement échappé, page sans JavaScript, hors ligne, toute requête bloquée ; deux rendus simultanés au plus ; 2 000 entrées au plus par PDF (10 000 pour Excel et CSV).
+- **Performance** : un seul navigateur par processus, réutilisé et fermé après deux minutes d'inactivité (sous Windows, fermer Chrome prend plus de dix secondes : le faire à chaque export était inacceptable).
+- **Briques réutilisables** (`src/server/exports/`) : document tabulaire imprimable, classeur, rendu PDF. Les rapports les utiliseront.
+- Chaque export est inscrit au journal **avec son format**.
+- **Tests** : document imprimable et échappement (unitaires) ; CSV, Excel relu par ExcelJS (titre, en-tête figé, aucune formule), PDF réel, format inconnu, export global (intégration). Le test PDF est sauté automatiquement sur une machine sans Chrome.
+- **Test fragile corrigé** : le test de verrouillage du PIN (sept vérifications PBKDF2 à 210 000 itérations, lentes par conception) pouvait dépasser 5 secondes quand toute la suite tourne en parallèle ; il dispose maintenant de 15 secondes.
+- **Vérifié dans le navigateur** : export Excel (8 Ko) et PDF (65 Ko, 7 s la première fois, lancement du navigateur compris) depuis le journal de l'établissement ; aperçu du PDF contrôlé ; boutons de 44 px sur téléphone ; 360 px et bureau, clair et sombre.
+
+**Bloque encore**
+- **Export complet d'un établissement** (EF-ETB-05) et **suppression** (EF-ETB-04) : demandent la file de tâches pg-boss.
+- **Rapports** (EF-RAP) : à construire avec l'encaissement et les clôtures ; ils réutiliseront ces exports.
+- **Production** : installer Chromium et une police (DejaVu) dans l'image Docker, et poser `PDF_BROWSER_PATH` (voir `guide.md`, § 8.3 et 8.4).
+- **À valider par vous** : D-027.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Recommandation actuelle |
@@ -338,7 +360,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-026 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-027 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -353,8 +375,7 @@
 
 ## Prochaines étapes recommandées
 
-1. **Exports Excel et PDF** du journal et des rapports (ExcelJS, Playwright).
-2. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
-3. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-4. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
-5. **D-Q20**, puis préproduction.
+1. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
+2. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
+3. **PWA hors connexion** (Serwist), CSP avec nonce, puis tests Playwright hors connexion et sur deux appareils.
+4. **D-Q20**, puis préproduction.
