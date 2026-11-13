@@ -46,3 +46,7 @@ next-env.d.ts
 
 # fichiers locaux confidentiels (identifiants de développement)
 *.local.md
+
+# service worker généré par `pnpm build` (scripts/build-sw.mts)
+/public/sw.js
+/public/sw.js.map

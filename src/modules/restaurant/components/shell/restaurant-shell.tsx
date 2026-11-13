@@ -37,6 +37,7 @@ import {
   navItemModule,
   restaurantHref,
 } from "./nav-items";
+import { useOfflinePreparation } from "./offline-preparation";
 import { SyncStatus } from "./sync-status";
 
 /**
@@ -85,6 +86,7 @@ function useOpenOrderCount(): number {
 
 function ShellLayout({ children }: { children: ReactNode }) {
   const { status, slug, isModuleEnabled } = useRestaurant();
+  useOfflinePreparation();
   const pathname = usePathname();
   const isRestaurantEnabled = isModuleEnabled("restaurant");
   const currentItem = navItemForPath(pathname, slug);

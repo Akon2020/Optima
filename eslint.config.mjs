@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "src/generated/**",
+    // Service worker généré par `pnpm build` (scripts/build-sw.mts).
+    "public/sw.js",
   ]),
 ]);
 
