@@ -395,6 +395,30 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 17 : encaissement (15/11/2026)
+
+**Fait**
+- **Encaisser une commande ou l'addition d'une table** (EF-ENC-02, D-055) : bouton « Encaisser » dans le détail d'une commande, dans l'addition d'une table et sur le nouvel écran **Caisse**.
+  - espèces en francs ou en dollars, Mobile Money (M-Pesa, Orange Money, Airtel Money) avec une référence facultative ;
+  - montant proposé (le reste à payer, ou son équivalent en dollars), contre-valeur et **monnaie à rendre** en francs affichées avant de valider ;
+  - paiement partiel possible : le reste à payer se met à jour ;
+  - le paiement qui solde l'addition d'une table propose de la libérer (D-033) ; un client qui a payé d'avance peut rester.
+- **Taux du dollar** (EF-PRX-05, D-042) : le gérant saisit « 1 $ = X FC » sur l'écran Caisse ; le taux n'est jamais modifié, un nouveau s'ajoute ; un taux d'un jour précédent déclenche un avertissement.
+- **Écran Caisse** (`/restaurant/caisse`, aussi dans la barre inférieure du téléphone) : encaissé du jour, reste à encaisser, commandes à encaisser, **argent en main** par mode de paiement (EF-ENC-04 ; monnaie rendue déduite), paiements du jour. Un serveur ne voit que ses ventes et son argent ; le gérant voit toute l'équipe.
+- **Serveur** : tables `payments`, `payment_allocations` et `exchange_rates` (migration `20261114000001_payments`), isolées par établissement (RLS) et en ajout seul. Le serveur relit le taux, recalcule la contre-valeur, vérifie la monnaie et les affectations, refuse l'encaissement d'une vente d'un autre serveur, et inscrit au journal un trop-perçu (même facture encaissée deux fois hors connexion).
+- **Correction** : un changement de personnel reçu par un appareil (renommage, suspension) faisait échouer la synchronisation, faute d'avoir ouvert la transaction sur les bonnes tables. Un test reproduit le cas.
+- **Démonstration** : taux du jour et paiements des commandes anciennes.
+- **Vérifié** : dans Chrome, écran Caisse à 360, 768 et 1280 px, en clair et en sombre, sans débordement ; encaissement de 50 $ sur 53 000 FC (89 500 FC à rendre) ; addition d'une table avec son bouton « Encaisser ».
+- **Tests** : 164 tests unitaires (règles de paiement, conversions, dépôt local, réception des changements) et 85 tests d'intégration (dont 8 sur l'encaissement : taux, droits, conversion, concordance, trop-perçu, ajout seul, isolation).
+
+**Bloque encore**
+- **Crédit** (EF-ENC-03, D-037) : demande les fiches clients (D-043).
+- **Remises** (RG-ENC-01) et **annulation d'un paiement** : avec la validation du gérant.
+- **Impayés à la clôture** (RG-ENC-02) : avec les clôtures (D-039), prochaine étape.
+- **À valider par vous** : D-055 (notamment : monnaie rendue au centime près, pas de carte au restaurant).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -406,7 +430,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -421,7 +445,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Encaissement** (D-032, D-033, D-042), puis **clôtures** (D-039) : le cœur de la « caisse défendable ».
+1. **Clôtures de service** (D-039) : montant attendu par mode de paiement, montant compté, écart, impayés (RG-ENC-02) ; puis crédit et remises.
 2. **Menus avec options et formules** (D-035).
 3. **D-Q14**, puis réquisitions et fiches recettes.
 4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).

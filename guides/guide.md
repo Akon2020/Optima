@@ -193,7 +193,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus.
 5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
 6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
-7. Valider les propositions **D-022** à **D-029**.
+7. Valider les propositions **D-022** à **D-029** et **D-055**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -237,8 +237,10 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 ### 7.4 Module Restaurant ⬜
 
 - [ ] Réquisitions (EF-REQ-01, 02, RG-REQ-01) 🔒 D-Q14 ; mettre à jour la proposition du stock du matin.
-- [ ] Encaissement (EF-ENC-01 à 04, RG-ENC-01, 02) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, crédit validé par le gérant (D-032, D-033, D-037, D-042).
-- [ ] Libération automatique des tables au règlement (D-033).
+- [x] Encaissement (EF-ENC-01, 02, 04) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, monnaie rendue, écran Caisse (D-032, D-033, D-042, D-055).
+- [ ] Crédit validé par le gérant (EF-ENC-03, D-037, avec les fiches clients D-043) et remises validées (RG-ENC-01).
+- [ ] Impayés au nom du serveur à la clôture (RG-ENC-02), annulation d'un paiement, reçu imprimé.
+- [x] Libération de la table proposée au paiement qui solde l'addition (D-033, D-055).
 - [ ] Annulations et remises avec validation du gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01).
 - [ ] Clôtures de service et de période (EF-CLO-01 à 05, RG-CLO-01 à 03) ; journée d'exploitation du stock du matin à la clôture (D-039).
 - [ ] Postes de préparation : écrans comptoir, cuisine et grillade, « prêt » et « épuisé » (EF-PRE-01 à 03).
