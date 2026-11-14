@@ -1,3 +1,5 @@
+import "@/shared/lib/zod-config";
+
 import { z } from "zod";
 
 /** Saisie d'un nouvel élément de menu (EF-CAT-01, EF-RES-03). */

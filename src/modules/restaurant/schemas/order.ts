@@ -1,3 +1,5 @@
+import "@/shared/lib/zod-config";
+
 import { z } from "zod";
 
 /**

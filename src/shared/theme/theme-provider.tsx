@@ -10,7 +10,13 @@ export const THEME_STORAGE_KEY = "optima:theme";
  * next-themes pose `data-theme` sur <html> avant le premier rendu (pas de
  * flash), suit `prefers-color-scheme` et synchronise les onglets.
  */
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({
+  children,
+  nonce,
+}: {
+  children: ReactNode;
+  nonce?: string | undefined;
+}) {
   return (
     <NextThemesProvider
       attribute="data-theme"
@@ -19,6 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       storageKey={THEME_STORAGE_KEY}
       disableTransitionOnChange
       themes={["light", "dark"]}
+      {...(nonce ? { nonce } : {})}
     >
       {children}
     </NextThemesProvider>

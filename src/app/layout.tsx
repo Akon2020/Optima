@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 
 import { ServiceWorkerRegistration } from "@/offline/service-worker-registration";
@@ -19,6 +20,14 @@ const restaurantFont = Plus_Jakarta_Sans({
   subsets: ["latin"],
   display: "swap",
 });
+
+/**
+ * CSP avec nonce (CLAUDE.md § 5.4, D-029) : le nonce change à chaque requête,
+ * donc chaque page est rendue à la demande, sans enveloppe prérendue (un
+ * prérendu n'a pas de requête, donc pas de nonce). `instant = false` sur le
+ * layout racine l'autorise pour toute l'application.
+ */
+export const instant = false;
 
 const isIndexable = process.env.NEXT_PUBLIC_SITE_INDEXABLE === "true";
 
@@ -46,7 +55,8 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="fr"
@@ -54,7 +64,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${generalFont.variable} ${restaurantFont.variable} antialiased`}
     >
       <body className="min-h-dvh">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider nonce={nonce}>{children}</ThemeProvider>
         <ServiceWorkerRegistration />
       </body>
     </html>
