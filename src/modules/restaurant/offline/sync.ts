@@ -206,6 +206,10 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.diningTables,
         db.tableReleases,
         db.morningStockEntries,
+        // Changements de personnel (EF-CPT-01, EF-CPT-05) : applyStaffMember
+        // ouvre une sous-transaction sur ces tables.
+        db.staff,
+        db.deviceUsers,
         db.meta,
       ],
       async () => {
