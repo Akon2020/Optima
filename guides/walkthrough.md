@@ -383,23 +383,29 @@
 
 ---
 
+## Étape 16 : réponses aux questions ouvertes (14/11/2026)
+
+Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont consignées comme décisions **D-030 à D-054** dans `docs/DECISIONS.md` ; `CLAUDE.md`, les spécifications, la landing page et `guide.md` ont été mis à jour. L'essentiel :
+
+- **Encaissement débloqué** : le serveur reçoit l'argent la plupart du temps (D-032), le client paie le plus souvent à la fin du repas (D-033), prix arrondis à 100 CDF et dollar au taux du jour (D-042), crédit sur accord du gérant (D-037).
+- **Clôtures débloquées** : la journée d'exploitation va du stock du matin à la clôture validée (D-039).
+- **Menus** : éléments simples, avec options et formules (D-035).
+- **Hébergement** : Vercel ou ifastnet, au choix du porteur du projet (D-045). Les deux s'écartent de la cible Docker sur VPS : PostgreSQL, tâches de fond, PDF et fichiers sont à vérifier avant le choix.
+- **Double authentification** : jamais obligatoire pour les gérants (D-049), toujours pour le propriétaire (EF-AUT-03).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
-| Question | Bloque | Recommandation actuelle |
+| Question | Bloque | Où en est-on |
 |---|---|---|
-| D-Q03 : qui reçoit l'argent ? | Encaissement, clôtures, libération automatique des tables | Le serveur, qui reverse à la caisse du point de service |
-| D-Q04 : paiement avant ou après le repas ? | Encaissement, impayés (RG-ENC-02) | À décider |
-| D-Q06 : accompagnements seuls, inclus ou les deux ? | Structure des menus, fiches recettes | À décider |
-| D-Q07 : livreurs, zones, frais | Module Livraison | À décider |
-| D-Q10 : rythme des clôtures | Clôtures, journée d'exploitation (6 h en attendant) | Journée = du stock du matin à la clôture validée |
-| D-Q13 : téléphones, imprimantes, Wi-Fi, électricité | Impression thermique, tests sur le matériel réel | À recenser sur place |
-| D-Q14 : magasin et réquisitions | Réquisitions, formule exacte du stock du matin | À décider |
-| D-Q11 : logo, couleur, police de la charte générale | Identité définitive | Logotype textuel, bleu nuit, Inter |
-| D-Q15 : arrondi des prix en CDF, taux du dollar | Encaissement multidevise | Arrondi à 100 CDF, dollar au taux du jour |
-| D-Q20 : hébergement, domaine, administrateur | Préproduction et production | VPS européen, préproduction séparée |
-| D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
-| D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
-| D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
+| D-Q14 : magasin et réquisitions | Réquisitions, formule exacte du stock du matin | Le porteur du projet y reviendra |
+| D-Q20 : Vercel ou ifastnet, domaine | Préproduction, production ; PDF et tâches de fond en production | Points à vérifier dans D-045 |
+| D-Q13 : appareils et imprimantes | Impression thermique, tests sur le matériel réel | Wi-Fi Starlink confirmé (D-041), matériel à recenser |
+| D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Liste à fournir par le restaurant |
+| D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
+| D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
+| D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
 | D-022 à D-029 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
@@ -415,7 +421,8 @@
 
 ## Prochaines étapes recommandées
 
-1. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
-2. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-3. **Tests Playwright de bout en bout** (hors connexion, deux appareils).
-4. **D-Q20**, puis préproduction.
+1. **Encaissement** (D-032, D-033, D-042), puis **clôtures** (D-039) : le cœur de la « caisse défendable ».
+2. **Menus avec options et formules** (D-035).
+3. **D-Q14**, puis réquisitions et fiches recettes.
+4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).
+5. **D-Q20** (choix de l'offre), puis préproduction.

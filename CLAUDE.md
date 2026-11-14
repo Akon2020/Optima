@@ -230,7 +230,7 @@ Les règles détaillées sont dans `docs/SPECIFICATIONS.md`. Les invariants suiv
 10. **Toute action du propriétaire dans un établissement est auditée** et visible du gérant. RG-PRO-01.
 11. **Aucune donnée d'un établissement n'est accessible depuis un autre.** ENF-08.
 
-Les hypothèses encore non confirmées (qui encaisse, fréquence de clôture, tables, crédit, emballages) sont listées en tête de `docs/SPECIFICATIONS.md` et dans `docs/DECISIONS.md` (D-Q03 à D-Q10). **Le code doit les isoler dans des paramètres ou des fonctions faciles à modifier.**
+Les hypothèses de la section 1.5 du cahier (qui encaisse, moment du paiement, journée d'exploitation, tables, crédit, emballages) ont été **tranchées le 14/11/2026** (D-032 à D-039) ; les questions encore ouvertes sont dans `docs/DECISIONS.md`. **Le code isole les règles susceptibles d'évoluer dans des paramètres ou des fonctions faciles à modifier.**
 
 ### 2.5 Paramètres et configuration [PROPOSÉ]
 
@@ -273,7 +273,7 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 | Journalisation | **pino** avec masquage des champs sensibles | Logs structurés |
 | Tests | **Vitest**, Testing Library, **Playwright** (e2e, accessibilité, captures) | Voir § 6 |
 | Gestionnaire de paquets | **pnpm** | Rapide, verrouillage strict |
-| Hébergement | **Docker** sur VPS Linux (Hetzner, Contabo ou équivalent), **Caddy** pour HTTPS | Cahier, § 6.3 |
+| Hébergement | **Vercel** (offre Pro) ou **hébergement mutualisé ifastnet**, au choix du porteur du projet **[CONFIRMÉ : D-045, offre à choisir]** | Remplace « Docker sur VPS et Caddy » (cahier, § 6.3) ; les points à régler (PostgreSQL, tâches de fond, PDF, fichiers) sont listés dans D-045 |
 | Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id (`@node-rs/argon2`), sessions en base, TOTP (RFC 6238, sans dépendance), PIN | Voir § 5.1 |
 
 Précisions de mise en œuvre : Prisma **7.10.1** épinglé avec `@prisma/adapter-pg` (D-019) ; Node.js **24 LTS** en production (D-020) ; tests d'intégration sur **PGlite** (D-021).
@@ -411,8 +411,8 @@ Le moteur de synchronisation applique le **patron outbox** :
   - les migrations utilisent un rôle distinct ;
   - les lectures consolidées du propriétaire passent par le drapeau RLS `app.is_owner`, posé seulement après `authorize` (D-022, à valider).
 - **Identifiants** : UUIDv7, générables hors connexion et triables par date.
-- **Montants** : entiers en **unité minimale** (`BIGINT`) avec un code devise (`CDF`, `USD`), jamais de flottants. Les taux de change sont en `NUMERIC(18,6)`. Le prix de revient moyen pondéré est en `NUMERIC`, arrondi seulement à l'affichage et à la facturation. La règle d'arrondi des prix en CDF est **[À DÉCIDER : D-Q15]**.
-- **Dates** : stockées en `timestamptz` (UTC). L'affichage se fait dans le fuseau de l'établissement, **Africa/Lubumbashi** (UTC+2) pour Bukavu. Une « journée d'exploitation » est délimitée par la clôture, pas par minuit **[À DÉCIDER : D-Q10]**.
+- **Montants** : entiers en **unité minimale** (`BIGINT`) avec un code devise (`CDF`, `USD`), jamais de flottants. Les taux de change sont en `NUMERIC(18,6)`. Le prix de revient moyen pondéré est en `NUMERIC`, arrondi seulement à l'affichage et à la facturation. Les prix en CDF sont arrondis à **100 CDF** ; le dollar est accepté au taux du jour saisi par le gérant **[CONFIRMÉ : D-042]**.
+- **Dates** : stockées en `timestamptz` (UTC). L'affichage se fait dans le fuseau de l'établissement, **Africa/Lubumbashi** (UTC+2) pour Bukavu. Une « journée d'exploitation » va de la saisie du stock du matin à la clôture validée, pas de minuit à minuit **[CONFIRMÉ : D-039]**.
 - **Tables en ajout seul** (`stock_movements`, `payments`, `audit_log`, `closings` validées, `exchange_rates`, `price_history`) : un trigger refuse `UPDATE` et `DELETE`.
 - **Suppression** : `archived_at` ou `cancelled_at` avec un motif, jamais de `DELETE` sur les données métier. Seule exception : la suppression définitive d'un établissement (EF-ETB-04), par une tâche dédiée, auditée, après export.
 - **Entités principales** (cahier, § 6.4) :
@@ -444,7 +444,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 - Aucune trace d'appel, requête SQL, chemin de fichier ou secret n'est envoyé au navigateur.
 - Côté client : un `error.tsx` par segment de route, des états vides et d'erreur conçus (pas d'écran blanc), et des réessais automatiques pour la synchronisation.
 
-### 3.11 Fichiers et médias [PROPOSÉ ; stockage : D-Q23]
+### 3.11 Fichiers et médias [PROPOSÉ ; stockage : D-048]
 
 - Fichiers concernés : logos d'établissement, photos d'articles et de plats, justificatifs de dépenses (EF-TRE-02), exports et PDF générés.
 - Contrôles :
@@ -459,7 +459,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 
 - Tickets thermiques de 58 et 80 mm en ESC/POS, par **Web Bluetooth** ou **WebUSB** depuis Chrome sur Android, ou par un **relais d'impression local** sur le poste du restaurant. L'impression navigateur reste le recours.
 - Facture A4 et rapports en PDF, générés par le serveur. Hors connexion, une version HTML imprimable est produite localement.
-- Le matériel exact est **[À DÉCIDER : D-Q13]**.
+- Le restaurant est relié par **Wi-Fi Starlink** (D-041) ; le matériel exact est **[À DÉCIDER : D-Q13]**.
 
 ### 3.13 Dépendances
 
@@ -535,7 +535,7 @@ La sécurité fait partie de la conception. Aucune fonctionnalité n'est livrée
 
 - Identifiant : adresse e-mail ou numéro de téléphone. Mot de passe d'au moins 10 caractères, haché en **Argon2id** (ENF-07). Jamais stocké en clair, jamais envoyé par e-mail (RG-AUT-01).
 - Mot de passe provisoire à la création, **changement obligatoire** à la première connexion (EF-AUT-02).
-- **Double authentification TOTP obligatoire pour le propriétaire** (EF-AUT-03). Codes de secours générés une seule fois et stockés hachés.
+- **Double authentification TOTP obligatoire pour le propriétaire** (EF-AUT-03). Codes de secours générés une seule fois et stockés hachés. Pour les gérants, elle est **proposée mais jamais obligatoire** (D-049).
 - **Code PIN à 4 chiffres** pour reprendre la main sur un appareil partagé du restaurant (EF-AUT-01, EF-AUT-05) :
   - il n'est valable que sur un **appareil enregistré** de l'établissement, et seulement pour un utilisateur qui s'y est déjà connecté avec son mot de passe ;
   - il ne quitte jamais l'appareil : son vérificateur est un PBKDF2-SHA256 local (WebCrypto), Argon2id n'existant pas dans le navigateur sans dépendance **[PROPOSÉ : D-024]** ;
@@ -766,8 +766,8 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Style
 | 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Restent Stylelint et Playwright |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
-| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
+| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (D-032, D-033) et clôtures (D-039), débloqués le 14/11/2026, livraison (après les frais de D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
 | 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. PWA hors connexion faite le 13/11/2026. CSP avec nonce et en-têtes de sécurité faits le 14/11/2026. Restent l'export complet et la suppression d'établissement ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
 
-L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).
+L'ordre a été revu le 07/11/2026 (D-018). Le 14/11/2026, le porteur du projet a tranché la plupart des questions ouvertes (D-030 à D-054). Restent bloquantes : **D-Q14** (magasin et réquisitions), **D-Q20** (choix entre Vercel et ifastnet, puis domaine), **D-Q13** (matériel d'impression), **D-Q07** (zones et frais de livraison) et **D-Q26** (textes et coordonnées de la landing page). Voir **`docs/DECISIONS.md`**.

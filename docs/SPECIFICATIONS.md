@@ -46,13 +46,14 @@ Implémenté **en local uniquement** (base IndexedDB de l'appareil, données de 
 
 Hypothèses retenues dans le code : **D-Q10** (journée d'exploitation à partir de 6 h, paramétrable, `domain/business-day.ts`), **D-Q05** (liste de tables numérotées et renommables, sans plan de salle, 12 en démonstration), **D-Q04** (tant que l'encaissement n'est pas tranché, une table est libérée à la main par le serveur ou le gérant, `domain/tables.ts`), **D-Q14** (tant que clôtures et réquisitions n'existent pas, la proposition du stock du matin est le reste théorique de la veille, sans réquisition ; les apports du jour se justifient par le motif « Réquisition du jour », `domain/morning-stock.ts`).
 
-## Hypothèses retenues (section 1.5 du cahier, à confirmer)
+## Hypothèses du cahier (section 1.5), tranchées le 14/11/2026
 
-- L'argent est reçu par le serveur, puis reversé à la caisse du point de service concerné. La clôture se fait donc par serveur et par point de service.
-- La clôture de caisse a lieu une fois par jour, à la fin du service.
-- Les tables sont numérotées, et leur nombre est paramétrable.
-- La vente à crédit est possible au restaurant, sur autorisation du gérant.
-- Les emballages consignés (casiers et bouteilles vides) ne sont pas suivis dans cette version.
+- L'argent est reçu **le plus souvent par le serveur**, puis reversé à la caisse du point de service. Chaque paiement indique qui a reçu l'argent, et la clôture se fait par personne et par point de service (D-032).
+- Le client paie **le plus souvent à la fin du repas**, parfois avant ; une commande est préparée sans paiement (D-033).
+- La journée d'exploitation va du stock du matin à la clôture validée, quelle que soit l'heure (D-039). Elle remplace l'hypothèse « une clôture par jour, à la fin du service ».
+- Les tables sont numérotées, leur nombre est paramétrable, sans plan de salle (D-034).
+- La vente à crédit est possible au restaurant, sur accord du gérant, pour des clients enregistrés, avec un plafond paramétrable (D-037).
+- Les emballages consignés (casiers et bouteilles vides) ne sont pas suivis dans cette version (D-038).
 
 ## 2. Glossaire
 

@@ -185,19 +185,17 @@ Pour toute interface : contrôle visuel à **360, 768 et 1280 px**, en **clair e
 
 ### 7.1 Décisions à obtenir du porteur du projet 🔒
 
-Par ordre d'urgence :
+Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030 à D-054). Restent, par ordre d'urgence :
 
-1. **D-Q03 / D-Q04** (encaissement).
-2. **D-Q10** (clôtures).
-3. **D-Q14** (magasin, réquisitions).
-4. **D-Q06** (accompagnements).
-5. **D-Q13** (matériel, à recenser au restaurant).
-6. **D-Q20** (hébergement, domaine).
-7. **D-Q07** (livraison).
-8. **D-Q15** (arrondis, dollar).
-9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022** à **D-029**.
-11. Faire signer le cahier des charges (D-013).
+1. **D-Q14** (magasin, réquisitions).
+2. **D-Q20** : choisir entre Vercel et ifastnet (points à vérifier dans D-045), puis le domaine.
+3. **D-Q13** : appareils et imprimantes à recenser au restaurant (le réseau est un Wi-Fi Starlink, D-041).
+4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus.
+5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
+6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
+7. Valider les propositions **D-022** à **D-029**.
+8. Faire signer le cahier des charges (D-013).
+9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
 
@@ -214,14 +212,14 @@ Par ordre d'urgence :
 - [x] Effacement des données locales d'un appareil révoqué (ENF-09).
 - [ ] Opérations d'un utilisateur suspendu : marquées pour revue au lieu d'être refusées (`CLAUDE.md` § 5.1).
 - [ ] Confirmation du mot de passe d'un gérant hors connexion : impossible aujourd'hui (réseau nécessaire).
-- [ ] Thème par utilisateur, rattaché au profil (D-Q31).
+- [ ] Thème par utilisateur, rattaché au profil (D-053).
 
 ### 7.3 Espace propriétaire et administration ⬜
 
 - [x] Vue d'ensemble (`/proprietaire`) : montant facturé, commandes, panier moyen, comparaison avec la période précédente, graphique, alertes, appareils (EF-PRO-01, 02, 04, 05, en partie).
 - [ ] Vue d'ensemble, suite : marge, cash attendu et déclaré, manquants, stock (avec l'encaissement, les clôtures et le stock) ; période personnalisée ; comparaison de deux établissements ; chiffres cliquables (EF-PRO-03).
 - [x] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), identité, suspension et réactivation (03).
-- [ ] Logo et couleur de l'en-tête 🔒 D-Q23 ; suppression en deux temps (EF-ETB-04, RG-ETB-02) et exports (EF-ETB-05), avec pg-boss.
+- [ ] Logo et couleur de l'en-tête (stockage des fichiers, D-048) ; suppression en deux temps (EF-ETB-04, RG-ETB-02) et exports (EF-ETB-05), avec pg-boss.
 - [x] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, RG-MOD-01, 02).
 - [x] Menus de l'interface adaptés aux modules actifs (EF-MOD-02) : les appareils masquent aussitôt les écrans d'un module désactivé ; ses opérations en attente sont conservées jusqu'à la réactivation (D-026).
 - [x] Comptes (écran « Équipe », `/e/<slug>/equipe`) :
@@ -239,13 +237,14 @@ Par ordre d'urgence :
 ### 7.4 Module Restaurant ⬜
 
 - [ ] Réquisitions (EF-REQ-01, 02, RG-REQ-01) 🔒 D-Q14 ; mettre à jour la proposition du stock du matin.
-- [ ] Encaissement (EF-ENC-01 à 04, RG-ENC-01, 02) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, crédit validé par le gérant 🔒 D-Q03, D-Q04, D-Q15.
-- [ ] Libération automatique des tables au règlement (remplace l'hypothèse D-Q04).
+- [ ] Encaissement (EF-ENC-01 à 04, RG-ENC-01, 02) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, crédit validé par le gérant (D-032, D-033, D-037, D-042).
+- [ ] Libération automatique des tables au règlement (D-033).
 - [ ] Annulations et remises avec validation du gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01).
-- [ ] Clôtures de service et de période (EF-CLO-01 à 05, RG-CLO-01 à 03) 🔒 D-Q10.
+- [ ] Clôtures de service et de période (EF-CLO-01 à 05, RG-CLO-01 à 03) ; journée d'exploitation du stock du matin à la clôture (D-039).
 - [ ] Postes de préparation : écrans comptoir, cuisine et grillade, « prêt » et « épuisé » (EF-PRE-01 à 03).
-- [ ] Fiches recettes (EF-RCT-01 à 04) 🔒 D-Q06.
-- [ ] Livraison (EF-LIV-01 à 04) 🔒 D-Q07.
+- [ ] Menus avec éléments à options et formules (D-035).
+- [ ] Fiches recettes (EF-RCT-01 à 04), après les menus à options.
+- [ ] Livraison (EF-LIV-01 à 04), livreurs du personnel (D-036) 🔒 zones et frais D-Q07.
 - [ ] Rapports et exports PDF, Excel, CSV (EF-RAP-01 à 04).
 - [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02) 🔒 D-Q13.
 - [ ] QR de vérification et page `/verification/[code]` (EF-DOC-03, 04).
@@ -258,18 +257,19 @@ Par ordre d'urgence :
 - [ ] Stock : emplacements, opérations numérotées, inventaires, lots et péremption (EF-STK-01 à 04, RG-STK-01 à 03).
 - [ ] Caisse : panier, paiements multiples, devis et pro forma, crédit (EF-VTE-01 à 05).
 - [ ] Trésorerie, dépenses avec justificatifs, dettes clients, solde prévisionnel (EF-TRE-01 à 04).
-- [ ] Fichiers : contrôle par signature, réencodage par sharp, stockage hors du dossier public (`CLAUDE.md` § 3.11) 🔒 D-Q23.
+- [ ] Fichiers : contrôle par signature, réencodage par sharp, stockage hors du dossier public (`CLAUDE.md` § 3.11) : volume ou stockage objet selon l'hébergement (D-048).
 - [ ] Tâches de fond pg-boss : exports, rapports, alertes.
 
 ### 7.6 Hors connexion et application installable (en grande partie fait)
 
 - [x] Service worker (Serwist), manifeste, icônes provisoires, installation sur l'écran d'accueil (EF-OFF-05, D-028).
 - [x] Ouverture de l'application sans réseau, y compris après un rechargement (`pnpm check:offline`).
-- [ ] Logo définitif (D-Q11), puis `pnpm exec tsx scripts/generate-icons.mts`.
+- [ ] Logo définitif (logotype textuel provisoire confirmé, D-040), puis `pnpm exec tsx scripts/generate-icons.mts`.
 - [ ] Tests Playwright de bout en bout (`@playwright/test`) : hors connexion et deux appareils synchronisés.
 
 ### 7.7 Sécurité restante ⬜
 
+- [ ] Double authentification proposée aux gérants, jamais obligatoire (D-049).
 - [x] CSP stricte avec nonce, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (`CLAUDE.md` § 5.4, D-029, `pnpm check:csp`). En production, `APP_ORIGIN` en `https://` active HSTS et `upgrade-insecure-requests`.
 - [ ] Contrôle de l'en-tête `Origin` sur les route handlers modifiants qui utiliseraient un cookie.
 - [ ] Limitation de débit partagée si plusieurs instances (aujourd'hui en mémoire).
@@ -283,12 +283,12 @@ Par ordre d'urgence :
   - captures dans les quatre combinaisons (deux chartes, clair et sombre) ;
   - contrôle d'accessibilité axe.
 - [ ] Stylelint : interdire les couleurs littérales hors des tokens.
-- [ ] GitHub Actions sur `develop` et sur les pull requests vers `main` : typage, lint, tests, intégration, build, audit. Ajouter un passage des tests d'intégration contre un vrai PostgreSQL (D-021).
+- [ ] GitHub Actions (D-047) sur `develop` et sur les pull requests vers `main` : typage, lint, tests, intégration, build, audit. Ajouter un passage des tests d'intégration contre un vrai PostgreSQL (D-021).
 
 ### 7.9 Landing page ⬜ 🔒 D-Q26
 
 - [ ] Sections de `docs/LANDING_PAGE.md`, en charte générale, avec les deux thèmes.
-- [ ] `noindex` tant que D-Q01 n'est pas tranchée.
+- [ ] `noindex` (D-030), français seulement, établissements non nommés (D-051).
 - [ ] Aucun chiffre, client ni témoignage inventé (D-012).
 
 ### 7.10 Phase 2 : boutique de gold detectors ⬜ 🔒 D-Q27 à D-Q30
@@ -304,12 +304,13 @@ Par ordre d'urgence :
 
 > Rien de cette section n'est encore en place. Elle décrit la cible ; les fichiers à créer sont marqués ⬜.
 
-### 8.1 Choix préalables 🔒 D-Q20
+### 8.1 Choix préalables 🔒 D-Q20 (en partie tranchée : D-045)
 
-- **Hébergeur** : VPS Linux (Hetzner, Contabo ou équivalent). Recommandation : au moins 2 vCPU, 4 Go de RAM et 40 Go de disque, en Europe (D-Q25).
+- **Hébergeur** (D-045) : **Vercel** (offre Pro, l'offre gratuite étant réservée à un usage non commercial) ou **hébergement mutualisé ifastnet**, en Europe (D-050). Avant de choisir, vérifier pour chaque offre : PostgreSQL 16 ou plus avec un rôle sans `BYPASSRLS`, Node.js 24, tâches de fond (pg-boss), Chromium pour les PDF, stockage des fichiers, HTTPS et sauvegardes.
+- **Attention** : les sections 8.2 à 8.8 décrivent la cible d'origine (Docker sur un VPS, Caddy). Elles seront réécrites pour l'offre retenue.
 - **Nom de domaine**, par exemple `optima.exemple.cd`, plus un sous-domaine de préproduction.
-- **Qui administre le serveur** (accès SSH, astreinte).
-- **Préproduction séparée**, recommandée : branche `develop`, données fictives.
+- **Qui administre le serveur** : le porteur du projet (D-045).
+- **Préproduction séparée** (D-045) : branche `develop`, données fictives.
 
 ### 8.2 Préparer le serveur
 
@@ -341,7 +342,7 @@ L'application doit rester **derrière Caddy** : elle se fie à l'en-tête `X-For
 | `MIGRATION_DATABASE_URL` | Connexion du rôle `optima_migrator`, utilisée seulement pendant le déploiement |
 | `AUTH_ENCRYPTION_KEY` | **Nouvelle** clé de 32 octets en base64, jamais celle du développement. La perdre rend les doubles authentifications illisibles : conservez-la dans un coffre |
 | `APP_ORIGIN` | `https://optima.exemple.cd` (obligatoire : l'application refuse de démarrer sans) |
-| `NEXT_PUBLIC_SITE_INDEXABLE` | `false` tant que D-Q01 n'est pas tranchée |
+| `NEXT_PUBLIC_SITE_INDEXABLE` | `false` (D-030) |
 | `PDF_BROWSER_PATH` | `/usr/bin/chromium` (Chromium installé dans l'image), pour les exports PDF |
 
 Les secrets sont fournis par un fichier `.env` sur le serveur (droits `600`, hors du dépôt) ou par les secrets Docker. Ils ne sont jamais dans l'image ni dans Git.
@@ -385,7 +386,7 @@ docker compose -f docker-compose.prod.yml up -d
 - [ ] Copie sur un **stockage externe** distinct du serveur (autre fournisseur, stockage objet compatible S3).
 - [ ] Conservation de 30 jours, rotation automatique.
 - [ ] **Restauration de test chaque mois** sur une machine séparée, consignée (date, durée, résultat).
-- [ ] Sauvegarde aussi des fichiers téléversés (D-Q23) et de la clé `AUTH_ENCRYPTION_KEY`, séparément.
+- [ ] Sauvegarde aussi des fichiers téléversés (D-048) et de la clé `AUTH_ENCRYPTION_KEY`, séparément.
 
 ### 8.8 Supervision
 
@@ -396,7 +397,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### 8.9 Mise en service au restaurant
 
-1. **Recenser le matériel** (D-Q13) : téléphones, version d'Android, imprimantes, Wi-Fi, coupures d'électricité.
+1. **Recenser le matériel** (D-Q13) : téléphones, version d'Android, imprimantes, coupures d'électricité. Le réseau est un Wi-Fi Starlink (D-041) : prévoir ses coupures, l'application travaille hors connexion.
 2. Le propriétaire crée l'établissement, active les modules et crée le compte du gérant.
 3. Le gérant :
    - crée le personnel ;
