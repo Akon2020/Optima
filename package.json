@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.mts",
     "check:offline": "tsx scripts/check-offline.mts",
+    "check:csp": "tsx scripts/check-csp.mts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:status": "prisma migrate status",
