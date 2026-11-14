@@ -18,9 +18,9 @@ import type {
  * d'exploitation, après sa dernière libération. Les commandes suivantes sur
  * la même table sont des commandes complémentaires de la même occupation.
  *
- * HYPOTHÈSE D-Q04 : tant que l'encaissement n'est pas tranché, la table est
- * libérée à la main par le serveur ou le gérant. Quand il le sera, la
- * libération suivra le règlement de toutes les factures de l'occupation.
+ * D-033, D-055 : le client paie le plus souvent à la fin du repas, parfois
+ * avant. Le paiement qui solde l'addition propose de libérer la table ; elle
+ * peut aussi être libérée à la main par le serveur ou le gérant.
  */
 export type TableSession = {
   tableId: string;

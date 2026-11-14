@@ -65,6 +65,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "restaurant.table.renamed": "Table renommée",
   "restaurant.table.archived": "Table retirée du service",
   "restaurant.table.restored": "Table remise en service",
+  "restaurant.exchange-rate.added": "Taux du dollar saisi",
+  "restaurant.payment.overpaid": "Trop-perçu sur une facture",
 };
 
 /** Motifs techniques enregistrés par le serveur (refus de connexion), en français. */
@@ -114,6 +116,10 @@ const FIELD_LABELS: Record<string, string> = {
   label: "Libellé",
   price: "Prix",
   quantity: "Quantité",
+  rate: "Taux (1 $ en FC)",
+  number: "Numéro",
+  total: "Total",
+  paid: "Payé",
 };
 
 export type AuditChange = { field: string; before: string | null; after: string | null };

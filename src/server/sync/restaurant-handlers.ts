@@ -1,16 +1,23 @@
 import type { z } from "zod";
 
 import { DomainError } from "@/shared/lib/errors";
-import { moneyFromMinor, type Currency } from "@/shared/lib/money";
+import { formatMoney, moneyFromMinor, type Currency } from "@/shared/lib/money";
 
 import { splitOrderByServicePoint } from "@/modules/restaurant/domain/order";
+import {
+  checkPaymentConsistency,
+  convertMoney,
+  parseRate,
+} from "@/modules/restaurant/domain/payment";
 import { validateTableLabel } from "@/modules/restaurant/domain/tables";
 import type { OrderLine, SaleUnit } from "@/modules/restaurant/domain/types";
 import type { Permission } from "@/modules/registry";
 import {
+  exchangeRateAddedSchema,
   menuItemCreatedSchema,
   morningStockEnteredSchema,
   orderCreatedSchema,
+  paymentRecordedSchema,
   prepStatusChangedSchema,
   tableArchivedSchema,
   tableCreatedSchema,
@@ -21,9 +28,12 @@ import {
 import { writeAudit } from "../audit/audit";
 import {
   diningTableSnapshot,
+  exchangeRateSnapshots,
   menuItemSnapshot,
   morningEntrySnapshots,
   orderSnapshots,
+  paymentSnapshots,
+  rateText,
   tableReleaseSnapshots,
 } from "../restaurant/snapshots";
 import type { Tx } from "../db/context";
@@ -410,6 +420,203 @@ const tableReleased = handler({
   },
 });
 
+const exchangeRateAdded = handler({
+  permission: "restaurant.exchange-rate.manage",
+  schema: exchangeRateAddedSchema,
+  async apply(tx, ctx, { rate }) {
+    const parsed = parseRate(rate.rate);
+    if (!parsed.ok) throw new DomainError("INVALID_RATE", parsed.message);
+    const created = await tx.exchangeRate.create({
+      data: {
+        id: rate.id,
+        establishmentId: ctx.establishmentId,
+        rate: parsed.rate,
+        effectiveAt: new Date(rate.effectiveAt),
+        enteredBy: ctx.userId,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.exchange-rate.added",
+      entity: "exchange_rate",
+      entityId: created.id,
+      after: { rate: parsed.rate },
+    });
+    const [snapshot] = await exchangeRateSnapshots(tx, ctx.establishmentId, { id: created.id });
+    if (snapshot) await recordChange(tx, ctx, "exchange_rate", created.id, snapshot);
+  },
+});
+
+const paymentRecorded = handler({
+  permission: "restaurant.payment.collect",
+  schema: paymentRecordedSchema,
+  async apply(tx, ctx, { payment }) {
+    const invoiceIds = payment.allocations.map((allocation) => allocation.invoiceId);
+    if (new Set(invoiceIds).size !== invoiceIds.length) {
+      throw new DomainError(
+        "DUPLICATE_ALLOCATION",
+        "Une facture apparaît deux fois dans le paiement.",
+      );
+    }
+    const invoices = await tx.advanceInvoice.findMany({
+      where: { id: { in: invoiceIds }, establishmentId: ctx.establishmentId },
+    });
+    if (invoices.length !== invoiceIds.length) {
+      throw new DomainError("INVOICE_NOT_FOUND", "Une facture encaissée est inconnue du serveur.");
+    }
+    const invoiceById = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+    for (const allocation of payment.allocations) {
+      const invoice = invoiceById.get(allocation.invoiceId);
+      if (!invoice) continue;
+      if (invoice.cancelledAt) {
+        throw new DomainError("INVOICE_CANCELLED", `La facture ${invoice.number} est annulée.`);
+      }
+      if (invoice.currency !== ctx.currency) {
+        throw new DomainError(
+          "CURRENCY_MISMATCH",
+          "La facture n'est pas dans la devise de l'établissement.",
+        );
+      }
+      if (BigInt(allocation.amountMinor) > invoice.totalMinor) {
+        throw new DomainError(
+          "ALLOCATION_TOO_HIGH",
+          `Le montant affecté à la facture ${invoice.number} dépasse son total.`,
+        );
+      }
+    }
+
+    // Matrice des droits : un serveur n'encaisse que ses propres ventes.
+    if (ctx.role === "waiter") {
+      const orders = await tx.order.findMany({
+        where: {
+          id: { in: [...new Set(invoices.map((invoice) => invoice.orderId))] },
+          establishmentId: ctx.establishmentId,
+        },
+        select: { waiterId: true },
+      });
+      if (orders.some((order) => order.waiterId !== ctx.userId)) {
+        throw new DomainError(
+          "FORBIDDEN",
+          "Un serveur n'encaisse que ses propres ventes : le gérant peut encaisser à sa place.",
+        );
+      }
+    }
+
+    // RG-PRX-02 : le taux appliqué est celui enregistré sur le serveur, figé sur le paiement.
+    const tendered = moneyFromMinor(payment.tendered.amountMinor, payment.tendered.currency);
+    let rate: { id: string; rate: string } | null = null;
+    if (tendered.currency !== ctx.currency) {
+      const row = payment.rateId
+        ? await tx.exchangeRate.findFirst({
+            where: { id: payment.rateId, establishmentId: ctx.establishmentId },
+          })
+        : null;
+      if (!row) {
+        throw new DomainError(
+          "RATE_NOT_FOUND",
+          "Le taux du dollar utilisé est inconnu du serveur.",
+        );
+      }
+      rate = { id: row.id, rate: rateText(row.rate) };
+    }
+    const baseAmount = rate ? convertMoney(tendered, ctx.currency, rate.rate) : tendered;
+    const change = moneyFromMinor(payment.changeMinor, ctx.currency);
+    const allocated = moneyFromMinor(
+      payment.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0),
+      ctx.currency,
+    );
+    const mismatch = checkPaymentConsistency({
+      method: payment.method,
+      provider: payment.provider,
+      tendered,
+      baseAmount,
+      change,
+      allocated,
+      rate: rate?.rate ?? null,
+    });
+    if (mismatch) throw new DomainError("PAYMENT_MISMATCH", mismatch);
+
+    await tx.payment.create({
+      data: {
+        id: payment.id,
+        establishmentId: ctx.establishmentId,
+        method: payment.method,
+        provider: payment.method === "mobile-money" ? payment.provider : null,
+        reference: payment.method === "mobile-money" ? payment.reference : null,
+        currency: tendered.currency,
+        amountMinor: BigInt(tendered.amountMinor),
+        exchangeRateId: rate?.id ?? null,
+        rate: rate?.rate ?? null,
+        baseCurrency: ctx.currency,
+        baseAmountMinor: BigInt(baseAmount.amountMinor),
+        changeMinor: BigInt(change.amountMinor),
+        collectedBy: ctx.userId,
+        deviceId: ctx.deviceId,
+        createdAt: new Date(payment.createdAt),
+      },
+    });
+    await tx.paymentAllocation.createMany({
+      data: payment.allocations.map((allocation) => ({
+        establishmentId: ctx.establishmentId,
+        paymentId: payment.id,
+        invoiceId: allocation.invoiceId,
+        amountMinor: BigInt(allocation.amountMinor),
+      })),
+    });
+
+    // RG-OFF-03 : les paiements s'additionnent ; le statut de la facture en découle.
+    const sums = await tx.paymentAllocation.groupBy({
+      by: ["invoiceId"],
+      where: { establishmentId: ctx.establishmentId, invoiceId: { in: invoiceIds } },
+      _sum: { amountMinor: true },
+    });
+    for (const sum of sums) {
+      const invoice = invoiceById.get(sum.invoiceId);
+      if (!invoice) continue;
+      const paid = sum._sum.amountMinor ?? 0n;
+      const status = paid >= invoice.totalMinor ? "paid" : paid > 0n ? "partial" : "unpaid";
+      if (status !== invoice.paymentStatus) {
+        await tx.advanceInvoice.update({
+          where: { id: invoice.id },
+          data: { paymentStatus: status },
+        });
+      }
+      if (paid > invoice.totalMinor) {
+        // Deux encaissements hors connexion de la même facture : rien n'est
+        // refusé (l'argent a été reçu), le trop-perçu est signalé au gérant.
+        await writeAudit(tx, {
+          establishmentId: ctx.establishmentId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          deviceId: ctx.deviceId,
+          action: "restaurant.payment.overpaid",
+          entity: "advance_invoice",
+          entityId: invoice.id,
+          after: {
+            number: invoice.number,
+            total: formatMoney(moneyFromMinor(toSafeNumber(invoice.totalMinor), ctx.currency)),
+            paid: formatMoney(moneyFromMinor(toSafeNumber(paid), ctx.currency)),
+          },
+        });
+      }
+    }
+
+    const [snapshot] = await paymentSnapshots(tx, ctx.establishmentId, { id: payment.id });
+    if (snapshot) await recordChange(tx, ctx, "payment", payment.id, snapshot);
+    for (const orderId of new Set(invoices.map((invoice) => invoice.orderId))) {
+      const updated = await orderSnapshots(tx, ctx.establishmentId, { id: orderId });
+      for (const invoice of updated.invoices) {
+        if (invoiceById.has(invoice.id)) {
+          await recordChange(tx, ctx, "advance_invoice", invoice.id, invoice);
+        }
+      }
+    }
+  },
+});
+
 export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.order.created": orderCreated,
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
@@ -420,4 +627,6 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.table.archived": tableArchiveHandler(true),
   "restaurant.table.restored": tableArchiveHandler(false),
   "restaurant.table.released": tableReleased,
+  "restaurant.exchange-rate.added": exchangeRateAdded,
+  "restaurant.payment.recorded": paymentRecorded,
 };

@@ -3,6 +3,7 @@
 import {
   Archive,
   Armchair,
+  Banknote,
   Check,
   Clock,
   DoorOpen,
@@ -32,13 +33,15 @@ import { Sheet } from "@/shared/ui/sheet";
 import { Tabs } from "@/shared/ui/tabs";
 
 import { orderPrepStatus } from "../../domain/dashboard";
+import { combinedPaymentStatus, remainingDue } from "../../domain/payment";
 import { nextTableLabel, shortTableLabel, type TableSession } from "../../domain/tables";
 import type { DiningTable } from "../../domain/types";
 import { useDayData, type DayData } from "../../offline/hooks";
 import { addTable, releaseTable, renameTable, setTableArchived } from "../../offline/repository";
 import { hasPermission } from "../../permissions";
-import { PREP_STATUS } from "../labels";
+import { PAYMENT_STATUS, PREP_STATUS } from "../labels";
 import { summarizeLines } from "../orders/order-rows";
+import { PaymentSheet } from "../payments/payment-sheet";
 import { restaurantHref } from "../shell/nav-items";
 import { useRestaurant } from "../restaurant-provider";
 import { TableBillTicket } from "../tables/table-bill-ticket";
@@ -271,9 +274,23 @@ function TableSheet({
   onClose: () => void;
 }) {
   const { db, ctx, slug, establishmentName } = useRestaurant();
+  const data = useDayData();
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canRelease = hasPermission(ctx.role, "restaurant.table.release");
+  const balances = data?.balances;
+  const invoiceIds = session?.invoices.map((invoice) => invoice.id) ?? [];
+  const remaining = balances ? remainingDue(invoiceIds, balances, ctx.settings.currency) : null;
+  const paymentStatus =
+    PAYMENT_STATUS[
+      combinedPaymentStatus(invoiceIds.map((id) => balances?.get(id)?.status ?? "unpaid"))
+    ];
+  // Un serveur n'encaisse que ses ventes : toute l'addition doit être à lui.
+  const canCollect =
+    hasPermission(ctx.role, "restaurant.payment.collect") &&
+    (ctx.role !== "waiter" ||
+      (session?.invoices.every((invoice) => invoice.waiterId === ctx.userId) ?? false));
 
   function close() {
     setIsConfirming(false);
@@ -304,6 +321,12 @@ function TableSheet({
       footer={
         table && session ? (
           <div className="flex flex-col gap-2">
+            {canCollect && remaining && remaining.amountMinor > 0 ? (
+              <Button variant="action" onClick={() => setIsPaying(true)}>
+                <Banknote aria-hidden />
+                Encaisser {formatMoney(remaining)}
+              </Button>
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
               <Link href={newOrderHref(slug, table.id)} className={buttonClasses("outline")}>
                 <Plus aria-hidden />
@@ -387,18 +410,35 @@ function TableSheet({
             </span>
             <span className="text-xl font-semibold tabular">{formatMoney(session.total)}</span>
           </div>
-          <p className="text-xs text-text-muted">
-            L&apos;encaissement arrive avec la décision D-Q03 / D-Q04 ; en attendant, la table se
-            libère à la main.
-          </p>
+          <div className="flex items-baseline justify-between gap-3">
+            <StatusLabel tone={paymentStatus.tone} className="text-sm">
+              {paymentStatus.label}
+            </StatusLabel>
+            {remaining &&
+            remaining.amountMinor > 0 &&
+            remaining.amountMinor < session.total.amountMinor ? (
+              <span className="text-sm text-text-muted">
+                Reste{" "}
+                <span className="font-semibold text-text tabular">{formatMoney(remaining)}</span>
+              </span>
+            ) : null}
+          </div>
           <div className="print-area hidden print:block">
             <TableBillTicket
               session={session}
               tableLabel={table.label}
               establishmentName={establishmentName}
               printedAt={now}
+              {...(balances ? { balances } : {})}
             />
           </div>
+          <PaymentSheet
+            open={isPaying}
+            onOpenChange={setIsPaying}
+            title={table.label}
+            invoices={session.invoices}
+            tableId={table.id}
+          />
         </div>
       ) : null}
     </Sheet>

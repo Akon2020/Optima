@@ -3,11 +3,15 @@ import type { Currency, Money } from "@/shared/lib/money";
 import type {
   AdvanceInvoice,
   DiningTable,
+  ExchangeRate,
   MenuItem,
+  MobileMoneyProvider,
   MorningStockEntry,
   Order,
   OrderLine,
   OrderMode,
+  Payment,
+  PaymentMethod,
   PaymentStatus,
   PrepStatus,
   SaleUnit,
@@ -16,6 +20,8 @@ import type {
   MenuKind,
   TableRelease,
 } from "@/modules/restaurant/domain/types";
+
+import { parseRate } from "@/modules/restaurant/domain/payment";
 
 import type { Tx } from "../db/context";
 import { toSafeNumber } from "../db/context";
@@ -231,4 +237,81 @@ export async function orderSnapshots(
     }),
     invoices,
   };
+}
+
+/** Taux enregistré en `NUMERIC(18,6)`, rendu sous sa forme courte (« 2850.5 »). */
+export function rateText(value: { toFixed: () => string }): string {
+  const parsed = parseRate(value.toFixed());
+  return parsed.ok ? parsed.rate : value.toFixed();
+}
+
+export async function exchangeRateSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string },
+  options: { latest?: number } = {},
+): Promise<ExchangeRate[]> {
+  const rows = await tx.exchangeRate.findMany({
+    where: { ...where, establishmentId },
+    orderBy: { effectiveAt: "desc" },
+    ...(options.latest ? { take: options.latest } : {}),
+  });
+  const names = await userNames(
+    tx,
+    rows.map((row) => row.enteredBy),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    rate: rateText(row.rate),
+    effectiveAt: row.effectiveAt.toISOString(),
+    enteredBy: row.enteredBy,
+    enteredByName: names.get(row.enteredBy) ?? "",
+  }));
+}
+
+/** Paiements avec leurs affectations, le nom de la personne qui a encaissé et le code appareil. */
+export async function paymentSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; createdAt?: { gte: Date } },
+): Promise<Payment[]> {
+  const rows = await tx.payment.findMany({ where: { ...where, establishmentId } });
+  if (rows.length === 0) return [];
+  const [allocations, devices, names] = await Promise.all([
+    tx.paymentAllocation.findMany({
+      where: { establishmentId, paymentId: { in: rows.map((row) => row.id) } },
+    }),
+    tx.device.findMany({
+      where: { establishmentId, id: { in: [...new Set(rows.map((row) => row.deviceId))] } },
+      select: { id: true, code: true },
+    }),
+    userNames(
+      tx,
+      rows.map((row) => row.collectedBy),
+    ),
+  ]);
+  const deviceCode = new Map(devices.map((device) => [device.id, device.code]));
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    method: row.method as PaymentMethod,
+    provider: row.provider as MobileMoneyProvider | null,
+    reference: row.reference,
+    tendered: money(row.amountMinor, row.currency),
+    rate:
+      row.exchangeRateId && row.rate ? { id: row.exchangeRateId, rate: rateText(row.rate) } : null,
+    baseAmount: money(row.baseAmountMinor, row.baseCurrency),
+    change: money(row.changeMinor, row.baseCurrency),
+    allocations: allocations
+      .filter((allocation) => allocation.paymentId === row.id)
+      .map((allocation) => ({
+        invoiceId: allocation.invoiceId,
+        amount: money(allocation.amountMinor, row.baseCurrency),
+      })),
+    collectedBy: row.collectedBy,
+    collectedByName: names.get(row.collectedBy) ?? "",
+    deviceCode: deviceCode.get(row.deviceId) ?? "",
+    createdAt: row.createdAt.toISOString(),
+  }));
 }

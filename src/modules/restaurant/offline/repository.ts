@@ -3,13 +3,20 @@ import type { z } from "zod";
 import { localYear } from "@/shared/lib/dates";
 import { DomainError } from "@/shared/lib/errors";
 import { uuidv7 } from "@/shared/lib/ids";
-import { moneyFromMajor } from "@/shared/lib/money";
+import { moneyFromMajor, type Money } from "@/shared/lib/money";
 import { createOperation } from "@/offline/outbox";
 
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
+import {
+  allocatePayment,
+  invoiceBalances,
+  parseRate,
+  remainingDue,
+  settlePayment,
+} from "../domain/payment";
 import {
   currentEntries,
   itemsRequiringMorningStock,
@@ -20,18 +27,22 @@ import type {
   AdvanceInvoice,
   MenuItem,
   DiningTable,
+  ExchangeRate,
   MorningStockEntry,
   Order,
   OrderLine,
+  Payment,
   PrepStatus,
   TableRelease,
 } from "../domain/types";
 import { nextTableLabel, validateTableLabel } from "../domain/tables";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
-import type { orderCreatedSchema } from "../schemas/sync";
+import { paymentInputSchema, type PaymentInput } from "../schemas/payment";
+import type { orderCreatedSchema, paymentRecordedSchema } from "../schemas/sync";
 
 type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
+type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -573,7 +584,7 @@ export async function setTableArchived(
   });
 }
 
-/** Libère une table (HYPOTHÈSE D-Q04 : à la main tant que l'encaissement n'existe pas). */
+/** Libère une table : à la main, ou à l'encaissement qui solde l'addition (D-033, D-055). */
 export async function releaseTable(
   db: RestaurantDb,
   ctx: DeviceContext,
@@ -600,5 +611,163 @@ export async function releaseTable(
       );
     }
     return release;
+  });
+}
+
+/** Taux du dollar en vigueur : le dernier saisi (RG-PRX-02 : un taux ne se modifie pas). */
+export async function currentExchangeRate(db: RestaurantDb): Promise<ExchangeRate | null> {
+  return (await db.exchangeRates.orderBy("effectiveAt").last()) ?? null;
+}
+
+/** Ajoute le taux du jour « 1 USD = X CDF » (EF-PRX-05, D-042 ; gérant). */
+export async function addExchangeRate(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: string,
+  options: { effectiveAt?: string; enqueue?: boolean } = {},
+): Promise<ExchangeRate> {
+  assertPermission(ctx, "restaurant.exchange-rate.manage", "saisir le taux du dollar");
+  const parsed = parseRate(input);
+  if (!parsed.ok) throw new DomainError("INVALID_RATE", parsed.message);
+  const effectiveAt = options.effectiveAt ?? new Date().toISOString();
+  const rate: ExchangeRate = {
+    id: uuidv7(new Date(effectiveAt).getTime()),
+    establishmentId: ctx.establishmentId,
+    rate: parsed.rate,
+    effectiveAt,
+    enteredBy: ctx.userId,
+    enteredByName: ctx.userName,
+  };
+  await db.transaction("rw", db.exchangeRates, db.outbox, async () => {
+    await db.exchangeRates.add(rate);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.exchange-rate.added",
+          { rate: { id: rate.id, rate: rate.rate, effectiveAt } },
+          effectiveAt,
+        ),
+      );
+    }
+  });
+  return rate;
+}
+
+/**
+ * Enregistre un paiement (EF-ENC-02, D-032, D-033) : relit les factures et
+ * les paiements déjà reçus, calcule le reste à payer, la contre-valeur au
+ * taux du jour et la monnaie à rendre, puis affecte le montant réglé aux
+ * factures, les plus anciennes d'abord. Un serveur n'encaisse que ses
+ * propres ventes ; un gérant peut encaisser à sa place.
+ */
+export async function recordPayment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  rawInput: PaymentInput,
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Payment> {
+  assertPermission(ctx, "restaurant.payment.collect", "encaisser");
+  const parsed = paymentInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new DomainError(
+      "INVALID_PAYMENT",
+      parsed.error.issues[0]?.message ?? "Le paiement n'est pas valide.",
+    );
+  }
+  const input = parsed.data;
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const base = ctx.settings.currency;
+
+  return db.transaction("rw", [db.invoices, db.payments, db.exchangeRates, db.outbox], async () => {
+    const found = await db.invoices.bulkGet(input.invoiceIds);
+    const invoices: AdvanceInvoice[] = [];
+    for (const invoice of found) {
+      if (!invoice) {
+        throw new DomainError("INVOICE_NOT_FOUND", "Une facture à encaisser est introuvable.");
+      }
+      if (invoice.paymentStatus === "cancelled") {
+        throw new DomainError("INVOICE_CANCELLED", `La facture ${invoice.number} est annulée.`);
+      }
+      if (ctx.role === "waiter" && invoice.waiterId !== ctx.userId) {
+        throw new DomainError(
+          "FORBIDDEN",
+          `La facture ${invoice.number} appartient à ${invoice.waiterName} : seul ce serveur ou un gérant peut l'encaisser.`,
+        );
+      }
+      invoices.push(invoice);
+    }
+    invoices.sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.number.localeCompare(b.number),
+    );
+
+    // Un paiement ne précède jamais sa facture : il suffit de relire ceux qui la suivent.
+    const since = invoices[0]?.createdAt ?? createdAt;
+    const previous = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
+    const balances = invoiceBalances(invoices, previous);
+    const open: { id: string; remaining: Money }[] = [];
+    for (const invoice of invoices) {
+      const remaining = balances.get(invoice.id)?.remaining;
+      if (remaining && remaining.amountMinor > 0) open.push({ id: invoice.id, remaining });
+    }
+    const due = remainingDue(
+      open.map((entry) => entry.id),
+      balances,
+      base,
+    );
+
+    const rate = input.currency === base ? null : await currentExchangeRate(db);
+    const tendered = moneyFromMajor(input.amountMajor, input.currency);
+    const settlement = settlePayment({
+      due,
+      tendered,
+      method: input.method,
+      rate: rate?.rate ?? null,
+    });
+    if (!settlement.ok) throw new DomainError(settlement.code, settlement.message);
+
+    const payment: Payment = {
+      id: uuidv7(new Date(createdAt).getTime()),
+      establishmentId: ctx.establishmentId,
+      method: input.method,
+      provider: input.method === "mobile-money" ? input.provider : null,
+      reference: input.method === "mobile-money" ? input.reference : null,
+      tendered,
+      rate: rate ? { id: rate.id, rate: rate.rate } : null,
+      baseAmount: settlement.baseAmount,
+      change: settlement.change,
+      allocations: allocatePayment(settlement.applied, open),
+      collectedBy: ctx.userId,
+      collectedByName: ctx.userName,
+      deviceCode: ctx.deviceCode,
+      createdAt,
+    };
+    await db.payments.add(payment);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.payment.recorded",
+          {
+            payment: {
+              id: payment.id,
+              method: payment.method,
+              provider: payment.provider,
+              reference: payment.reference,
+              tendered: { amountMinor: tendered.amountMinor, currency: tendered.currency },
+              rateId: payment.rate?.id ?? null,
+              changeMinor: payment.change.amountMinor,
+              allocations: payment.allocations.map((allocation) => ({
+                invoiceId: allocation.invoiceId,
+                amountMinor: allocation.amount.amountMinor,
+              })),
+              createdAt,
+            },
+          } satisfies PaymentRecordedPayload,
+          createdAt,
+        ),
+      );
+    }
+    return payment;
   });
 }

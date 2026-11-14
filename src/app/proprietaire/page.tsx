@@ -351,7 +351,7 @@ function Upcoming() {
     { label: "Marge réalisée et bénéfice estimé", needs: "prix de revient (catalogue et achats)" },
     {
       label: "Cash attendu, cash déclaré et manquants",
-      needs: "encaissement et clôtures (D-Q03, D-Q04, D-Q10)",
+      needs: "clôtures de service (D-039)",
     },
     { label: "Dépenses et dettes", needs: "trésorerie et fiches clients" },
     { label: "Valeur du stock et ruptures", needs: "stock et achats (D-Q14)" },

@@ -412,7 +412,7 @@ function DemoBanner() {
   );
 }
 
-const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "menus"] as const;
+const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "caisse", "menus"] as const;
 
 /** Barre d'onglets inférieure du serveur, en dessous de `lg` (§ 6). */
 function BottomNav() {
@@ -431,7 +431,10 @@ function BottomNav() {
       aria-label="Navigation rapide"
       className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface lg:hidden"
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-4">
+      <ul
+        className="mx-auto grid max-w-lg"
+        style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      >
         {items.map((item) => {
           const isActive = isNavItemActive(pathname, slug, item.segment);
           const isPrimary = item.segment === "commandes/nouvelle";

@@ -5,7 +5,8 @@
 // - Chaque table métier porte establishment_id ; la sécurité au niveau des
 //   lignes (RLS) est posée par la migration 0002_security.
 // - Tables en ajout seul (trigger) : audit_log, sync_operations, change_log,
-//   morning_stock_entries, table_releases, invoice_lines.
+//   morning_stock_entries, table_releases, invoice_lines, exchange_rates,
+//   payments, payment_allocations.
 
 generator client {
   provider = "prisma-client"
@@ -55,10 +56,10 @@ model Establishment {
   suspendedAt  DateTime?           @map("suspended_at") @db.Timestamptz(6)
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  modules      EstablishmentModule[]
-  settings     EstablishmentSettings?
-  memberships  Membership[]
-  devices      Device[]
+  modules     EstablishmentModule[]
+  settings    EstablishmentSettings?
+  memberships Membership[]
+  devices     Device[]
 
   @@map("establishments")
 }
@@ -354,6 +355,59 @@ model InvoiceLine {
   @@index([invoiceId])
   @@index([establishmentId])
   @@map("invoice_lines")
+}
+
+// Taux du dollar saisi par le gérant (EF-PRX-05, D-042) : « 1 USD = rate CDF ».
+// Jamais modifié : on en ajoute un nouveau (RG-PRX-02).
+model ExchangeRate {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  rate            Decimal  @db.Decimal(18, 6)
+  effectiveAt     DateTime @map("effective_at") @db.Timestamptz(6)
+  enteredBy       String   @map("entered_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, effectiveAt])
+  @@map("exchange_rates")
+}
+
+// Paiement reçu (EF-ENC-02, D-032), en ajout seul. `amount_minor` est ce que
+// le client a donné, dans `currency` ; `base_amount_minor` sa contre-valeur au
+// taux figé (`rate`) ; `change_minor` la monnaie rendue, en devise de base.
+model Payment {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  method          String
+  provider        String?
+  reference       String?
+  currency        String   @db.Char(3)
+  amountMinor     BigInt   @map("amount_minor")
+  exchangeRateId  String?  @map("exchange_rate_id") @db.Uuid
+  rate            Decimal? @db.Decimal(18, 6)
+  baseCurrency    String   @map("base_currency") @db.Char(3)
+  baseAmountMinor BigInt   @map("base_amount_minor")
+  changeMinor     BigInt   @map("change_minor")
+  collectedBy     String   @map("collected_by") @db.Uuid
+  deviceId        String   @map("device_id") @db.Uuid
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, createdAt])
+  @@index([establishmentId, collectedBy])
+  @@map("payments")
+}
+
+// Part d'un paiement affectée à une facture d'avance, en devise de base.
+model PaymentAllocation {
+  id              String @id @default(uuid(7)) @db.Uuid
+  establishmentId String @map("establishment_id") @db.Uuid
+  paymentId       String @map("payment_id") @db.Uuid
+  invoiceId       String @map("invoice_id") @db.Uuid
+  amountMinor     BigInt @map("amount_minor")
+
+  @@index([paymentId])
+  @@index([establishmentId, invoiceId])
+  @@map("payment_allocations")
 }
 
 model MorningStockEntry {

@@ -8,6 +8,7 @@ import {
   SquarePlus,
   Sunrise,
   UtensilsCrossed,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   { segment: "menus", label: "Menus", shortLabel: "Menus", icon: UtensilsCrossed },
   { segment: "tables", label: "Tables", shortLabel: "Tables", icon: Armchair },
+  { segment: "caisse", label: "Caisse", shortLabel: "Caisse", icon: Wallet },
   {
     segment: "stock-du-matin",
     label: "Stock du matin",

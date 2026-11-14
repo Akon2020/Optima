@@ -88,7 +88,7 @@ describe("gestion des tables (EF-RES-04)", () => {
   });
 });
 
-describe("occupation et libération (HYPOTHÈSE D-Q04)", () => {
+describe("occupation et libération (D-033)", () => {
   it("EF-CMD-04 : une nouvelle commande sur une table occupée la complète", async () => {
     await releaseTable(db, waiter, "table-5");
     vi.setSystemTime(new Date("2026-11-07T18:01:00.000Z"));

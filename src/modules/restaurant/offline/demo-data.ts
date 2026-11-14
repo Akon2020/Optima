@@ -10,9 +10,10 @@
  * grillade viennent de l'équipe du restaurant (D-007).
  */
 
-import { moneyFromMajor } from "@/shared/lib/money";
+import { moneyFromMajor, sumMoney, toMajor } from "@/shared/lib/money";
 
 import { businessDayStart } from "../domain/business-day";
+import { minimumTendered } from "../domain/payment";
 import type {
   DiningTable,
   MenuItem,
@@ -23,8 +24,10 @@ import type {
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
 import {
+  addExchangeRate,
   createOrder,
   morningProposals,
+  recordPayment,
   releaseTable,
   saveMorningStock,
   type DeviceContext,
@@ -371,14 +374,23 @@ const HOUR_MS = 3_600_000;
 /** Quantité de la veille pour les éléments sans stock du matin du jour (grillade). */
 const YESTERDAY_FALLBACK = 40;
 
+type SeededOrder = {
+  invoiceIds: string[];
+  createdAt: number;
+  waiter: { id: string; name: string };
+};
+
+/** Taux du dollar de la démonstration (D-042), saisi par le gérant le matin. */
+const DEMO_RATE = "2850";
+
 async function seedOrders(
   db: RestaurantDb,
   ctx: DeviceContext,
   random: () => number,
   window: { from: number; to: number; count: number },
-): Promise<{ invoiceIds: string[]; createdAt: number }[]> {
+): Promise<SeededOrder[]> {
   const sellable = ITEMS.filter((item) => item.price !== null && item.weight > 0);
-  const created: { invoiceIds: string[]; createdAt: number }[] = [];
+  const created: SeededOrder[] = [];
   const span = window.to - window.from;
 
   for (let index = 0; index < window.count; index += 1) {
@@ -413,7 +425,11 @@ async function seedOrders(
         },
         { createdAt: createdAt.toISOString(), enqueue: false },
       );
-      created.push({ invoiceIds: invoices.map((i) => i.id), createdAt: createdAt.getTime() });
+      created.push({
+        invoiceIds: invoices.map((i) => i.id),
+        createdAt: createdAt.getTime(),
+        waiter,
+      });
     } catch {
       // Un élément épuisé dans la démo : la commande est simplement ignorée.
     }
@@ -549,6 +565,48 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
           releasedAt: new Date(time + 70 * 60_000).toISOString(),
           enqueue: false,
         });
+      }
+    }
+
+    // Encaissement (D-032, D-033) : les clients partis depuis une heure ont payé,
+    // le plus souvent en francs, parfois en dollars ou par M-Pesa.
+    await addExchangeRate(db, manager, DEMO_RATE, {
+      effectiveAt: new Date(dayStart.getTime() + 2 * HOUR_MS).toISOString(),
+      enqueue: false,
+    });
+    for (const [index, order] of created.entries()) {
+      if (now.getTime() - order.createdAt <= 60 * 60_000) continue;
+      const invoices = (await db.invoices.bulkGet(order.invoiceIds)).filter(
+        (invoice) => invoice !== undefined,
+      );
+      const due = sumMoney(
+        invoices.map((invoice) => invoice.total),
+        ctx.settings.currency,
+      );
+      const kind = index % 5;
+      const currency = kind === 4 ? "USD" : ctx.settings.currency;
+      const amountMajor =
+        kind === 3
+          ? toMajor(due)
+          : kind === 4
+            ? Math.ceil(toMajor(minimumTendered(due, "USD", DEMO_RATE)))
+            : Math.ceil(toMajor(due) / 5_000) * 5_000;
+      try {
+        await recordPayment(
+          db,
+          { ...ctx, userId: order.waiter.id, userName: order.waiter.name, role: "waiter" },
+          {
+            invoiceIds: order.invoiceIds,
+            method: kind === 3 ? "mobile-money" : "cash",
+            provider: kind === 3 ? "mpesa" : null,
+            reference: null,
+            currency,
+            amountMajor,
+          },
+          { createdAt: new Date(order.createdAt + 55 * 60_000).toISOString(), enqueue: false },
+        );
+      } catch {
+        // Paiement impossible dans la démo : la commande reste à encaisser.
       }
     }
 

@@ -6,13 +6,16 @@ import { useMemo, useSyncExternalStore } from "react";
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
 import { currentEntries } from "../domain/morning-stock";
+import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
 import type {
   AdvanceInvoice,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
   TableRelease,
@@ -76,6 +79,12 @@ export type DayData = {
   morningStock: Map<string, MorningStockEntry>;
   availability: Map<string, Availability>;
   soldByItem: Map<string, number>;
+  /** Paiements de la journée (EF-ENC-02), tous appareils confondus après synchronisation. */
+  payments: Payment[];
+  /** Soldes des factures de la journée, déduits des paiements. */
+  balances: Map<string, InvoiceBalance>;
+  /** Dernier taux du dollar saisi (D-042), `null` s'il n'y en a pas encore. */
+  exchangeRate: ExchangeRate | null;
 };
 
 /**
@@ -91,17 +100,29 @@ export function useDayData(): DayData | undefined {
 
   const raw = useLiveQuery(async () => {
     if (status !== "ready" || dayStart === null || day === null) return undefined;
-    const [servicePoints, menuItems, tables, staff, orders, invoices, morningEntries, releases] =
-      await Promise.all([
-        db.servicePoints.orderBy("sortOrder").toArray(),
-        db.menuItems.toArray(),
-        db.diningTables.orderBy("sortOrder").toArray(),
-        db.staff.toArray(),
-        db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
-        db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
-        db.morningStockEntries.where("day").equals(day).toArray(),
-        db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
-      ]);
+    const [
+      servicePoints,
+      menuItems,
+      tables,
+      staff,
+      orders,
+      invoices,
+      morningEntries,
+      releases,
+      payments,
+      exchangeRate,
+    ] = await Promise.all([
+      db.servicePoints.orderBy("sortOrder").toArray(),
+      db.menuItems.toArray(),
+      db.diningTables.orderBy("sortOrder").toArray(),
+      db.staff.toArray(),
+      db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
+      db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
+      db.morningStockEntries.where("day").equals(day).toArray(),
+      db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
+      db.payments.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
+      db.exchangeRates.orderBy("effectiveAt").last(),
+    ]);
     return {
       servicePoints,
       menuItems,
@@ -111,6 +132,8 @@ export function useDayData(): DayData | undefined {
       invoices,
       morningEntries,
       releases,
+      payments,
+      exchangeRate: exchangeRate ?? null,
     };
   }, [db, status, dayStart, day]);
 
@@ -142,7 +165,18 @@ export function useDayData(): DayData | undefined {
       dayStart,
       currency,
     });
-    return { ...raw, now, day, dayStart, availability, soldByItem, morningStock, sessions };
+    const balances = invoiceBalances(raw.invoices, raw.payments);
+    return {
+      ...raw,
+      now,
+      day,
+      dayStart,
+      availability,
+      soldByItem,
+      morningStock,
+      sessions,
+      balances,
+    };
   }, [raw, now, day, dayStart, lowStockThreshold, currency]);
 }
 

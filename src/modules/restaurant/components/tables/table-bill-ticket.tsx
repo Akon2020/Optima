@@ -1,24 +1,36 @@
 import { formatDate, formatTime } from "@/shared/lib/dates";
-import { formatMoney } from "@/shared/lib/money";
+import { formatMoney, moneyFromMinor } from "@/shared/lib/money";
 
+import { remainingDue, type InvoiceBalance } from "../../domain/payment";
 import { buildTableBill, type TableSession } from "../../domain/tables";
 
 /**
  * Addition récapitulative d'une table (EF-CMD-05) : toutes les factures
- * d'avance de l'occupation, regroupées. Toujours rendue en clair (§ 9).
+ * d'avance de l'occupation, regroupées, avec le déjà-payé et le reste dû
+ * (EF-ENC-02). Toujours rendue en clair (§ 9).
  */
 export function TableBillTicket({
   session,
   tableLabel,
   establishmentName,
   printedAt,
+  balances,
 }: {
   session: TableSession;
   tableLabel: string;
   establishmentName: string;
   printedAt: string;
+  balances?: ReadonlyMap<string, InvoiceBalance>;
 }) {
   const bill = buildTableBill(session);
+  const remaining = balances
+    ? remainingDue(
+        session.invoices.map((invoice) => invoice.id),
+        balances,
+        bill.total.currency,
+      )
+    : bill.total;
+  const paid = moneyFromMinor(bill.total.amountMinor - remaining.amountMinor, bill.total.currency);
   return (
     <article
       aria-label={`Addition ${tableLabel}`}
@@ -59,6 +71,18 @@ export function TableBillTicket({
         <span>TOTAL</span>
         <span className="tabular">{formatMoney(bill.total)}</span>
       </p>
+      {paid.amountMinor > 0 ? (
+        <>
+          <p className="flex justify-between">
+            <span>Déjà payé</span>
+            <span className="tabular">{formatMoney(paid)}</span>
+          </p>
+          <p className="flex justify-between font-bold">
+            <span>RESTE À PAYER</span>
+            <span className="tabular">{formatMoney(remaining)}</span>
+          </p>
+        </>
+      ) : null}
       <p className="mt-2 text-[11px] opacity-80">
         Factures : {session.invoices.map((invoice) => invoice.number).join(", ")}
       </p>

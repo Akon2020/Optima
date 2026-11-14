@@ -6,9 +6,11 @@ import type { PinVerifier } from "@/offline/pin";
 import type {
   AdvanceInvoice,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
   TableRelease,
@@ -46,6 +48,8 @@ export class RestaurantDb extends Dexie {
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
   tableReleases!: EntityTable<TableRelease, "id">;
+  payments!: EntityTable<Payment, "id">;
+  exchangeRates!: EntityTable<ExchangeRate, "id">;
   deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
@@ -119,6 +123,11 @@ export class RestaurantDb extends Dexie {
       });
     // v5 : utilisateurs de l'appareil (connexion par mot de passe, puis PIN).
     this.version(5).stores({ deviceUsers: "userId" });
+    // v6 : encaissement (EF-ENC-02) et taux du dollar (EF-PRX-05).
+    this.version(6).stores({
+      payments: "id, createdAt, collectedBy",
+      exchangeRates: "id, effectiveAt",
+    });
   }
 }
 

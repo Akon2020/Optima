@@ -3,9 +3,11 @@ import type { OutboxOperation } from "@/offline/outbox";
 import type {
   AdvanceInvoice,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
   TableRelease,
@@ -47,6 +49,9 @@ export type Bootstrap = {
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) ; absent d'un serveur plus ancien. */
   modules?: string[];
+  /** Encaissements récents et taux du dollar (EF-ENC-02) ; absents d'un serveur plus ancien. */
+  payments?: Payment[];
+  exchangeRates?: ExchangeRate[];
   cursor: string;
 };
 
@@ -90,6 +95,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.invoices,
       db.morningStockEntries,
       db.tableReleases,
+      db.payments,
+      db.exchangeRates,
       db.deviceUsers,
       db.meta,
     ],
@@ -105,6 +112,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.invoices.bulkPut(snapshot.invoices);
       await db.morningStockEntries.bulkPut(snapshot.morningEntries);
       await db.tableReleases.bulkPut(snapshot.releases);
+      if (snapshot.payments) await db.payments.bulkPut(snapshot.payments);
+      if (snapshot.exchangeRates) await db.exchangeRates.bulkPut(snapshot.exchangeRates);
       if (snapshot.modules) await saveEnabledModules(db, snapshot.modules);
       if (BigInt(snapshot.cursor) > BigInt(await getCursor(db))) {
         await saveCursor(db, snapshot.cursor);
@@ -137,6 +146,12 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "morning_stock_entry":
       await db.morningStockEntries.put(change.data as MorningStockEntry);
+      break;
+    case "payment":
+      await db.payments.put(change.data as Payment);
+      break;
+    case "exchange_rate":
+      await db.exchangeRates.put(change.data as ExchangeRate);
       break;
     case "establishment_modules":
       await saveEnabledModules(db, (change.data as { modules: string[] }).modules);
@@ -206,6 +221,8 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.diningTables,
         db.tableReleases,
         db.morningStockEntries,
+        db.payments,
+        db.exchangeRates,
         // Changements de personnel (EF-CPT-01, EF-CPT-05) : applyStaffMember
         // ouvre une sous-transaction sur ces tables.
         db.staff,

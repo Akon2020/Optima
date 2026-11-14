@@ -14,6 +14,10 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.morning-stock.enter",
   "restaurant.table.manage",
   "restaurant.table.release",
+  /** Encaisser (EF-ENC-02). Un serveur n'encaisse que ses propres ventes (matrice des droits). */
+  "restaurant.payment.collect",
+  /** Saisir le taux du dollar (EF-PRX-05, D-042). */
+  "restaurant.exchange-rate.manage",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -28,6 +32,7 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.order.prep-status",
     "restaurant.menu.read",
     "restaurant.table.release",
+    "restaurant.payment.collect",
   ],
   prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
   courier: [],

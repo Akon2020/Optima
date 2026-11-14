@@ -16,13 +16,51 @@ import type { StatusTone } from "@/shared/ui/badge";
 import type { KpiTone } from "@/shared/ui/kpi";
 
 import type { Availability } from "../domain/menu";
-import type { OrderMode, PrepStatus, ServicePointKind } from "../domain/types";
+import type {
+  MobileMoneyProvider,
+  OrderMode,
+  PaymentMethod,
+  PaymentStatus,
+  PrepStatus,
+  ServicePointKind,
+} from "../domain/types";
 
 export const PREP_STATUS: Record<PrepStatus, { label: string; tone: StatusTone }> = {
   pending: { label: "En préparation", tone: "warning" },
   ready: { label: "Prête", tone: "accent" },
   served: { label: "Servie", tone: "success" },
 };
+
+/** Statut de paiement (EF-ENC-02) : jamais porté par la seule couleur (§ 4.4). */
+export const PAYMENT_STATUS: Record<PaymentStatus, { label: string; tone: StatusTone }> = {
+  unpaid: { label: "À encaisser", tone: "warning" },
+  partial: { label: "Payée en partie", tone: "accent" },
+  paid: { label: "Payée", tone: "success" },
+  cancelled: { label: "Annulée", tone: "neutral" },
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Espèces",
+  "mobile-money": "Mobile Money",
+};
+
+export const PROVIDER_LABELS: Record<MobileMoneyProvider, string> = {
+  mpesa: "M-Pesa",
+  "orange-money": "Orange Money",
+  "airtel-money": "Airtel Money",
+};
+
+/** Libellé d'un mode de paiement détenu : « Espèces en dollars », « M-Pesa ». */
+export function holdingLabel(
+  method: PaymentMethod,
+  provider: MobileMoneyProvider | null,
+  currency: string,
+  base: string,
+): string {
+  const name = method === "cash" ? "Espèces" : PROVIDER_LABELS[provider ?? "mpesa"];
+  if (currency === base) return method === "cash" ? "Espèces en francs" : name;
+  return `${name} en ${currency === "USD" ? "dollars" : "francs"}`;
+}
 
 export const ORDER_MODE_LABELS: Record<OrderMode, string> = {
   "dine-in": "Sur place",

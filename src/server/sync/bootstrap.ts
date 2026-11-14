@@ -2,9 +2,11 @@ import { businessDayStart } from "@/modules/restaurant/domain/business-day";
 import type {
   AdvanceInvoice,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
   TableRelease,
@@ -14,9 +16,11 @@ import type { Db } from "../db/context";
 import { withContext } from "../db/context";
 import {
   diningTableSnapshot,
+  exchangeRateSnapshots,
   menuItemSnapshot,
   morningEntrySnapshots,
   orderSnapshots,
+  paymentSnapshots,
   servicePointSnapshot,
   tableReleaseSnapshots,
 } from "../restaurant/snapshots";
@@ -42,6 +46,9 @@ export type DeviceBootstrap = {
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) : l'appareil masque les écrans des autres. */
   modules: string[];
+  /** Paiements de la même période et derniers taux du dollar (EF-ENC-02, EF-PRX-05). */
+  payments: Payment[];
+  exchangeRates: ExchangeRate[];
   cursor: string;
 };
 
@@ -66,17 +73,29 @@ export async function buildBootstrap(
 
   return withContext(db, { establishmentId: establishment.id, isOwner: false }, async (tx) => {
     const where = { establishmentId: establishment.id };
-    const [servicePoints, menuItems, tables, activity, morningEntries, releases, modules, last] =
-      await Promise.all([
-        tx.servicePoint.findMany({ where, orderBy: { sortOrder: "asc" } }),
-        tx.menuItem.findMany({ where }),
-        tx.diningTable.findMany({ where, orderBy: { sortOrder: "asc" } }),
-        orderSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
-        morningEntrySnapshots(tx, establishment.id, { enteredAt: { gte: since } }),
-        tableReleaseSnapshots(tx, establishment.id, { releasedAt: { gte: since } }),
-        tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
-        tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
-      ]);
+    const [
+      servicePoints,
+      menuItems,
+      tables,
+      activity,
+      morningEntries,
+      releases,
+      modules,
+      payments,
+      exchangeRates,
+      last,
+    ] = await Promise.all([
+      tx.servicePoint.findMany({ where, orderBy: { sortOrder: "asc" } }),
+      tx.menuItem.findMany({ where }),
+      tx.diningTable.findMany({ where, orderBy: { sortOrder: "asc" } }),
+      orderSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
+      morningEntrySnapshots(tx, establishment.id, { enteredAt: { gte: since } }),
+      tableReleaseSnapshots(tx, establishment.id, { releasedAt: { gte: since } }),
+      tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
+      paymentSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
+      exchangeRateSnapshots(tx, establishment.id, {}, { latest: 10 }),
+      tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
+    ]);
     return {
       establishment: {
         id: establishment.id,
@@ -100,6 +119,8 @@ export async function buildBootstrap(
       morningEntries,
       releases,
       modules: modules.map((entry) => entry.module).sort(),
+      payments,
+      exchangeRates,
       cursor: last?.seq.toString() ?? "0",
     };
   });

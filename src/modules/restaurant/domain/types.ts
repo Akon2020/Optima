@@ -70,7 +70,12 @@ export type OrderLine = {
 };
 
 export type PrepStatus = "pending" | "ready" | "served";
-export type PaymentStatus = "unpaid" | "paid" | "cancelled";
+/**
+ * Statut de paiement d'une facture. Sur l'appareil, « partiellement payée » et
+ * « payée » se déduisent des paiements (`domain/payment.ts`) ; seule
+ * l'annulation est portée par la facture elle-même.
+ */
+export type PaymentStatus = "unpaid" | "partial" | "paid" | "cancelled";
 
 /** Facture d'avance : une par point de service concerné (EF-CMD-02, EF-CMD-03). */
 export type AdvanceInvoice = {
@@ -127,6 +132,52 @@ export type MorningStockEntry = {
   enteredAt: string;
   enteredBy: string;
   enteredByName: string;
+};
+
+/**
+ * Taux de change saisi par le gérant (EF-PRX-05, D-042) : « 1 USD = `rate`
+ * CDF ». Un taux ne se modifie jamais : on en ajoute un nouveau (RG-PRX-02).
+ */
+export type ExchangeRate = {
+  id: string;
+  establishmentId: string;
+  /** Nombre décimal en texte (6 décimales au plus), jamais un flottant. */
+  rate: string;
+  effectiveAt: string;
+  enteredBy: string;
+  enteredByName: string;
+};
+
+export type PaymentMethod = "cash" | "mobile-money";
+export type MobileMoneyProvider = "mpesa" | "orange-money" | "airtel-money";
+
+/** Part d'un paiement affectée à une facture d'avance, en devise de base. */
+export type PaymentAllocation = { invoiceId: string; amount: Money };
+
+/**
+ * Paiement reçu (EF-ENC-02, D-032). Fait en ajout seul : un paiement ne se
+ * modifie pas. `tendered` est ce que le client a donné, dans sa devise ;
+ * `baseAmount` sa contre-valeur au taux figé (RG-PRX-02) ; `change` la
+ * monnaie rendue en espèces, en devise de base. Les affectations totalisent
+ * `baseAmount − change` (à l'arrondi de conversion près, voir `payment.ts`).
+ */
+export type Payment = {
+  id: string;
+  establishmentId: string;
+  method: PaymentMethod;
+  provider: MobileMoneyProvider | null;
+  reference: string | null;
+  tendered: Money;
+  /** Taux appliqué, `null` si le client paie dans la devise de base. */
+  rate: { id: string; rate: string } | null;
+  baseAmount: Money;
+  change: Money;
+  allocations: PaymentAllocation[];
+  /** Personne qui a reçu l'argent (D-032) : le serveur, ou un gérant à sa place. */
+  collectedBy: string;
+  collectedByName: string;
+  deviceCode: string;
+  createdAt: string;
 };
 
 export type StaffMember = {

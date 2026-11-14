@@ -90,6 +90,46 @@ export const tableReleasedSchema = z.object({
   release: z.object({ id: uuid, tableId: uuid, releasedAt: isoDate }),
 });
 
+/** Taux « 1 USD = X CDF » ajouté par le gérant (EF-PRX-05, RG-PRX-02, D-042). */
+export const exchangeRateAddedSchema = z.object({
+  rate: z.object({
+    id: uuid,
+    rate: z.string().regex(/^\d{1,7}(\.\d{1,6})?$/),
+    effectiveAt: isoDate,
+  }),
+});
+
+/**
+ * Paiement reçu (EF-ENC-02, D-032). L'appareil déclare le montant reçu, le
+ * taux utilisé, la monnaie rendue et les factures réglées ; le serveur relit
+ * le taux et les factures, recalcule la contre-valeur et vérifie la
+ * concordance (`checkPaymentConsistency`).
+ */
+export const paymentRecordedSchema = z.object({
+  payment: z.object({
+    id: uuid,
+    method: z.enum(["cash", "mobile-money"]),
+    provider: z.enum(["mpesa", "orange-money", "airtel-money"]).nullable(),
+    reference: z.string().trim().max(40).nullable(),
+    tendered: z.object({
+      amountMinor: z.number().int().positive().max(1_000_000_000_000),
+      currency: z.enum(["CDF", "USD"]),
+    }),
+    rateId: uuid.nullable(),
+    changeMinor: z.number().int().min(0).max(1_000_000_000_000),
+    allocations: z
+      .array(
+        z.object({
+          invoiceId: uuid,
+          amountMinor: z.number().int().positive().max(1_000_000_000_000),
+        }),
+      )
+      .min(1)
+      .max(50),
+    createdAt: isoDate,
+  }),
+});
+
 export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.order.created",
   "restaurant.invoice.prep-status-changed",
@@ -100,6 +140,8 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.table.archived",
   "restaurant.table.restored",
   "restaurant.table.released",
+  "restaurant.exchange-rate.added",
+  "restaurant.payment.recorded",
 ] as const;
 
 export type RestaurantOperationType = (typeof RESTAURANT_OPERATION_TYPES)[number];
