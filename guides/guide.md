@@ -196,7 +196,7 @@ Par ordre d'urgence :
 7. **D-Q07** (livraison).
 8. **D-Q15** (arrondis, dollar).
 9. **D-Q11 / D-Q26** (identité, landing page).
-10. Valider les propositions **D-022** à **D-028**.
+10. Valider les propositions **D-022** à **D-029**.
 11. Faire signer le cahier des charges (D-013).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
@@ -270,7 +270,7 @@ Par ordre d'urgence :
 
 ### 7.7 Sécurité restante ⬜
 
-- [ ] CSP stricte avec nonce, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (`CLAUDE.md` § 5.4).
+- [x] CSP stricte avec nonce, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (`CLAUDE.md` § 5.4, D-029, `pnpm check:csp`). En production, `APP_ORIGIN` en `https://` active HSTS et `upgrade-insecure-requests`.
 - [ ] Contrôle de l'en-tête `Origin` sur les route handlers modifiants qui utiliseraient un cookie.
 - [ ] Limitation de débit partagée si plusieurs instances (aujourd'hui en mémoire).
 - [ ] `pnpm audit` en intégration continue.
@@ -325,7 +325,7 @@ Par ordre d'urgence :
 |---|---|
 | `Dockerfile` | Construction en plusieurs étapes sur `node:24-bookworm-slim` : `pnpm install --frozen-lockfile`, `pnpm build` avec `output: "standalone"` dans `next.config.ts`, image finale sans outils de build, utilisateur non-root. Pour les exports PDF : `apt-get install chromium fonts-dejavu-core` dans l'image finale, et `PDF_BROWSER_PATH=/usr/bin/chromium` (D-027) |
 | `docker-compose.prod.yml` | Services `db` (postgres:18, volume persistant, aucun port exposé), `app` (image OPTIMA, variables d'environnement, dépend de `db`), `caddy` (ports 80 et 443, certificats automatiques) |
-| `Caddyfile` | `optima.exemple.cd { reverse_proxy app:3000 }`, plus les en-têtes de sécurité si la CSP n'est pas posée par Next.js |
+| `Caddyfile` | `optima.exemple.cd { reverse_proxy app:3000 }`, sans en-têtes de sécurité : la CSP et les autres en-têtes sont posés par l'application (D-029), Caddy ne doit pas les doubler |
 | `scripts/db/setup-production.sql` | Même rôle que `setup-local.sql`, sans saisie interactive (mots de passe passés par des secrets) |
 | `scripts/create-owner.ts` | Création du **premier propriétaire en production** (le seed y est interdit), mot de passe provisoire affiché une fois |
 | `scripts/backup.sh` | Sauvegarde chiffrée et copie externe (voir § 8.7) |

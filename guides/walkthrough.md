@@ -175,7 +175,7 @@
 - La base locale et l'interface sont désormais reliées : voir l'étape 8.
 - Les données de démonstration locales utilisent des identifiants non UUID (`item-primus`…) : elles **ne seront jamais synchronisées**, c'est voulu.
 - **Espace propriétaire** réduit à une liste : tableau de bord consolidé, gestion des établissements, des modules et des gérants à faire.
-- **En-têtes de sécurité et CSP avec nonce** pas encore posés (`CLAUDE.md` § 5.4).
+- ~~**En-têtes de sécurité et CSP avec nonce** pas encore posés~~ : faits à l'étape 15.
 - Limitation de débit **en mémoire** : à revoir si plusieurs instances tournent un jour.
 - **À valider par vous** :
   - D-022 : lecture consolidée du propriétaire par drapeau RLS ;
@@ -359,9 +359,27 @@
 **Bloque encore**
 - **Logo définitif** (D-Q11) pour les icônes.
 - **Tests Playwright de bout en bout** (`@playwright/test`, hors connexion et deux appareils) : `pnpm check:offline` en tient lieu pour l'instant.
-- **CSP avec nonce** (`CLAUDE.md` § 5.4) : à poser, en autorisant `/sw.js`.
+- ~~**CSP avec nonce**~~ : faite à l'étape 15, le service worker fonctionne avec.
 - **Production** : HTTPS obligatoire pour le service worker (Caddy) ; `public/sw.js` doit être produit par `pnpm build` avant la copie dans l'image Docker.
 - **À valider par vous** : D-028.
+
+---
+
+## Étape 15 : CSP avec nonce et en-têtes de sécurité
+
+**Fait**
+- **Politique de contenu (CSP) avec nonce** (`CLAUDE.md` § 5.4, D-029) : le proxy Next.js (`src/proxy.ts`) tire un nonce neuf de 128 bits à chaque page et pose la politique. Next.js ajoute le nonce à tous ses scripts ; le script anti-flash du thème le reçoit du layout racine.
+  - aucun script en ligne ni `eval` en production, rien chargé d'une autre origine, cadres et objets interdits, formulaires et requêtes vers l'application seulement ;
+  - en développement seulement : `eval` et styles en ligne, nécessaires aux outils de React.
+- **En-têtes fixes** sur toutes les réponses (`next.config.ts`) : `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` (caméra, USB et Bluetooth pour la seule origine de l'application), `Cross-Origin-Opener-Policy` ; **HSTS seulement en HTTPS** (`APP_ORIGIN`).
+- **Rendu à chaque requête** : une page préconstruite ne peut pas porter le nonce de la requête. Le layout racine lit les en-têtes et désactive la validation des coquilles statiques (`instant = false`).
+- **Zod sans `eval`** : Zod 4 sondait `Function("")` au premier schéma, ce qui violait la CSP sur les pages Restaurant. `src/shared/lib/zod-config.ts` le désactive ; chaque fichier de schémas l'importe en premier.
+- **Vérifié sur un serveur de production avec Chrome** (`pnpm check:csp`) : 7 pages (accueil, connexion, « Pas de connexion », tableau de bord, prise de commande et tables du Restaurant, `/proprietaire` redirigé), **aucune violation**, chaque script du HTML (20 à 30 par page) porte le nonce, le JavaScript s'exécute. Le nonce change à chaque requête. `pnpm check:offline` passe toujours avec la CSP.
+- **Tests** : 5 tests unitaires de la politique et des en-têtes (141 tests unitaires et 77 d'intégration au total, tous passés).
+
+**Bloque encore**
+- **Rapidité du premier affichage** : sans coquilles statiques, chaque page est calculée par le serveur. À mesurer en 3G (ENF-02) quand l'hébergement sera choisi (D-Q20).
+- **À valider par vous** : D-029.
 
 ---
 
@@ -382,7 +400,7 @@
 | D-Q26 : contenu de la landing page | Landing page complète | Vitrine sobre, non indexée |
 | D-Q01, D-Q08, D-Q09, D-Q16, D-Q17, D-Q21 à D-Q25, D-Q31, D-Q32 | Points secondaires | Recommandations du registre appliquées par défaut |
 | D-Q27 à D-Q30 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-028 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -399,5 +417,5 @@
 
 1. **Trancher D-Q03, D-Q04 et D-Q10**, puis encaissement et clôtures (le cœur de la « caisse défendable »).
 2. **D-Q14**, puis réquisitions. **D-Q06**, puis fiches recettes.
-3. **CSP avec nonce**, puis tests Playwright de bout en bout (hors connexion, deux appareils).
+3. **Tests Playwright de bout en bout** (hors connexion, deux appareils).
 4. **D-Q20**, puis préproduction.
