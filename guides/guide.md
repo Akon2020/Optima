@@ -199,7 +199,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
 6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-062**.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-063**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -245,7 +245,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [ ] Réquisitions (EF-REQ-01, 02, RG-REQ-01) 🔒 D-Q14 ; mettre à jour la proposition du stock du matin.
 - [x] Encaissement (EF-ENC-01, 02, 04) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, monnaie rendue, écran Caisse (D-032, D-033, D-042, D-055).
 - [x] Vente à crédit validée par le gérant, fiches clients, plafond, dettes et remboursements (EF-ENC-03, EF-VTE-05, EF-TRE-03, D-037, D-043, D-059).
-- [ ] Dettes clients dans l'espace propriétaire (EF-PRO-01) ; échéancier du crédit par tranches (D-052, phase 2).
+- [x] Dettes clients dans l'espace propriétaire : encours, débiteurs, ancienneté (EF-PRO-01, D-063).
+- [ ] Échéancier du crédit par tranches (D-052, phase 2) ; délai de paiement et alerte de retard (à décider).
 - [x] Impayés au nom du serveur relevés à la clôture et au rapport (RG-ENC-02).
 - [ ] Annulation d'un paiement, reçu imprimé.
 - [x] Libération de la table proposée au paiement qui solde l'addition (D-033, D-055).

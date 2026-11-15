@@ -560,6 +560,22 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 25 : dettes clients dans l'espace propriétaire (15/11/2026)
+
+**Fait** (D-063)
+- **Carte « Dettes clients »** de la vue d'ensemble : encours par devise, nombre de clients débiteurs, et les cinq plus gros débiteurs (nom, établissement, ancienneté, reste). C'est l'état à cet instant, quelle que soit la période.
+- **Fiche de chaque établissement** : encours et nombre de débiteurs, sous la caisse.
+- **Même calcul que l'appareil** : crédit validé par le gérant, reste = factures − remise − remboursements ; lecture consolidée sous le drapeau du propriétaire.
+- **Correction trouvée par le test de bout en bout** : une commande prise **après** la validation de la journée ne pouvait plus être annulée, remisée ni vendue à crédit (« journée validée »). Elle appartient à la journée suivante (D-039) : elle n'est désormais figée que si elle précède la validation, sur l'appareil comme sur le serveur.
+- **Tests** : 3 tests unitaires des dettes, 1 test de la journée validée, 1 test d'intégration (encours de 4 000 FC après un remboursement partiel, débitrice nommée) ; parcours de bout en bout : vente à crédit à une nouvelle cliente après la clôture, visible du propriétaire.
+- **Vérifié** : vue d'ensemble à 360, 768 et 1280 px, clair et sombre, sans débordement.
+
+**Reste à savoir**
+- **Comptage du stock après une validation anticipée** : si le gérant valide la journée avant la fin de ses 24 heures, les ventes faites entre la validation et le début de la journée suivante (6 h) ne figurent dans le comptage d'aucune journée (la caisse, elle, les compte bien). À traiter avec les réquisitions (D-Q14).
+- **À valider par vous** : D-063 ; et à décider : un délai de paiement des dettes (et donc une alerte de retard) ?
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -572,7 +588,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-062 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-063 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -587,7 +603,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
-2. **D-Q14**, puis réquisitions et fiches recettes.
-3. **D-Q20** (choix de l'offre), puis préproduction.
-4. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
+1. **D-Q14**, puis réquisitions et fiches recettes.
+2. **D-Q20** (choix de l'offre), puis préproduction.
+3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
+4. **Clôture de période** (EF-CLO-05) et écritures d'ajustement (RG-CLO-02).
