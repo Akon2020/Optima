@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { businessDayKey } from "@/modules/restaurant";
 import { authorize } from "@/server/authz/authorize";
 import { withContext } from "@/server/db/context";
 import {
@@ -277,5 +278,107 @@ describe("vue d'ensemble (EF-PRO-01, EF-PRO-05)", () => {
         (alert) => alert.establishmentId === fx.a.id && alert.kind === "morning-stock",
       ),
     ).toBe(true);
+  });
+});
+
+describe("clôtures dans la vue d'ensemble (EF-CLO-04, EF-PRO-01, RG-CLO-01)", () => {
+  it("montre le cash attendu, déclaré et les manquants nommés, et signale une veille non validée", async () => {
+    const yesterdayNoon = new Date(Date.now() - 24 * 3_600_000);
+    const yesterday = businessDayKey(yesterdayNoon.toISOString());
+    const orderId = crypto.randomUUID();
+    // Données posées directement (rôle de migration) : une vente et une caisse de la veille.
+    await db.asAdmin();
+    await db.prisma.order.create({
+      data: {
+        id: orderId,
+        establishmentId: fx.a.id,
+        number: "CMD-2026-D99-000001",
+        mode: "takeaway",
+        waiterId: fx.waiterA.id,
+        deviceId: crypto.randomUUID(),
+        totalMinor: 1_000_000n,
+        currency: "CDF",
+        createdAt: yesterdayNoon,
+      },
+    });
+    await db.prisma.advanceInvoice.create({
+      data: {
+        id: crypto.randomUUID(),
+        establishmentId: fx.a.id,
+        orderId,
+        servicePointId: fx.a.counter.id,
+        number: "FAC-2026-D99-000001",
+        totalMinor: 1_000_000n,
+        currency: "CDF",
+        createdAt: yesterdayNoon,
+      },
+    });
+    await db.prisma.cashClosing.create({
+      data: {
+        id: crypto.randomUUID(),
+        establishmentId: fx.a.id,
+        day: yesterday,
+        userId: fx.waiterA.id,
+        deviceId: crypto.randomUUID(),
+        declaredAt: yesterdayNoon,
+        lines: [
+          {
+            key: "cash::CDF",
+            method: "cash",
+            provider: null,
+            expected: { amountMinor: 1_000_000, currency: "CDF" },
+            counted: { amountMinor: 800_000, currency: "CDF" },
+          },
+        ],
+        byServicePoint: [],
+        unpaidInvoiceIds: [],
+        comment: "Billet perdu",
+      },
+    });
+    await db.asApp();
+
+    const today = await getOwnerOverview(db.prisma, owner(), { period: "jour" });
+    const notValidated = today.alerts.find(
+      (alert) => alert.establishmentId === fx.a.id && alert.kind === "day-not-validated",
+    );
+    expect(notValidated?.message).toContain("n'est pas encore validée");
+
+    const week = await getOwnerOverview(db.prisma, owner(), { period: "semaine" });
+    expect(week.cash).toEqual([
+      {
+        currency: "CDF",
+        expected: { amountMinor: 1_000_000, currency: "CDF" },
+        counted: { amountMinor: 800_000, currency: "CDF" },
+        shortage: { amountMinor: 200_000, currency: "CDF" },
+      },
+    ]);
+    expect(week.shortages).toEqual([
+      expect.objectContaining({
+        userName: "serveur.a",
+        day: yesterday,
+        establishmentName: "Restaurant A",
+        comment: "Billet perdu",
+      }),
+    ]);
+    expect(week.alerts.some((alert) => alert.kind === "cash-shortage")).toBe(true);
+
+    await db.asAdmin();
+    await db.prisma.dayClosing.create({
+      data: {
+        id: crypto.randomUUID(),
+        establishmentId: fx.a.id,
+        day: yesterday,
+        validatedAt: new Date(),
+        validatedBy: fx.managerA.id,
+        cashClosingIds: [],
+        stockCountIds: [],
+      },
+    });
+    await db.asApp();
+    const after = await getOwnerOverview(db.prisma, owner(), { period: "jour" });
+    expect(after.alerts.some((alert) => alert.kind === "day-not-validated")).toBe(false);
+    expect(
+      after.establishments.find((entry) => entry.id === fx.a.id)?.closings.lastValidatedDay,
+    ).toBe(yesterday);
   });
 });

@@ -1,11 +1,19 @@
-import type { Currency } from "@/shared/lib/money";
+import { formatMoney, type Currency } from "@/shared/lib/money";
 
 import {
+  cashTotals,
+  periodDayKeys,
   periodRange,
+  summarizeClosings,
   summarizeEstablishment,
   totalsByCurrency,
+  type CashClosingRow,
+  type CashSummary,
+  type ClosingLineRow,
+  type EstablishmentClosings,
   type EstablishmentSales,
   type OverviewPeriod,
+  type Shortage,
 } from "@/modules/owner";
 import { businessDayKey } from "@/modules/restaurant";
 
@@ -27,7 +35,13 @@ const REJECTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export type OwnerAlert = {
   establishmentId: string;
   establishmentName: string;
-  kind: "suspended" | "device-stale" | "rejected-operations" | "morning-stock";
+  kind:
+    | "suspended"
+    | "device-stale"
+    | "rejected-operations"
+    | "morning-stock"
+    | "day-not-validated"
+    | "cash-shortage";
   message: string;
   href: string;
 };
@@ -41,6 +55,8 @@ export type EstablishmentOverview = {
   timeZone: string;
   hasRestaurant: boolean;
   sales: EstablishmentSales;
+  /** Clôtures de la période (EF-CLO-04, D-056). */
+  closings: EstablishmentClosings;
   devices: { active: number; stale: number; lastSyncAt: string | null };
   staff: number;
 };
@@ -49,6 +65,10 @@ export type OwnerOverview = {
   period: OverviewPeriod;
   establishments: EstablishmentOverview[];
   totals: ReturnType<typeof totalsByCurrency>;
+  /** Cash attendu, déclaré et manquants de la période, par devise (EF-PRO-01). */
+  cash: CashSummary[];
+  /** Manquants nommés de la période (RG-CLO-01), du plus récent au plus ancien. */
+  shortages: (Shortage & { establishmentName: string })[];
   alerts: OwnerAlert[];
 };
 
@@ -62,17 +82,44 @@ export async function getOwnerOverview(
   const nowIso = now.toISOString();
   const establishments = await db.establishment.findMany({ orderBy: { createdAt: "asc" } });
   if (establishments.length === 0) {
-    return { period: input.period, establishments: [], totals: [], alerts: [] };
+    return {
+      period: input.period,
+      establishments: [],
+      totals: [],
+      cash: [],
+      shortages: [],
+      alerts: [],
+    };
   }
 
   const ranges = establishments.map((establishment) =>
     periodRange(input.period, nowIso, establishment.timeZone),
   );
-  const from = new Date(Math.min(...ranges.map((range) => Date.parse(range.previousStart))));
+  const from = new Date(
+    Math.min(
+      ...ranges.map((range) => Date.parse(range.previousStart)),
+      ...weekStarts(nowIso, establishments),
+    ),
+  );
   const to = new Date(Math.max(...ranges.map((range) => Date.parse(range.end))));
   const todayKeys = establishments.map((establishment) =>
     businessDayKey(nowIso, undefined, establishment.timeZone),
   );
+  const dayKeys = establishments.map((establishment) =>
+    periodDayKeys(
+      periodRange(input.period, nowIso, establishment.timeZone),
+      establishment.timeZone,
+    ),
+  );
+  // EF-CLO-04 : une journée non validée est signalée pendant 7 jours, quelle que soit la période.
+  const weekRanges = establishments.map((establishment) =>
+    periodRange("semaine", nowIso, establishment.timeZone),
+  );
+  const checkKeys = establishments.map((establishment, index) => {
+    const week = weekRanges[index];
+    return week ? periodDayKeys(week, establishment.timeZone) : [];
+  });
+  const allDayKeys = [...new Set([...dayKeys.flat(), ...checkKeys.flat()])];
 
   const data = await withContext(db, { establishmentId: null, isOwner: true }, async (tx) => ({
     sales: await tx.advanceInvoice.findMany({
@@ -103,6 +150,30 @@ export async function getOwnerOverview(
       by: ["establishmentId"],
       _count: { _all: true },
     }),
+    cashClosings: await tx.cashClosing.findMany({
+      where: { day: { in: allDayKeys } },
+      select: { establishmentId: true, day: true, userId: true, lines: true, comment: true },
+    }),
+    dayClosings: await tx.dayClosing.findMany({
+      where: { day: { in: allDayKeys } },
+      select: { establishmentId: true, day: true },
+    }),
+    lastValidated: await tx.dayClosing.groupBy({
+      by: ["establishmentId"],
+      _max: { day: true },
+    }),
+  }));
+  const closers = await db.user.findMany({
+    where: { id: { in: [...new Set(data.cashClosings.map((row) => row.userId))] } },
+    select: { id: true, displayName: true },
+  });
+  const closerName = new Map(closers.map((user) => [user.id, user.displayName]));
+  const cashClosings: CashClosingRow[] = data.cashClosings.map((row) => ({
+    establishmentId: row.establishmentId,
+    day: row.day,
+    userName: closerName.get(row.userId) ?? "",
+    lines: closingLines(row.lines),
+    comment: row.comment,
   }));
   const [devices, staff] = await Promise.all([
     db.device.findMany({
@@ -143,6 +214,22 @@ export async function getOwnerOverview(
       .at(-1);
     const hasRestaurant = restaurantIds.has(establishment.id);
     const base = { establishmentId: establishment.id, establishmentName: establishment.name };
+    const closings = summarizeClosings({
+      establishmentId: establishment.id,
+      dayKeys: dayKeys[index] ?? [],
+      todayKey: todayKeys[index] ?? "",
+      checkDays: checkKeys[index] ?? [],
+      cashClosings,
+      validatedDays: data.dayClosings,
+      activeDays: new Set(
+        sales
+          .filter((sale) => sale.establishmentId === establishment.id)
+          .map((sale) => businessDayKey(sale.createdAt, undefined, establishment.timeZone)),
+      ),
+      lastValidatedDay:
+        data.lastValidated.find((row) => row.establishmentId === establishment.id)?._max.day ??
+        null,
+    });
 
     if (establishment.status === "suspended") {
       alerts.push({
@@ -176,6 +263,30 @@ export async function getOwnerOverview(
       const enteredToday = data.morning.some(
         (row) => row.establishmentId === establishment.id && row.day === todayKeys[index],
       );
+      // EF-CLO-04 : une journée passée doit être clôturée et validée par le gérant.
+      const firstUnvalidated = closings.unvalidatedDays[0];
+      if (hasRestaurant && firstUnvalidated) {
+        const count = closings.unvalidatedDays.length;
+        alerts.push({
+          ...base,
+          kind: "day-not-validated",
+          message:
+            count > 1
+              ? `${count} journées passées pas encore validées (la première : ${formatDayKey(firstUnvalidated)}).`
+              : `La journée du ${formatDayKey(firstUnvalidated)} n'est pas encore validée.`,
+          href: `/e/${establishment.slug}/journal`,
+        });
+      }
+      // RG-CLO-01 : les manquants sont nommés.
+      const shortage = closings.cash.filter((entry) => entry.shortage.amountMinor > 0);
+      if (shortage.length > 0) {
+        alerts.push({
+          ...base,
+          kind: "cash-shortage",
+          message: `Manquants de caisse : ${shortage.map((entry) => formatMoney(entry.shortage)).join(" et ")} (${closings.shortages.length} déclaration${closings.shortages.length > 1 ? "s" : ""}).`,
+          href: "#manquants",
+        });
+      }
       if (hasRestaurant && hasPoints && !enteredToday) {
         alerts.push({
           ...base,
@@ -194,6 +305,7 @@ export async function getOwnerOverview(
       currency,
       timeZone: establishment.timeZone,
       hasRestaurant,
+      closings,
       sales: summarizeEstablishment({
         establishment: { id: establishment.id, timeZone: establishment.timeZone, currency },
         period: input.period,
@@ -206,10 +318,53 @@ export async function getOwnerOverview(
     };
   });
 
+  const names = new Map(overviews.map((overview) => [overview.id, overview.name]));
   return {
     period: input.period,
     establishments: overviews,
     totals: totalsByCurrency(overviews.map((overview) => overview.sales)),
+    cash: cashTotals(overviews.map((overview) => overview.closings)),
+    shortages: overviews
+      .flatMap((overview) => overview.closings.shortages)
+      .map((shortage) => ({
+        ...shortage,
+        establishmentName: names.get(shortage.establishmentId) ?? "",
+      }))
+      .sort((a, b) => b.day.localeCompare(a.day)),
     alerts,
   };
+}
+
+/** Lignes d'une clôture de caisse enregistrées en JSON (`cash_closings.lines`). */
+function closingLines(value: unknown): ClosingLineRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((line: unknown) => {
+    const entry = line as {
+      expected?: { amountMinor?: unknown; currency?: unknown };
+      counted?: { amountMinor?: unknown };
+    };
+    const currency = entry.expected?.currency;
+    const expected = entry.expected?.amountMinor;
+    const counted = entry.counted?.amountMinor;
+    if (
+      (currency !== "CDF" && currency !== "USD") ||
+      typeof expected !== "number" ||
+      typeof counted !== "number"
+    ) {
+      return [];
+    }
+    return [{ currency, expectedMinor: expected, countedMinor: counted }];
+  });
+}
+
+/** `2026-11-06` devient « 06/11 ». */
+function formatDayKey(day: string): string {
+  return `${day.slice(8, 10)}/${day.slice(5, 7)}`;
+}
+
+/** Début de la semaine glissante de chaque établissement (journées à vérifier). */
+function weekStarts(nowIso: string, establishments: readonly { timeZone: string }[]): number[] {
+  return establishments.map((establishment) =>
+    Date.parse(periodRange("semaine", nowIso, establishment.timeZone).start),
+  );
 }

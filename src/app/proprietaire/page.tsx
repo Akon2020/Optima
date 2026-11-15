@@ -2,12 +2,15 @@ import {
   ArrowRight,
   Bell,
   Building2,
+  CalendarX,
   CloudOff,
+  HandCoins,
   Receipt,
   ShoppingBag,
   Smartphone,
   TriangleAlert,
   Users,
+  Wallet,
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -90,6 +93,7 @@ async function Overview({
             <SalesChart overview={overview} />
             <Alerts overview={overview} />
           </div>
+          <Cash overview={overview} />
           <Establishments overview={overview} nowIso={nowIso} />
           <Upcoming />
         </div>
@@ -239,6 +243,10 @@ function Alerts({ overview }: { overview: OwnerOverview }) {
               >
                 {alert.kind === "device-stale" ? (
                   <CloudOff aria-hidden className="mt-0.5 size-4 shrink-0" />
+                ) : alert.kind === "cash-shortage" ? (
+                  <Wallet aria-hidden className="mt-0.5 size-4 shrink-0" />
+                ) : alert.kind === "day-not-validated" ? (
+                  <CalendarX aria-hidden className="mt-0.5 size-4 shrink-0" />
                 ) : (
                   <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
                 )}
@@ -316,6 +324,32 @@ function Establishments({ overview, nowIso }: { overview: OwnerOverview; nowIso:
                   </dd>
                 </div>
               </dl>
+              {entry.hasRestaurant ? (
+                <div className="rounded-md bg-bg-subtle px-3 py-2 text-sm">
+                  {entry.closings.cash.length === 0 ? (
+                    <p className="text-text-muted">Aucune caisse déclarée sur la période.</p>
+                  ) : (
+                    entry.closings.cash.map((cash) => (
+                      <p key={cash.currency}>
+                        Caisse : <span className="tabular">{formatMoney(cash.counted)}</span>{" "}
+                        <span className="text-text-muted">
+                          déclarés sur {formatMoney(cash.expected)}
+                        </span>
+                        {cash.shortage.amountMinor > 0 ? (
+                          <span className="block font-medium">
+                            Manquant {formatMoney(cash.shortage)}
+                          </span>
+                        ) : null}
+                      </p>
+                    ))
+                  )}
+                  <p className="mt-1 text-xs text-text-muted">
+                    {entry.closings.lastValidatedDay
+                      ? `Dernière journée validée : ${shortDay(entry.closings.lastValidatedDay)}`
+                      : "Aucune journée validée pour l'instant"}
+                  </p>
+                </div>
+              ) : null}
               <p className="text-xs text-text-muted">
                 Dernière synchronisation :{" "}
                 {entry.devices.lastSyncAt
@@ -345,14 +379,94 @@ function Establishments({ overview, nowIso }: { overview: OwnerOverview; nowIso:
   );
 }
 
+/** `2026-11-06` devient « 06/11 ». */
+function shortDay(day: string): string {
+  return `${day.slice(8, 10)}/${day.slice(5, 7)}`;
+}
+
+/**
+ * Caisse de la période (EF-CLO-04, EF-PRO-01) : cash attendu, déclaré et
+ * manquants par devise, d'après les clôtures déclarées ; chaque manquant est
+ * nommé (RG-CLO-01).
+ */
+function Cash({ overview }: { overview: OwnerOverview }) {
+  if (!overview.establishments.some((entry) => entry.hasRestaurant)) return null;
+  return (
+    <Card aria-labelledby="cash-title">
+      <CardHeader
+        titleId="cash-title"
+        title="Caisse"
+        description={`${PERIOD_LABELS[overview.period]}, d'après les clôtures déclarées par le personnel.`}
+      />
+      {overview.cash.length === 0 ? (
+        <EmptyState
+          icon={Wallet}
+          title="Aucune caisse déclarée"
+          description="Les montants apparaîtront dès qu'une personne aura déclaré sa caisse en fin de service."
+          className="py-6 sm:py-8"
+        />
+      ) : (
+        <div className="flex flex-col gap-4">
+          {overview.cash.map((cash) => (
+            <div key={cash.currency} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Kpi
+                icon={Receipt}
+                tone="grey"
+                value={formatMoney(cash.expected)}
+                label={`Cash attendu (${cash.currency})`}
+              />
+              <Kpi
+                icon={HandCoins}
+                tone="green"
+                value={formatMoney(cash.counted)}
+                label={`Cash déclaré (${cash.currency})`}
+              />
+              <Kpi
+                icon={TriangleAlert}
+                tone={cash.shortage.amountMinor > 0 ? "rose" : "grey"}
+                value={formatMoney(cash.shortage)}
+                label="Manquants"
+              />
+            </div>
+          ))}
+          {overview.shortages.length > 0 ? (
+            <section id="manquants" aria-labelledby="shortages-title" className="scroll-mt-24">
+              <h3 id="shortages-title" className="mb-2 text-sm font-medium">
+                Manquants de la période
+              </h3>
+              <ul className="flex flex-col divide-y divide-border">
+                {overview.shortages.map((shortage) => (
+                  <li
+                    key={`${shortage.establishmentId}-${shortage.day}-${shortage.userName}-${shortage.amount.currency}`}
+                    className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 py-2.5 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium">{shortage.userName || "Sans nom"}</span>{" "}
+                      <span className="text-text-muted">
+                        · {shortage.establishmentName} · journée du {shortDay(shortage.day)}
+                      </span>
+                      {shortage.comment ? (
+                        <span className="block text-xs text-text-muted">
+                          « {shortage.comment} »
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="font-semibold tabular">{formatMoney(shortage.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** EF-PRO-01 : indicateurs qui attendent des écrans pas encore construits (rien d'inventé). */
 function Upcoming() {
   const items = [
     { label: "Marge réalisée et bénéfice estimé", needs: "prix de revient (catalogue et achats)" },
-    {
-      label: "Cash attendu, cash déclaré et manquants",
-      needs: "remontée des clôtures de service (D-056)",
-    },
     { label: "Dépenses et dettes", needs: "trésorerie et fiches clients" },
     { label: "Valeur du stock et ruptures", needs: "stock et achats (D-Q14)" },
   ];
