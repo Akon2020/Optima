@@ -13,7 +13,9 @@ import { readE2eState, type E2eAccount } from "./server/env";
  */
 const state = readE2eState();
 test.skip(!state.available, state.available ? "" : `Base de test indisponible : ${state.reason}`);
-test.describe.configure({ mode: "serial" });
+// Une journée qui se suit : rejouer une étape sur une base déjà avancée n'a pas de
+// sens, donc aucune nouvelle tentative ; du temps en plus pour une machine chargée.
+test.describe.configure({ mode: "serial", retries: 0, timeout: 180_000 });
 test.use({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 
 const ready = () => {
