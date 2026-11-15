@@ -536,6 +536,26 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 24 : parcours de bout en bout avec le serveur (15/11/2026)
+
+**Fait** (D-062)
+- **Base dédiée `optima_e2e`** (`scripts/db/setup-e2e.sql`, créée une fois) : à chaque `pnpm test:e2e`, elle est migrée, vidée, puis remplie d'un établissement « Restaurant E2E » et de trois comptes de test (propriétaire avec TOTP, gérante, serveur) aux mots de passe générés, gardés dans `.e2e/accounts.json` (non versionné). Le serveur des tests est toujours lancé par Playwright, branché sur cette base : jamais sur `optima`.
+- **Quatre parcours** (`tests/e2e/server.spec.ts`) :
+  - mot de passe faux refusé, bon mot de passe accepté ;
+  - deux appareils : la gérante appaire un téléphone, le serveur s'y connecte par mot de passe puis choisit son PIN et prend une commande ; une tablette appairée reçoit la commande, la gérante l'encaisse ; après synchronisation, le téléphone la voit « Payée » ;
+  - le propriétaire entre avec son code TOTP et voit l'établissement et la vente de 7 000 FC ;
+  - la gérante voit les deux appareils appairés.
+- **CI** : PostgreSQL 18 jetable, rôles et base créés par les mêmes scripts, mots de passe générés et masqués dans les journaux.
+- **Accessibilité** : au format téléphone, le bouton de synchronisation ne s'annonçait que « 0 » ; il dit maintenant l'état (« En ligne, tout est synchronisé »).
+- **Tests** : 25 tests de bout en bout, stables sur trois lancements ; 219 unitaires, 109 d'intégration.
+
+**Bloque encore**
+- **P1 et P5 de bout en bout** (stock du matin, clôture validée par le gérant) : à ajouter sur la même base.
+- **Erreur dans le journal du serveur** à chaque connexion : « Route "/compte" : Next.js encountered the unstable value `new Date()` while prerendering ». La page fonctionne ; c'est la validation des rendus de Next 16 lors de la redirection après connexion. À corriger à part.
+- **À valider par vous** : D-062.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -548,7 +568,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-061 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-062 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -563,7 +583,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Parcours de bout en bout avec la base** : base de test préparée, connexion, appairage, P5 avec validation du gérant, deux appareils synchronisés, PostgreSQL de service en CI.
+1. **Erreur `new Date()` sur `/compte`** au rendu après connexion (journal du serveur), puis parcours P1 et P5 de bout en bout.
 2. **D-Q14**, puis réquisitions et fiches recettes.
 3. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
 4. **D-Q20** (choix de l'offre), puis préproduction.

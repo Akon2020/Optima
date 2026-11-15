@@ -53,7 +53,7 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
   - les **annulations et remises** (D-058) : demandées par le serveur, validées par le gérant (carte « Demandes à valider » de l'écran Commandes). Règles dans `src/modules/restaurant/domain/adjustment.ts`, tables `adjustment_requests` et `adjustment_decisions` en ajout seul.
   - la **vente à crédit** (D-059) : fiches clients, crédit validé par le gérant, dettes et remboursements sur l'écran « Clients » (`/restaurant/clients`). Règles dans `src/modules/restaurant/domain/customers.ts`, table `customers`.
   - les **options et formules** du menu (D-060) : groupes d'options avec suppléments fixés par le gérant, formules réparties entre les points de service. Règles dans `src/modules/restaurant/domain/menu-options.ts`, colonnes `option_groups` et `components` de `menu_items`.
-  - les **tests de bout en bout** Playwright (`tests/e2e/`, `pnpm test:e2e`) et l'**intégration continue** GitHub Actions (D-047, D-061). Les parcours qui exigent la base (connexion, deux appareils synchronisés) restent à ajouter.
+  - les **tests de bout en bout** Playwright (`tests/e2e/`, `pnpm test:e2e`) et l'**intégration continue** GitHub Actions (D-047, D-061). Les parcours avec le serveur tournent sur une base dédiée `optima_e2e`, vidée et remplie de comptes de test à chaque lancement (D-062).
 - `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
 - La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
 - Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
@@ -760,6 +760,7 @@ Scripts existants dans `package.json` :
 | `pnpm db:migrate` / `pnpm db:status` | Applique / liste les migrations (`MIGRATION_DATABASE_URL`) |
 | `pnpm db:seed` | Données de développement, mots de passe provisoires affichés une fois (refusé en production) |
 | `psql -U postgres -h localhost -f scripts/db/setup-local.sql` | Crée la base `optima` et les rôles `optima_migrator` / `optima_app` (une seule fois) |
+| `psql -U postgres -h localhost -f scripts/db/setup-e2e.sql` | Crée la base `optima_e2e` des tests de bout en bout (une seule fois) ; `pnpm test:e2e` la migre, la **vide** et y crée des comptes de test à chaque lancement (D-062). Sans elle, les parcours avec le serveur sont sautés |
 
 L'intégration continue (`.github/workflows/ci.yml`, D-047, D-061) enchaîne typage, lint, format, tests unitaires, d'intégration, build, tests de bout en bout et `pnpm audit --audit-level high` sur `develop` et sur les pull requests vers `main`.
 
