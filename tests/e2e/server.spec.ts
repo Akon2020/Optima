@@ -94,8 +94,26 @@ async function waitForSync(page: Page): Promise<void> {
   ).toBeAttached({ timeout: 30_000 });
 }
 
-/** Résumé de la commande, tel que l'affiche la liste des commandes. */
-let orderSummary = "";
+/** Les deux appareils de la journée, partagés par les tests en série. */
+let deviceA: Page;
+let deviceB: Page;
+const ORDER = "2× Primus 72 cl";
+
+test.afterAll(async () => {
+  await deviceA?.context().close();
+  await deviceB?.context().close();
+});
+
+/** Ouvre le panneau de synchronisation et force l'envoi puis la réception. */
+async function syncNow(page: Page): Promise<void> {
+  await page
+    .getByRole("button", { name: /^(En ligne|Hors ligne)/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Synchroniser maintenant" }).click();
+  await waitForSync(page);
+  await page.keyboard.press("Escape");
+}
 
 test("EF-AUT-01 : un mot de passe faux est refusé, le bon ouvre la session", async ({ page }) => {
   await login(page, { ...ready().manager, password: "mauvais-mot-de-passe" });
@@ -105,12 +123,40 @@ test("EF-AUT-01 : un mot de passe faux est refusé, le bon ouvre la session", as
   await expect(page.getByRole("heading", { name: ready().manager.name })).toBeVisible();
 });
 
-test("EF-OFF-01 à 03 : une commande d'un appareil arrive sur un autre, l'encaissement revient", async ({
+test("EF-CPT-04, EF-AUT-05 : deux appareils appairés, chacun avec son utilisateur et son PIN", async ({
   browser,
 }) => {
-  test.slow();
+  deviceA = await newDevice(browser, "Téléphone salle E2E", ready().waiter);
+  deviceB = await newDevice(browser, "Tablette comptoir E2E", ready().manager);
+});
+
+test("P1, EF-REQ-04 : la gérante saisit le stock du matin, l'autre appareil le reçoit", async () => {
+  await deviceB.goto(`${restaurant()}/stock-du-matin`);
+  const morning: [string, string, number][] = [
+    ["Comptoir", "Primus 72 cl", 24],
+    ["Comptoir", "Eau minérale 50 cl", 12],
+    ["Cuisine", "Tilapia", 10],
+    ["Cuisine", "Frites", 20],
+  ];
+  for (const point of ["Comptoir", "Cuisine"]) {
+    await deviceB.getByRole("tab", { name: new RegExp(point) }).click();
+    for (const [, item, quantity] of morning.filter(([name]) => name === point)) {
+      await deviceB.getByLabel(item, { exact: true }).fill(String(quantity));
+    }
+    await deviceB.getByRole("button", { name: `Valider le stock · ${point}` }).click();
+    await expect(deviceB.getByRole("button", { name: `Valider le stock · ${point}` })).toBeHidden();
+  }
+  await waitForSync(deviceB);
+
+  // Le téléphone de salle reçoit le stock : 24 Primus disponibles.
+  await syncNow(deviceA);
+  await deviceA.goto(`${restaurant()}/menus`);
+  const primus = deviceA.locator("article", { hasText: "Primus 72 cl" });
+  await expect(primus.getByText("24 en stock")).toBeVisible();
+});
+
+test("EF-OFF-01 à 03 : une commande d'un appareil arrive sur l'autre, l'encaissement revient", async () => {
   // Appareil A : le serveur prend une commande à emporter.
-  const deviceA = await newDevice(browser, "Téléphone salle E2E", ready().waiter);
   await deviceA.goto(`${restaurant()}/commandes/nouvelle`);
   await deviceA.getByRole("radio", { name: "À emporter" }).click();
   for (let count = 0; count < 2; count += 1) {
@@ -125,12 +171,11 @@ test("EF-OFF-01 à 03 : une commande d'un appareil arrive sur un autre, l'encais
   await expect(done.getByText(/FAC-\d{4}-D\d{2}-\d{6}/)).toBeVisible();
   await done.getByRole("link", { name: "Commandes" }).click();
   await waitForSync(deviceA);
-  orderSummary = "2× Primus 72 cl";
 
-  // Appareil B : la gérante voit la commande et l'encaisse.
-  const deviceB = await newDevice(browser, "Tablette comptoir E2E", ready().manager);
+  // Appareil B : la gérante reçoit la commande et l'encaisse.
   await deviceB.goto(`${restaurant()}/commandes`);
-  await deviceB.getByRole("button", { name: new RegExp(orderSummary) }).click();
+  await syncNow(deviceB);
+  await deviceB.getByRole("button", { name: new RegExp(ORDER) }).click();
   await deviceB.getByRole("button", { name: "Encaisser 7 000 FC" }).click();
   await deviceB
     .getByRole("dialog", { name: /^Encaisser/ })
@@ -141,24 +186,55 @@ test("EF-OFF-01 à 03 : une commande d'un appareil arrive sur un autre, l'encais
       exact: true,
     }),
   ).toBeVisible();
+  await deviceB.keyboard.press("Escape");
   await waitForSync(deviceB);
 
   // Retour sur A : après synchronisation, la commande est payée.
-  await deviceA
-    .getByRole("button", { name: /^En ligne/ })
-    .first()
-    .click();
-  await deviceA.getByRole("button", { name: "Synchroniser maintenant" }).click();
-  await deviceA.keyboard.press("Escape");
-  await deviceA.getByRole("button", { name: new RegExp(orderSummary) }).click();
+  await syncNow(deviceA);
+  await deviceA.getByRole("button", { name: new RegExp(ORDER) }).click();
   await expect(
     deviceA.getByRole("dialog", { name: /À emporter · 7 000 FC/ }).getByText("Payée", {
       exact: true,
     }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
+  await deviceA.keyboard.press("Escape");
+});
 
-  await deviceA.context().close();
-  await deviceB.context().close();
+test("P5, EF-CLO-01 à 04 : caisse déclarée, stock compté, journée validée par la gérante", async () => {
+  await deviceB.goto(`${restaurant()}/clotures`);
+
+  // Sa caisse : 7 000 FC attendus en espèces, 7 000 FC comptés.
+  await deviceB.getByRole("tab", { name: /Ma caisse/ }).click();
+  await deviceB.getByLabel("Compté (FC)").fill("7000");
+  await deviceB.getByRole("button", { name: "Déclarer ma caisse" }).click();
+  await expect(deviceB.getByText("Mes déclarations")).toBeVisible();
+
+  // Le stock de chaque poste : matin − ventes = compté, sans écart.
+  await deviceB.getByRole("tab", { name: /^Stock/ }).click();
+  const counted: [string, string, number][] = [
+    ["Comptoir", "Primus 72 cl", 22],
+    ["Comptoir", "Eau minérale 50 cl", 12],
+    ["Cuisine", "Tilapia", 10],
+    ["Cuisine", "Frites", 20],
+  ];
+  const points = deviceB.getByRole("tablist", { name: "Points de service" });
+  for (const point of ["Comptoir", "Cuisine"]) {
+    await points.getByRole("tab", { name: new RegExp(point) }).click();
+    for (const [, item, quantity] of counted.filter(([name]) => name === point)) {
+      await deviceB.getByLabel(`Stock compté, ${item}`).fill(String(quantity));
+    }
+    await deviceB.getByRole("button", { name: "Enregistrer le comptage" }).click();
+    await expect(deviceB.getByRole("button", { name: "Enregistrer le comptage" })).toBeHidden();
+  }
+  await waitForSync(deviceB);
+
+  // La journée : plus rien ne manque, la gérante valide.
+  await deviceB.getByRole("tab", { name: /Journée/ }).click();
+  const validate = deviceB.getByRole("button", { name: "Valider la journée" });
+  await expect(validate).toBeEnabled({ timeout: 30_000 });
+  await validate.click();
+  await expect(deviceB.getByText("Journées validées")).toBeVisible({ timeout: 30_000 });
+  await waitForSync(deviceB);
 });
 
 test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établissement", async ({
