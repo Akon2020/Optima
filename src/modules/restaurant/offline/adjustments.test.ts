@@ -98,6 +98,34 @@ async function order(ctx: DeviceContext = waiter) {
   });
 }
 
+describe("journée validée (RG-CLO-02, D-039)", () => {
+  it("fige les commandes d'avant la validation, pas celles qui la suivent", async () => {
+    const before = await createOrder(
+      db,
+      waiter,
+      { mode: "takeaway", tableId: null, lines: [{ menuItemId: "item-primus", quantity: 1 }] },
+      { createdAt: "2026-11-07T16:00:00.000Z" },
+    );
+    await db.dayClosings.add({
+      id: "closing-1",
+      establishmentId: "test",
+      day: "2026-11-07",
+      validatedAt: "2026-11-07T17:00:00.000Z",
+      validatedBy: "manager",
+      validatedByName: "Gérant test",
+      cashClosingIds: [],
+      stockCountIds: [],
+      comment: null,
+    });
+    // Commande prise à 18 h, après la validation de 17 h : elle compte pour le lendemain.
+    const after = await order();
+    const cancel = (orderId: string) =>
+      requestAdjustment(db, manager, { kind: "cancel", orderId, reason: "Client parti" });
+    await expect(cancel(before.order.id)).rejects.toMatchObject({ code: "DAY_VALIDATED" });
+    await expect(cancel(after.order.id)).resolves.toBeDefined();
+  });
+});
+
 describe("annulation (RG-CMD-02, RG-VTE-02)", () => {
   it("le serveur demande, le gérant valide : factures annulées, stock rétabli", async () => {
     const { order: created, invoices } = await order();

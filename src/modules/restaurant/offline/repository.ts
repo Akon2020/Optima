@@ -1263,7 +1263,11 @@ async function orderBalances(db: RestaurantDb, orderId: string) {
   return { invoices, balances: invoiceBalances(invoices, payments) };
 }
 
-/** RG-CLO-02 : la commande appartient-elle à une journée validée ? */
+/**
+ * RG-CLO-02 : la commande appartient-elle à une journée validée ? Seulement
+ * si elle est antérieure à la validation : ce qui suit appartient à la
+ * journée suivante (D-039).
+ */
 async function isOrderDayValidated(
   db: RestaurantDb,
   ctx: DeviceContext,
@@ -1271,7 +1275,8 @@ async function isOrderDayValidated(
 ): Promise<boolean> {
   const { businessDayStartHour, timeZone } = ctx.settings;
   const day = businessDayKey(order.createdAt, businessDayStartHour, timeZone);
-  return (await db.dayClosings.where("day").equals(day).count()) > 0;
+  const closings = await db.dayClosings.where("day").equals(day).toArray();
+  return closings.some((closing) => order.createdAt <= closing.validatedAt);
 }
 
 export type AdjustmentInput = {

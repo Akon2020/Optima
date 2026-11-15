@@ -1099,7 +1099,11 @@ async function adjustmentState(
     ctx.timeZone,
   );
   const [validated, requests] = await Promise.all([
-    tx.dayClosing.count({ where: { establishmentId: ctx.establishmentId, day } }),
+    // RG-CLO-02 : seule une commande antérieure à la validation est figée ; ce qui
+    // suit la validation appartient à la journée suivante (D-039).
+    tx.dayClosing.count({
+      where: { establishmentId: ctx.establishmentId, day, validatedAt: { gte: order.createdAt } },
+    }),
     tx.adjustmentRequest.findMany({
       where: { establishmentId: ctx.establishmentId, orderId: order.id },
       select: { id: true },
