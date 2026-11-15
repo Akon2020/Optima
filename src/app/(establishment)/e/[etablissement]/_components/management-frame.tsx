@@ -11,12 +11,13 @@ import { ThemeSwitcher } from "@/shared/theme/theme-switcher";
 
 import { LogoutButton } from "../../../../_components/logout-button";
 
-export type ManagementSection = "equipe" | "appareils" | "clotures" | "journal";
+export type ManagementSection = "equipe" | "appareils" | "clotures" | "rapports" | "journal";
 
 const SECTIONS: { id: ManagementSection; label: string }[] = [
   { id: "equipe", label: "Équipe" },
   { id: "appareils", label: "Appareils" },
   { id: "clotures", label: "Clôtures" },
+  { id: "rapports", label: "Rapports" },
   { id: "journal", label: "Journal" },
 ];
 
@@ -58,8 +59,12 @@ export function ManagementFrame({
             <LogoutButton />
           </div>
         </div>
-        <nav aria-label="Gestion de l'établissement" className="mx-auto max-w-6xl px-4 sm:px-6">
-          <ul className="flex gap-1">
+        {/* Sur un téléphone, les onglets défilent sans élargir la page. */}
+        <nav
+          aria-label="Gestion de l'établissement"
+          className="scrollbar-none mx-auto max-w-6xl overflow-x-auto px-4 sm:px-6"
+        >
+          <ul className="flex gap-1 whitespace-nowrap">
             {SECTIONS.map((item) => {
               const isActive = item.id === section;
               return (
@@ -68,7 +73,7 @@ export function ManagementFrame({
                     href={`/e/${slug}/${item.id}`}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "inline-flex min-h-11 items-center border-b-2 px-3 text-sm font-medium",
+                      "inline-flex min-h-11 items-center border-b-2 px-2.5 text-sm font-medium sm:px-3",
                       isActive
                         ? "border-text text-text"
                         : "border-transparent text-text-muted hover:text-text",

@@ -3,6 +3,7 @@
 import { FileSpreadsheet, FileText, FileType } from "lucide-react";
 import { useState } from "react";
 
+import { downloadBase64 } from "@/shared/lib/download";
 import { Button } from "@/shared/ui/button";
 
 import { exportAuditAction, type AuditExportInput } from "./audit-actions";
@@ -14,18 +15,6 @@ const FORMATS: { value: Format; label: string; icon: typeof FileText }[] = [
   { value: "pdf", label: "PDF", icon: FileType },
   { value: "csv", label: "CSV", icon: FileText },
 ];
-
-function download(base64: string, mimeType: string, filename: string) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 /** Téléchargement du journal filtré en Excel, PDF ou CSV (EF-AUD-04). */
 export function AuditExportButton({ input }: { input: Omit<AuditExportInput, "format"> }) {
@@ -41,7 +30,7 @@ export function AuditExportButton({ input }: { input: Omit<AuditExportInput, "fo
         setMessage({ tone: "error", text: result.message });
         return;
       }
-      download(result.data.base64, result.data.mimeType, result.data.filename);
+      downloadBase64(result.data.base64, result.data.mimeType, result.data.filename);
       const count = result.data.count;
       setMessage({
         tone: "ok",

@@ -302,6 +302,30 @@ test("RG-CLO-02, EF-CLO-05 : la gérante corrige la caisse puis clôture la pér
   await expect(page.getByRole("button", { name: "Corriger une journée" })).toBeDisabled();
 });
 
+test("EF-RAP-01, EF-RAP-04 : la gérante consulte le rapport et l'exporte en Excel et en PDF", async ({
+  page,
+}) => {
+  await login(page, ready().manager);
+  await expect(page).toHaveURL(/\/compte/);
+  await page.goto(`/e/${ready().slug}/rapports`);
+  await expect(page.getByRole("heading", { name: "Rapports", level: 1 })).toBeVisible();
+  const top = page.getByRole("region", { name: "Les plus vendus" });
+  await expect(top.getByText("Primus 72 cl")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Par point de service" }).getByText("Comptoir"),
+  ).toBeVisible();
+
+  for (const [label, extension] of [
+    ["Exporter le rapport en Excel", ".xlsx"],
+    ["Exporter le rapport en PDF", ".pdf"],
+  ] as const) {
+    const downloading = page.waitForEvent("download");
+    await page.getByRole("button", { name: label }).click();
+    const file = await downloading;
+    expect(file.suggestedFilename()).toMatch(new RegExp(`^rapport-.*\\${extension}$`));
+  }
+});
+
 test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établissement", async ({
   page,
 }) => {
