@@ -199,7 +199,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
 6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-063**.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-064**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -254,7 +254,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [ ] Plafond de remise par rôle (RG-VTE-01, EF-CPT-03) ; transfert d'une commande entre serveurs (RG-CMD-03).
 - [x] Clôtures de service (EF-CLO-01 à 04, RG-CLO-01 à 03, D-039, D-056) : caisse par personne, comptage du stock, validation, rapport imprimable.
 - [x] Clôtures dans l'espace propriétaire : cash attendu, déclaré, manquants nommés, journées non validées (EF-CLO-04, EF-PRO-01, D-057).
-- [ ] Clôture de période (EF-CLO-05), écritures d'ajustement (RG-CLO-02).
+- [x] Clôture de période (EF-CLO-05) et écritures d'ajustement (RG-CLO-02) : écran « Clôtures » en ligne (D-064).
+- [ ] Export PDF ou Excel d'une période ; bénéfice et dépenses quand achats et trésorerie existeront.
 - [ ] Postes de préparation : écrans comptoir, cuisine et grillade, « prêt » et « épuisé » (EF-PRE-01 à 03).
 - [x] Menus avec éléments à options et formules (D-035, D-060).
 - [ ] Effet des options sur le stock (D-Q33) ; modification et archivage d'une formule depuis l'écran Menus.

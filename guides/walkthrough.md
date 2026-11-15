@@ -576,6 +576,22 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 26 : clôture de période et écritures d'ajustement (15/11/2026)
+
+**Fait** (D-064, choix confirmés par vous : dates libres, validation par le gérant, corrections de caisse et de stock, bénéfice et dépenses « en attente »)
+- **Écran « Clôtures » en ligne** (`/e/<slug>/clotures`), pour le gérant et le propriétaire : lien depuis l'écran Clôtures de l'appareil (« Périodes et corrections ») et depuis la fiche de l'établissement dans l'espace propriétaire.
+- **Clôturer une période** : choisir la première et la dernière journée, voir le résumé, puis clôturer. Toutes les journées actives doivent être validées ; pas de chevauchement. Le résumé est **figé** : ventes, cash attendu et déclaré, écart **par personne** (manquants nommés), corrections, écarts de stock, sorties déclarées, remises, annulations, dettes clients ; bénéfice et dépenses annoncés « en attente ».
+- **Corriger une journée validée** : caisse (argent retrouvé ou manquant constaté, attribué à une personne) ou stock (élément en plus ou en moins), avec un motif. La clôture d'origine reste telle quelle ; la correction s'ajoute et figure au journal d'audit. Une période clôturée ne se corrige plus.
+- **Serveur** : migration `20261115000005_period_closings` (tables `period_closings` et `closing_adjustments`, RLS, ajout seul, contraintes de forme). Tout est recalculé et vérifié par le serveur ; les cibles sont relues dans l'établissement.
+- **Tests** : 5 tests unitaires (rattachement d'une vente à sa journée, règles de période et de correction, résumé), 3 tests d'intégration (droits, IDOR, période figée, chevauchement, ajout seul, isolation), parcours de bout en bout (correction de +500 FC puis clôture de la période).
+- **Vérifié** : 360, 768 et 1280 px, clair et sombre, sans débordement ; l'écart reste visible sur téléphone.
+
+**Bloque encore**
+- **Base locale** : appliquer les migrations `20261115000002` à `20261115000005` (`pnpm db:migrate`).
+- **À valider par vous** : la mise en œuvre de D-064 (notamment : une période clôturée est définitive).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -588,7 +604,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-063 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-064 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -606,4 +622,4 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 1. **D-Q14**, puis réquisitions et fiches recettes.
 2. **D-Q20** (choix de l'offre), puis préproduction.
 3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
-4. **Clôture de période** (EF-CLO-05) et écritures d'ajustement (RG-CLO-02).
+4. **Rapports et exports** (EF-RAP) : export PDF ou Excel d'une période, ventes par article et par point de service, avec les briques d'export existantes (D-027).
