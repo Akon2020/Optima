@@ -476,6 +476,25 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 21 : vente à crédit et dettes clients (15/11/2026)
+
+**Fait** (D-059)
+- **Vente à crédit** depuis le détail d'une commande : « Demander un crédit » (serveur) ou « Vendre à crédit » (gérant). On choisit le client (recherche par nom ou téléphone) ou on crée sa fiche (nom et téléphone exigés, EF-ENC-03), avec un motif. La demande suit le circuit des annulations et remises : le gérant la valide.
+- **Effet** : le reste à payer devient la dette du client ; les factures s'affichent « À crédit » et ne sont plus des impayés du serveur à la clôture (RG-ENC-02).
+- **Plafond** facultatif par client, fixé par le gérant (D-037) : un crédit qui le dépasserait est refusé.
+- **Écran Clients** (`/restaurant/clients`) : encours total, clients débiteurs, dettes avec date, ancienneté (EF-TRE-03), montant mis à crédit et reste ; « Encaisser » ouvre l'encaissement habituel (partiel possible, espèces, dollars, Mobile Money).
+- **Serveur** : migration `20261115000003_credit` (table `customers` avec RLS, colonnes de crédit sur les factures, client sur les demandes). Contrôles refaits (client, plafond, commande déjà à crédit), audit des fiches, des plafonds et des crédits accordés. L'état initial des appareils porte les clients et les dettes ouvertes, même anciennes.
+- **Démonstration** : Maman Rose doit la dernière commande de la veille ; Papa Jean n'a pas de dette.
+- **Vérifié** dans Chrome : remboursement de 5 000 FC (14 500 → 9 500 FC), crédit d'une nouvelle commande pour Papa Jean (« À crédit », 4 500 FC dus « aujourd'hui »), 360 et 768 px, clair et sombre, sans débordement ni erreur.
+- **Tests** : 208 tests unitaires et 103 tests d'intégration (dont 4 sur le crédit : fiches, plafond, conversion, remboursement, état initial, isolation).
+
+**Bloque encore**
+- **Dettes dans l'espace propriétaire** (EF-PRO-01) et **échéancier** (D-052, phase 2).
+- **Base locale** : appliquer les migrations `20261115000002_adjustments` et `20261115000003_credit` (`pnpm db:migrate`).
+- **À valider par vous** : D-059.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -487,7 +506,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-058 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-059 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -502,8 +521,8 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Crédit** (EF-ENC-03, EF-VTE-05, EF-TRE-03, RG-ENC-02, D-037, D-043) : fiches clients, dettes validées par le gérant, remboursements en caisse.
-2. **Menus avec options et formules** (D-035).
+1. **Menus avec options et formules** (D-035) : le modèle peut être construit ; la liste réelle des plats à options et des formules reste à fournir par le restaurant.
+2. **Tests de bout en bout Playwright** (parcours P1 à P6, hors connexion, deux appareils) et **intégration continue GitHub Actions** (D-047).
 3. **D-Q14**, puis réquisitions et fiches recettes.
-4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).
+4. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
 5. **D-Q20** (choix de l'offre), puis préproduction.
