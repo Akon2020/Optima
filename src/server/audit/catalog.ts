@@ -60,6 +60,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "owner.module.enabled": "Module activé",
   "owner.module.disabled": "Module désactivé",
   "restaurant.menu-item.created": "Élément de menu ajouté",
+  "restaurant.menu-item.options-set": "Options d'un élément modifiées",
   "restaurant.morning-stock.entered": "Stock du matin saisi",
   "restaurant.table.created": "Table ajoutée",
   "restaurant.table.renamed": "Table renommée",

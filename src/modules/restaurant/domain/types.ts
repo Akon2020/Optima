@@ -18,6 +18,21 @@ export type ServicePoint = {
   sortOrder: number;
 };
 
+/** Option d'un élément du menu (D-035) : supplément éventuel, jamais négatif. */
+export type MenuOption = { id: string; name: string; priceDelta: Money };
+
+/**
+ * Groupe d'options d'un élément (D-035, D-060) : « Accompagnement » au choix,
+ * par exemple. Choix unique ou multiple, obligatoire ou non.
+ */
+export type OptionGroup = {
+  id: string;
+  name: string;
+  isRequired: boolean;
+  isMultiple: boolean;
+  options: MenuOption[];
+};
+
 export type MenuItem = {
   id: string;
   establishmentId: string;
@@ -31,6 +46,12 @@ export type MenuItem = {
   createdAt: string;
   /** Un article ne se supprime pas, il s'archive (RG-CAT-01). */
   archivedAt: string | null;
+  /** Élément simple ou formule (D-035) ; absent des enregistrements anciens : simple. */
+  kind?: "simple" | "formula";
+  /** Options proposées à la commande (D-060). */
+  optionGroups?: OptionGroup[];
+  /** Formule : éléments qui la composent, un par unité (répéter pour en mettre deux). */
+  components?: string[];
 };
 
 /** Table de la salle, créée et numérotée par le gérant (EF-RES-04). */
@@ -67,6 +88,10 @@ export type OrderLine = {
   /** Prix figé au moment de la commande (RG-RES-02). */
   unitPrice: Money;
   quantity: number;
+  /** Options choisies, avec leur supplément inclus dans `unitPrice` (D-060). */
+  options?: { groupName: string; name: string; priceDelta: Money }[];
+  /** Ligne issue d'une formule : sa part du prix de la formule (D-060). */
+  formula?: { menuItemId: string; name: string; lineId: string };
 };
 
 export type PrepStatus = "pending" | "ready" | "served";

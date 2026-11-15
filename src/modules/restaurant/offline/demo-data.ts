@@ -10,7 +10,7 @@
  * grillade viennent de l'équipe du restaurant (D-007).
  */
 
-import { moneyFromMajor, sumMoney, toMajor } from "@/shared/lib/money";
+import { moneyFromMajor, sumMoney, toMajor, type Currency } from "@/shared/lib/money";
 
 import { businessDayStart } from "../domain/business-day";
 import { businessDayKey } from "../domain/business-day";
@@ -18,6 +18,7 @@ import { minimumTendered } from "../domain/payment";
 import type {
   DiningTable,
   MenuItem,
+  OptionGroup,
   PrepStatus,
   SaleUnit,
   ServicePoint,
@@ -317,6 +318,71 @@ const ITEMS: DemoItem[] = [
   },
 ];
 
+/**
+ * Options et formule de démonstration (D-060), à remplacer par le vrai menu :
+ * le tilapia se choisit grillé ou frit, avec des suppléments facultatifs.
+ */
+const DEMO_OPTIONS: Record<
+  string,
+  { name: string; isRequired: boolean; isMultiple: boolean; options: [string, number][] }[]
+> = {
+  tilapia: [
+    {
+      name: "Préparation",
+      isRequired: true,
+      isMultiple: false,
+      options: [
+        ["Grillé", 0],
+        ["Frit", 0],
+      ],
+    },
+    {
+      name: "Suppléments",
+      isRequired: false,
+      isMultiple: true,
+      options: [
+        ["Pili-pili", 0],
+        ["Bananes plantains", 2000],
+      ],
+    },
+  ],
+};
+
+const DEMO_FORMULA = {
+  id: "item-formula-pork",
+  point: "sp-kitchen",
+  name: "Formule porc",
+  category: "Formules",
+  description: "Viande de porc, foufou et une Primus.",
+  price: 16000,
+  components: ["item-pork", "item-foufou", "item-primus"],
+};
+
+function demoOptionGroups(key: string, currency: Currency): OptionGroup[] | undefined {
+  const groups = DEMO_OPTIONS[key];
+  if (!groups) return undefined;
+  return groups.map((group, groupIndex) => ({
+    id: `opt-${key}-${groupIndex + 1}`,
+    name: group.name,
+    isRequired: group.isRequired,
+    isMultiple: group.isMultiple,
+    options: group.options.map(([name, supplement], optionIndex) => ({
+      id: `opt-${key}-${groupIndex + 1}-${optionIndex + 1}`,
+      name,
+      priceDelta: moneyFromMajor(supplement, currency),
+    })),
+  }));
+}
+
+/** Premier choix de chaque groupe obligatoire : les commandes générées restent valides. */
+function demoDefaultOptions(key: string): string[] | undefined {
+  const groups = DEMO_OPTIONS[key];
+  if (!groups) return undefined;
+  return groups.flatMap((group, groupIndex) =>
+    group.isRequired ? [`opt-${key}-${groupIndex + 1}-1`] : [],
+  );
+}
+
 const TABLES: DiningTable[] = Array.from({ length: 12 }, (_, index) => ({
   id: `table-${index + 1}`,
   establishmentId: ESTABLISHMENT_ID,
@@ -429,7 +495,10 @@ async function seedOrders(
         {
           mode: isTakeaway ? "takeaway" : "dine-in",
           tableId: isTakeaway ? null : (TABLES[Math.floor(random() * TABLES.length)]?.id ?? null),
-          lines: [...lines].map(([menuItemId, quantity]) => ({ menuItemId, quantity })),
+          lines: [...lines].map(([menuItemId, quantity]) => {
+            const optionIds = demoDefaultOptions(menuItemId.replace(/^item-/, ""));
+            return optionIds ? { menuItemId, quantity, optionIds } : { menuItemId, quantity };
+          }),
         },
         { createdAt: createdAt.toISOString(), enqueue: false },
       );
@@ -599,7 +668,24 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
     price: item.price === null ? null : moneyFromMajor(item.price, ctx.settings.currency),
     createdAt: CREATED_AT,
     archivedAt: null,
+    ...(DEMO_OPTIONS[item.key]
+      ? { optionGroups: demoOptionGroups(item.key, ctx.settings.currency) ?? [] }
+      : {}),
   }));
+  menuItems.push({
+    id: DEMO_FORMULA.id,
+    establishmentId: ESTABLISHMENT_ID,
+    servicePointId: DEMO_FORMULA.point,
+    name: DEMO_FORMULA.name,
+    description: DEMO_FORMULA.description,
+    category: DEMO_FORMULA.category,
+    unit: "dish",
+    price: moneyFromMajor(DEMO_FORMULA.price, ctx.settings.currency),
+    createdAt: CREATED_AT,
+    archivedAt: null,
+    kind: "formula",
+    components: DEMO_FORMULA.components,
+  });
 
   await db.transaction(
     "rw",

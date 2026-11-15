@@ -117,14 +117,21 @@ export function currentEntries(
   return current;
 }
 
-/** Éléments dont le stock du matin est attendu : au menu et vendables (prix fixé). */
+/**
+ * Éléments dont le stock du matin est attendu : au menu et vendables (prix
+ * fixé). Une formule n'a pas de stock propre : ce sont ses composants qui en
+ * ont (D-060).
+ */
 export function itemsRequiringMorningStock(
   items: readonly MenuItem[],
   servicePointId: string,
 ): MenuItem[] {
   return items.filter(
     (item) =>
-      item.servicePointId === servicePointId && item.archivedAt === null && item.price !== null,
+      item.servicePointId === servicePointId &&
+      item.archivedAt === null &&
+      item.price !== null &&
+      item.kind !== "formula",
   );
 }
 

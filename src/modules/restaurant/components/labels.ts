@@ -18,6 +18,7 @@ import type { KpiTone } from "@/shared/ui/kpi";
 import type { Availability } from "../domain/menu";
 import type {
   MobileMoneyProvider,
+  OrderLine,
   OrderMode,
   PaymentMethod,
   PaymentStatus,
@@ -114,4 +115,14 @@ export function availabilityBadge(
     case "unknown-stock":
       return { label: "Stock non saisi", tone: "neutral" };
   }
+}
+
+/**
+ * Précisions d'une ligne de facture (D-060) : options choisies, et formule
+ * dont la ligne fait partie (« Formule porc »), pour le poste qui la prépare.
+ */
+export function orderLineDetail(line: OrderLine): string {
+  const parts = (line.options ?? []).map((option) => option.name);
+  if (line.formula) parts.push(line.formula.name);
+  return parts.join(" · ");
 }

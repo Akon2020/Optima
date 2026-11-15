@@ -16,7 +16,13 @@ import { remainingDue } from "../../domain/payment";
 import { useDayData } from "../../offline/hooks";
 import { setInvoicePrepStatus } from "../../offline/repository";
 import { hasPermission } from "../../permissions";
-import { PAYMENT_STATUS, PREP_STATUS, SERVICE_POINT_ICONS, orderPlaceLabel } from "../labels";
+import {
+  PAYMENT_STATUS,
+  PREP_STATUS,
+  SERVICE_POINT_ICONS,
+  orderLineDetail,
+  orderPlaceLabel,
+} from "../labels";
 import { AdjustmentSheet } from "../adjustments/adjustment-sheet";
 import { OrderAdjustments } from "../adjustments/order-adjustments";
 import { PaymentSheet } from "../payments/payment-sheet";
@@ -206,11 +212,16 @@ export function OrderDetailSheet({
                   </div>
                 </div>
                 <ul className="mt-3 flex flex-col gap-1 text-sm">
-                  {invoice.lines.map((line) => (
-                    <li key={line.menuItemId} className="flex justify-between gap-3">
+                  {invoice.lines.map((line, index) => (
+                    <li key={`${line.menuItemId}-${index}`} className="flex justify-between gap-3">
                       <span>
                         <span className="text-text-muted tabular">{line.quantity}×</span>{" "}
                         {line.name}
+                        {orderLineDetail(line) ? (
+                          <span className="block text-xs text-text-muted">
+                            {orderLineDetail(line)}
+                          </span>
+                        ) : null}
                       </span>
                     </li>
                   ))}

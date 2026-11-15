@@ -31,6 +31,7 @@ import {
   validateStockCount,
 } from "../domain/closing";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
+import { expandOrderLine, formulaIssue, optionGroupsIssue } from "../domain/menu-options";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
@@ -59,6 +60,7 @@ import type {
   DiningTable,
   ExchangeRate,
   MorningStockEntry,
+  OptionGroup,
   Order,
   OrderLine,
   Payment,
@@ -78,6 +80,7 @@ import type {
   adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
   customerCreatedSchema,
+  menuItemOptionsSetSchema,
   customerLimitSetSchema,
   dayValidatedSchema,
   orderCreatedSchema,
@@ -204,36 +207,36 @@ export async function createOrder(
     ],
     async () => {
       const servicePoints = await db.servicePoints.toArray();
-      const items = await db.menuItems.bulkGet(input.lines.map((line) => line.menuItemId));
+      const itemById = new Map((await db.menuItems.toArray()).map((item) => [item.id, item]));
       const dayStart = businessDayStart(createdAt, businessDayStartHour, timeZone);
       const day = businessDayKey(createdAt, businessDayStartHour, timeZone);
       const sold = await soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart));
       const morningStock = await currentMorningStock(db, day);
+      const orderId = uuidv7(new Date(createdAt).getTime());
 
+      // D-060 : options et formules ; une formule se déplie en ses composants.
       const lines: OrderLine[] = [];
       for (const [index, requested] of input.lines.entries()) {
-        const item: MenuItem | undefined = items[index];
-        if (!item || item.archivedAt !== null) {
-          throw new DomainError(
-            "ITEM_NOT_FOUND",
-            "Un élément de la commande n'existe plus au menu.",
-          );
-        }
-        if (item.price === null) {
-          throw new DomainError(
-            "PRICE_NOT_SET",
-            `« ${item.name} » n'a pas de prix : demandez au gérant de le fixer.`,
-          );
-        }
-        const morning = morningStock.get(item.id);
+        const expanded = expandOrderLine(requested, itemById, `${orderId}:${index}`);
+        if (!expanded.ok) throw new DomainError(expanded.code, expanded.message);
+        lines.push(...expanded.lines);
+      }
+      // RG-RES-01 : stock du jour contrôlé élément par élément, toutes lignes confondues.
+      const wanted = new Map<string, number>();
+      for (const line of lines) {
+        wanted.set(line.menuItemId, (wanted.get(line.menuItemId) ?? 0) + line.quantity);
+      }
+      for (const [menuItemId, quantity] of wanted) {
+        const item: MenuItem | undefined = itemById.get(menuItemId);
+        if (!item) continue;
         const availability = computeAvailability(
           item,
-          morning?.quantity ?? null,
+          morningStock.get(item.id)?.quantity ?? null,
           sold.get(item.id) ?? 0,
           lowStockThreshold,
         );
         const max = maxOrderableQuantity(availability);
-        if (max !== null && requested.quantity > max) {
+        if (max !== null && quantity > max) {
           throw new DomainError(
             "ITEM_SOLD_OUT",
             max <= 0
@@ -241,14 +244,6 @@ export async function createOrder(
               : `Il ne reste que ${max} « ${item.name} » aujourd'hui.`,
           );
         }
-        lines.push({
-          menuItemId: item.id,
-          name: item.name,
-          servicePointId: item.servicePointId,
-          unit: item.unit,
-          unitPrice: item.price,
-          quantity: requested.quantity,
-        });
       }
 
       const table = input.tableId ? await db.diningTables.get(input.tableId) : undefined;
@@ -264,7 +259,6 @@ export async function createOrder(
       const tableLabel = table?.label ?? null;
 
       const split = splitOrderByServicePoint(lines, servicePoints, currency);
-      const orderId = uuidv7(new Date(createdAt).getTime());
       const orderNumber = await nextNumber(db, "CMD", createdAt, ctx);
 
       const invoices: AdvanceInvoice[] = [];
@@ -380,6 +374,16 @@ export async function addMenuItem(
     const point = await db.servicePoints.get(input.servicePointId);
     if (!point)
       throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+    const isFormulaItem = input.kind === "formula";
+    if (isFormulaItem) {
+      // D-060 : une formule a son prix et au moins deux éléments du menu.
+      if (input.priceMajor === null) {
+        throw new DomainError("PRICE_NOT_SET", "Fixez le prix de la formule.");
+      }
+      const itemById = new Map((await db.menuItems.toArray()).map((entry) => [entry.id, entry]));
+      const issue = formulaIssue(input.components ?? [], itemById);
+      if (issue) throw new DomainError(issue.code, issue.message);
+    }
     const item: MenuItem = {
       id: uuidv7(),
       establishmentId: ctx.establishmentId,
@@ -392,6 +396,7 @@ export async function addMenuItem(
         input.priceMajor === null ? null : moneyFromMajor(input.priceMajor, ctx.settings.currency),
       createdAt,
       archivedAt: null,
+      ...(isFormulaItem ? { kind: "formula" as const, components: input.components ?? [] } : {}),
     };
     await db.menuItems.add(item);
     await db.outbox.add(
@@ -406,6 +411,52 @@ export async function addMenuItem(
       }),
     );
     return item;
+  });
+}
+
+/**
+ * Fixe les groupes d'options d'un élément (D-035, D-060) : ils remplacent les
+ * précédents ; les commandes passées gardent les options figées sur leurs lignes.
+ */
+export async function setMenuItemOptions(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  itemId: string,
+  optionGroups: OptionGroup[],
+): Promise<MenuItem> {
+  assertPermission(ctx, "restaurant.menu.manage", "modifier le menu");
+  const groups = optionGroups.map((group) => ({
+    ...group,
+    name: group.name.trim(),
+    options: group.options.map((option) => ({ ...option, name: option.name.trim() })),
+  }));
+  const issue = optionGroupsIssue(groups);
+  if (issue) throw new DomainError(issue.code, issue.message);
+  const createdAt = new Date().toISOString();
+  return db.transaction("rw", db.menuItems, db.outbox, async () => {
+    const item = await db.menuItems.get(itemId);
+    if (!item || item.archivedAt !== null) {
+      throw new DomainError("ITEM_NOT_FOUND", "Cet élément n'existe plus au menu.");
+    }
+    if (item.kind === "formula") {
+      throw new DomainError("FORMULA_OPTIONS", "Une formule ne porte pas d'options.");
+    }
+    const updated: MenuItem = { ...item, optionGroups: groups };
+    await db.menuItems.put(updated);
+    await db.outbox.add(
+      createOperation({
+        id: uuidv7(),
+        type: "restaurant.menu-item.options-set",
+        payload: { itemId, optionGroups: groups } satisfies z.infer<
+          typeof menuItemOptionsSetSchema
+        >,
+        establishmentId: ctx.establishmentId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        createdAt,
+      }),
+    );
+    return updated;
   });
 }
 

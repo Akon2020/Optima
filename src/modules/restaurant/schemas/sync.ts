@@ -10,6 +10,32 @@ import { z } from "zod";
  */
 const uuid = z.string().uuid();
 const isoDate = z.string().datetime({ offset: true });
+const optionIds = z.array(z.string().min(1).max(40)).max(12);
+
+/** Groupes d'options d'un élément du menu (D-035, D-060). */
+export const optionGroupsSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(40),
+      name: z.string().trim().min(2).max(40),
+      isRequired: z.boolean(),
+      isMultiple: z.boolean(),
+      options: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(40),
+            name: z.string().trim().min(1).max(60),
+            priceDelta: z.object({
+              amountMinor: z.number().int().min(0).max(1_000_000_000),
+              currency: z.enum(["CDF", "USD"]),
+            }),
+          }),
+        )
+        .min(1)
+        .max(12),
+    }),
+  )
+  .max(6);
 
 export const orderCreatedSchema = z.object({
   orderId: uuid,
@@ -18,7 +44,14 @@ export const orderCreatedSchema = z.object({
   mode: z.enum(["dine-in", "takeaway", "delivery"]),
   tableId: uuid.nullable(),
   lines: z
-    .array(z.object({ menuItemId: uuid, quantity: z.number().int().min(1).max(999) }))
+    .array(
+      z.object({
+        menuItemId: uuid,
+        quantity: z.number().int().min(1).max(999),
+        /** Options choisies (D-060) ; absentes des appareils plus anciens. */
+        optionIds: optionIds.optional(),
+      }),
+    )
     .min(1)
     .max(100),
   invoices: z
@@ -49,7 +82,17 @@ export const menuItemCreatedSchema = z.object({
     price: z
       .object({ amountMinor: z.number().int().positive(), currency: z.enum(["CDF", "USD"]) })
       .nullable(),
+    /** Formule et ses composants (D-035, D-060) ; absents des appareils plus anciens. */
+    kind: z.enum(["simple", "formula"]).optional(),
+    components: z.array(uuid).max(8).optional(),
+    optionGroups: optionGroupsSchema.optional(),
   }),
+});
+
+/** Options d'un élément, fixées par le gérant (D-060) ; remplacent les précédentes. */
+export const menuItemOptionsSetSchema = z.object({
+  itemId: uuid,
+  optionGroups: optionGroupsSchema,
 });
 
 export const morningStockEnteredSchema = z.object({
@@ -244,6 +287,7 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.adjustment.decided",
   "restaurant.customer.created",
   "restaurant.customer.limit-set",
+  "restaurant.menu-item.options-set",
 ] as const;
 
 export type RestaurantOperationType = (typeof RESTAURANT_OPERATION_TYPES)[number];

@@ -20,6 +20,9 @@ export const menuItemInputSchema = z.object({
     .positive("Le prix doit être supérieur à zéro.")
     .max(10_000_000, "Ce prix semble trop élevé : vérifiez la saisie.")
     .nullable(),
+  /** Formule (D-035, D-060) : éléments qui la composent, un par unité. */
+  kind: z.enum(["simple", "formula"]).default("simple"),
+  components: z.array(z.string().min(1)).max(8).default([]),
 });
 
-export type MenuItemInput = z.infer<typeof menuItemInputSchema>;
+export type MenuItemInput = z.input<typeof menuItemInputSchema>;

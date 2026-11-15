@@ -5,6 +5,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
+import { formulaAvailability, isFormula } from "../domain/menu-options";
 import { customerDebts, type CustomerDebt } from "../domain/customers";
 import { currentEntries } from "../domain/morning-stock";
 import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
@@ -185,6 +186,12 @@ export function useDayData(): DayData | undefined {
         ),
       ]),
     );
+    // D-060 : une formule est limitée par son composant le plus rare.
+    for (const item of raw.menuItems) {
+      if (isFormula(item)) {
+        availability.set(item.id, formulaAvailability(item, availability, lowStockThreshold));
+      }
+    }
     const sessions = tableSessions({
       orders: raw.orders,
       invoices: raw.invoices,

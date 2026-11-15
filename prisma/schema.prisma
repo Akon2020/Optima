@@ -275,6 +275,12 @@ model MenuItem {
   /// `null` : prix non fixé, l'élément ne se vend pas (RG-PRX-01).
   priceMinor      BigInt?   @map("price_minor")
   currency        String    @db.Char(3)
+  /// `simple` ou `formula` (D-060) ; une formule a son prix et ses composants.
+  kind            String    @default("simple")
+  /// Identifiants des éléments d'une formule, un par unité (D-060).
+  components      Json      @default("[]")
+  /// Groupes d'options et suppléments (D-035, D-060).
+  optionGroups    Json      @default("[]") @map("option_groups")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
 
@@ -360,6 +366,12 @@ model InvoiceLine {
   unitPriceMinor  BigInt @map("unit_price_minor")
   quantity        Int
   lineTotalMinor  BigInt @map("line_total_minor")
+  /// Options choisies, figées avec leur supplément (D-060).
+  options         Json    @default("[]")
+  /// Formule dont la ligne est un composant (D-060) ; la ligne porte sa part du prix.
+  formulaItemId   String? @map("formula_item_id") @db.Uuid
+  formulaName     String? @map("formula_name")
+  formulaLineId   String? @map("formula_line_id")
 
   @@index([invoiceId])
   @@index([establishmentId])

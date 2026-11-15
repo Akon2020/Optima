@@ -31,6 +31,7 @@ import {
   maxOrderableQuantity,
   sortByPopularity,
 } from "../../domain/menu";
+import { cartLinePrice, isFormula } from "../../domain/menu-options";
 import { CART_ISSUE_MESSAGES, validateCart } from "../../domain/order";
 import type {
   AdvanceInvoice,
@@ -43,10 +44,24 @@ import { useDayData, type DayData } from "../../offline/hooks";
 import { createOrder } from "../../offline/repository";
 import { availabilityBadge, categoryVisual } from "../labels";
 import { AdvanceInvoiceTicket } from "../orders/advance-invoice-ticket";
+import { OptionPickerSheet } from "../orders/option-picker-sheet";
 import { restaurantHref } from "../shell/nav-items";
 import { useRestaurant } from "../restaurant-provider";
 
-type Cart = Map<string, number>;
+/** Ligne du panier : un élément et ses options (D-060) ; clé = élément + options triées. */
+type CartEntry = { itemId: string; optionIds: string[]; quantity: number };
+type Cart = Map<string, CartEntry>;
+type CartLine = CartEntry & { key: string; item: MenuItem; unitPrice: Money };
+
+function cartKey(itemId: string, optionIds: readonly string[]): string {
+  return [itemId, ...[...optionIds].sort()].join("|");
+}
+
+function optionNames(item: MenuItem, optionIds: readonly string[]): string[] {
+  return (item.optionGroups ?? []).flatMap((group) =>
+    group.options.filter((option) => optionIds.includes(option.id)).map((option) => option.name),
+  );
+}
 
 const TILE: Record<string, string> = {
   green: "bg-kpi-green-bg text-kpi-green-fg",
@@ -72,6 +87,7 @@ export function NewOrderScreen() {
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<Cart>(new Map());
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [pickingItem, setPickingItem] = useState<MenuItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<AdvanceInvoice[] | null>(null);
@@ -87,30 +103,45 @@ export function NewOrderScreen() {
     : null;
 
   const itemById = new Map(data.menuItems.map((item) => [item.id, item]));
-  const cartLines = [...cart.entries()]
-    .map(([id, quantity]) => ({ item: itemById.get(id), quantity }))
-    .filter((line): line is { item: MenuItem; quantity: number } => line.item !== undefined);
+  const cartLines: CartLine[] = [...cart.entries()].flatMap(([key, entry]) => {
+    const item = itemById.get(entry.itemId);
+    if (!item) return [];
+    const unitPrice = cartLinePrice(item, entry.optionIds, ctx.settings.currency);
+    return [{ ...entry, key, item, unitPrice }];
+  });
   const cartCount = cartLines.reduce((sum, line) => sum + line.quantity, 0);
   const cartTotal = sumMoney(
-    cartLines.map((line) =>
-      line.item.price
-        ? multiplyMoney(line.item.price, line.quantity)
-        : zeroOf(ctx.settings.currency),
-    ),
+    cartLines.map((line) => multiplyMoney(line.unitPrice, line.quantity)),
     ctx.settings.currency,
   );
+  const quantityOf = (itemId: string) =>
+    cartLines
+      .filter((line) => line.itemId === itemId)
+      .reduce((sum, line) => sum + line.quantity, 0);
 
-  function setQuantity(item: MenuItem, quantity: number) {
-    const availability = data?.availability.get(item.id);
+  /** Fixe la quantité d'une ligne, dans la limite du stock du jour de l'élément. */
+  function setLineQuantity(itemId: string, optionIds: readonly string[], quantity: number) {
+    const key = cartKey(itemId, optionIds);
+    const availability = data?.availability.get(itemId);
     const max = availability ? maxOrderableQuantity(availability) : null;
-    const next = Math.max(0, max === null ? quantity : Math.min(quantity, max));
+    const elsewhere = quantityOf(itemId) - (cart.get(key)?.quantity ?? 0);
+    const next = Math.max(0, max === null ? quantity : Math.min(quantity, max - elsewhere));
     setCart((current) => {
       const copy = new Map(current);
-      if (next === 0) copy.delete(item.id);
-      else copy.set(item.id, next);
+      if (next === 0) copy.delete(key);
+      else copy.set(key, { itemId, optionIds: [...optionIds].sort(), quantity: next });
       return copy;
     });
     setError(null);
+  }
+
+  /** Un appui sur une tuile : ajout direct, ou choix des options d'abord (D-060). */
+  function addFromTile(item: MenuItem) {
+    if ((item.optionGroups ?? []).length > 0) {
+      setPickingItem(item);
+      return;
+    }
+    setLineQuantity(item.id, [], (cart.get(cartKey(item.id, []))?.quantity ?? 0) + 1);
   }
 
   async function submit() {
@@ -130,7 +161,11 @@ export function NewOrderScreen() {
       const result = await createOrder(db, ctx, {
         mode,
         tableId: mode === "dine-in" ? tableId : null,
-        lines: cartLines.map((line) => ({ menuItemId: line.item.id, quantity: line.quantity })),
+        lines: cartLines.map((line) => ({
+          menuItemId: line.item.id,
+          quantity: line.quantity,
+          ...(line.optionIds.length > 0 ? { optionIds: line.optionIds } : {}),
+        })),
       });
       setCreated(result.invoices);
       setIsCartOpen(false);
@@ -171,7 +206,7 @@ export function NewOrderScreen() {
       tableLabel={data.tables.find((t) => t.id === tableId)?.label ?? null}
       error={error}
       isSubmitting={isSubmitting}
-      onQuantity={setQuantity}
+      onQuantity={(line, quantity) => setLineQuantity(line.itemId, line.optionIds, quantity)}
       onSubmit={() => void submit()}
     />
   );
@@ -322,8 +357,13 @@ export function NewOrderScreen() {
                   <MenuItemTile
                     item={item}
                     data={data}
-                    quantity={cart.get(item.id) ?? 0}
-                    onQuantity={(quantity) => setQuantity(item, quantity)}
+                    quantity={quantityOf(item.id)}
+                    onAdd={() => addFromTile(item)}
+                    {...((item.optionGroups ?? []).length === 0
+                      ? {
+                          onRemove: () => setLineQuantity(item.id, [], quantityOf(item.id) - 1),
+                        }
+                      : {})}
                   />
                 </li>
               ))}
@@ -373,6 +413,20 @@ export function NewOrderScreen() {
         {cartPanel}
       </Sheet>
 
+      <OptionPickerSheet
+        item={pickingItem}
+        currency={ctx.settings.currency}
+        onClose={() => setPickingItem(null)}
+        onAdd={(item, optionIds) => {
+          setLineQuantity(
+            item.id,
+            optionIds,
+            (cart.get(cartKey(item.id, optionIds))?.quantity ?? 0) + 1,
+          );
+          setPickingItem(null);
+        }}
+      />
+
       <Sheet
         open={created !== null}
         onOpenChange={(open) => !open && startOver()}
@@ -417,21 +471,21 @@ export function NewOrderScreen() {
   );
 }
 
-function zeroOf(currency: Money["currency"]): Money {
-  return { amountMinor: 0, currency };
-}
-
 function MenuItemTile({
   item,
   data,
   quantity,
-  onQuantity,
+  onAdd,
+  onRemove,
 }: {
   item: MenuItem;
   data: DayData;
   quantity: number;
-  onQuantity: (quantity: number) => void;
+  onAdd: () => void;
+  /** Absent pour un élément à options : on retire la ligne voulue dans le panier. */
+  onRemove?: () => void;
 }) {
+  const hasOptions = (item.optionGroups ?? []).length > 0;
   const availability = data.availability.get(item.id);
   const canOrder = availability ? isOrderable(availability) : false;
   const max = availability ? maxOrderableQuantity(availability) : null;
@@ -450,8 +504,8 @@ function MenuItemTile({
       <button
         type="button"
         disabled={!canOrder || (max !== null && quantity >= max)}
-        onClick={() => onQuantity(quantity + 1)}
-        aria-label={`Ajouter ${item.name}`}
+        onClick={onAdd}
+        aria-label={hasOptions ? `Choisir les options de ${item.name}` : `Ajouter ${item.name}`}
         className="absolute inset-0 rounded-card disabled:cursor-not-allowed"
       />
       <div className="pointer-events-none flex items-start justify-between gap-2">
@@ -470,21 +524,28 @@ function MenuItemTile({
       <p className="pointer-events-none mt-3 line-clamp-2 text-sm leading-snug font-semibold sm:text-[15px]">
         {item.name}
       </p>
-      <p className="pointer-events-none mt-0.5 text-xs text-text-muted">{item.category}</p>
+      <p className="pointer-events-none mt-0.5 text-xs text-text-muted">
+        {isFormula(item)
+          ? formulaSummary(item, data)
+          : hasOptions
+            ? `${item.category} · options`
+            : item.category}
+      </p>
       <div className="mt-auto flex items-end justify-between gap-2 pt-3">
         <p className="pointer-events-none text-sm font-semibold tabular sm:text-base">
           {item.price ? formatMoney(item.price) : "À fixer"}
         </p>
         {quantity > 0 ? (
           <div className="relative z-10 flex items-center gap-1">
-            <IconButton
-              label={`Retirer un ${item.name}`}
-              size="sm"
-              onClick={() => onQuantity(quantity - 1)}
+            {onRemove ? (
+              <IconButton label={`Retirer un ${item.name}`} size="sm" onClick={onRemove}>
+                <Minus />
+              </IconButton>
+            ) : null}
+            <span
+              className="pointer-events-none w-6 text-center text-sm font-semibold tabular"
+              aria-live="polite"
             >
-              <Minus />
-            </IconButton>
-            <span className="w-6 text-center text-sm font-semibold tabular" aria-live="polite">
               {quantity}
             </span>
           </div>
@@ -492,6 +553,25 @@ function MenuItemTile({
       </div>
     </div>
   );
+}
+
+/** « Viande de porc, Foufou, Primus 72 cl » : ce que contient la formule. */
+function formulaSummary(item: MenuItem, data: DayData): string {
+  return (item.components ?? [])
+    .map((id) => data.menuItems.find((entry) => entry.id === id)?.name ?? "?")
+    .join(", ");
+}
+
+/** Points de service qui recevront une facture pour cette ligne (une formule en touche plusieurs). */
+function linePoints(line: CartLine, data: DayData): string[] {
+  if (!isFormula(line.item)) return [line.item.servicePointId];
+  return [
+    ...new Set(
+      (line.item.components ?? []).map(
+        (id) => data.menuItems.find((entry) => entry.id === id)?.servicePointId ?? "",
+      ),
+    ),
+  ];
 }
 
 function CartPanel({
@@ -506,21 +586,25 @@ function CartPanel({
   onSubmit,
 }: {
   data: DayData;
-  lines: { item: MenuItem; quantity: number }[];
+  lines: CartLine[];
   total: Money;
   mode: OrderMode;
   tableLabel: string | null;
   error: string | null;
   isSubmitting: boolean;
-  onQuantity: (item: MenuItem, quantity: number) => void;
+  onQuantity: (line: CartLine, quantity: number) => void;
   onSubmit: () => void;
 }) {
+  // Les formules ont leur propre section : elles partent à plusieurs postes (D-060).
+  const formulas = lines.filter((line) => isFormula(line.item));
   const groups = data.servicePoints
     .map((point: ServicePoint) => ({
       point,
-      lines: lines.filter((line) => line.item.servicePointId === point.id),
+      lines: lines.filter((line) => !isFormula(line.item) && line.item.servicePointId === point.id),
     }))
     .filter((group) => group.lines.length > 0);
+  const invoiceCount = new Set(lines.flatMap((line) => linePoints(line, data))).size;
+  const pointName = (id: string) => data.servicePoints.find((point) => point.id === id)?.name ?? "";
 
   return (
     <div className="flex flex-col gap-4 lg:rounded-card lg:bg-surface lg:p-5 lg:shadow-card">
@@ -531,7 +615,7 @@ function CartPanel({
         </p>
       </div>
 
-      {groups.length === 0 ? (
+      {lines.length === 0 ? (
         <EmptyState
           icon={ShoppingBag}
           title="Commande vide"
@@ -540,51 +624,22 @@ function CartPanel({
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {groups.map((group, index) => (
+          {groups.map((group) => (
             <section key={group.point.id} aria-label={group.point.name}>
-              <p className="mb-2 flex items-center justify-between text-xs font-medium text-text-muted">
-                <span>{group.point.name}</span>
-                <span>
-                  Facture {index + 1}/{groups.length}
-                </span>
-              </p>
-              <ul className="flex flex-col divide-y divide-border">
-                {group.lines.map(({ item, quantity }) => (
-                  <li key={item.id} className="flex items-center gap-2 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{item.name}</p>
-                      <p className="text-xs text-text-muted tabular">
-                        {item.price ? formatMoney(multiplyMoney(item.price, quantity)) : "—"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <IconButton
-                        label={
-                          quantity === 1 ? `Supprimer ${item.name}` : `Retirer un ${item.name}`
-                        }
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => onQuantity(item, quantity - 1)}
-                      >
-                        {quantity === 1 ? <Trash2 /> : <Minus />}
-                      </IconButton>
-                      <span className="w-6 text-center text-sm font-semibold tabular">
-                        {quantity}
-                      </span>
-                      <IconButton
-                        label={`Ajouter un ${item.name}`}
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => onQuantity(item, quantity + 1)}
-                      >
-                        <Plus />
-                      </IconButton>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <p className="mb-2 text-xs font-medium text-text-muted">{group.point.name}</p>
+              <CartLines lines={group.lines} onQuantity={onQuantity} />
             </section>
           ))}
+          {formulas.length > 0 ? (
+            <section aria-label="Formules">
+              <p className="mb-2 text-xs font-medium text-text-muted">Formules</p>
+              <CartLines
+                lines={formulas}
+                onQuantity={onQuantity}
+                detail={(line) => linePoints(line, data).map(pointName).join(" + ")}
+              />
+            </section>
+          ) : null}
         </div>
       )}
 
@@ -603,16 +658,66 @@ function CartPanel({
         variant="action"
         size="lg"
         className="w-full"
-        disabled={groups.length === 0 || isSubmitting}
+        disabled={lines.length === 0 || isSubmitting}
         onClick={onSubmit}
       >
         <Check aria-hidden />
         {isSubmitting
           ? "Enregistrement…"
-          : groups.length > 1
-            ? `Valider · ${groups.length} factures d'avance`
+          : invoiceCount > 1
+            ? `Valider · ${invoiceCount} factures d'avance`
             : "Valider la commande"}
       </Button>
     </div>
+  );
+}
+
+function CartLines({
+  lines,
+  onQuantity,
+  detail,
+}: {
+  lines: CartLine[];
+  onQuantity: (line: CartLine, quantity: number) => void;
+  detail?: (line: CartLine) => string;
+}) {
+  return (
+    <ul className="flex flex-col divide-y divide-border">
+      {lines.map((line) => {
+        const { item, quantity } = line;
+        const options = optionNames(item, line.optionIds);
+        const extra = detail?.(line) ?? options.join(", ");
+        return (
+          <li key={line.key} className="flex items-center gap-2 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{item.name}</p>
+              {extra ? <p className="truncate text-xs text-text-muted">{extra}</p> : null}
+              <p className="text-xs text-text-muted tabular">
+                {formatMoney(multiplyMoney(line.unitPrice, quantity))}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <IconButton
+                label={quantity === 1 ? `Supprimer ${item.name}` : `Retirer un ${item.name}`}
+                size="sm"
+                variant="ghost"
+                onClick={() => onQuantity(line, quantity - 1)}
+              >
+                {quantity === 1 ? <Trash2 /> : <Minus />}
+              </IconButton>
+              <span className="w-6 text-center text-sm font-semibold tabular">{quantity}</span>
+              <IconButton
+                label={`Ajouter un ${item.name}`}
+                size="sm"
+                variant="ghost"
+                onClick={() => onQuantity(line, quantity + 1)}
+              >
+                <Plus />
+              </IconButton>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

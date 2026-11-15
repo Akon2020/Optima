@@ -27,6 +27,11 @@ import {
 } from "@/modules/restaurant/domain/closing";
 import { customerIssue, normalizePhone } from "@/modules/restaurant/domain/customers";
 import {
+  expandOrderLine,
+  formulaIssue,
+  optionGroupsIssue,
+} from "@/modules/restaurant/domain/menu-options";
+import {
   currentEntries,
   isMorningStockComplete,
   itemsRequiringMorningStock,
@@ -42,9 +47,9 @@ import { validateTableLabel } from "@/modules/restaurant/domain/tables";
 import type {
   AdjustmentKind,
   CashClosingLine,
+  OptionGroup,
   OrderLine,
   PaymentAllocation,
-  SaleUnit,
   StockCountLine,
 } from "@/modules/restaurant/domain/types";
 import type { Permission } from "@/modules/registry";
@@ -59,6 +64,7 @@ import {
   menuItemCreatedSchema,
   morningStockEnteredSchema,
   orderCreatedSchema,
+  menuItemOptionsSetSchema,
   paymentRecordedSchema,
   prepStatusChangedSchema,
   stockCountedSchema,
@@ -140,32 +146,31 @@ const orderCreated = handler({
     assertDeviceNumber(payload.number, ctx);
     payload.invoices.forEach((invoice) => assertDeviceNumber(invoice.number, ctx));
 
-    const ids = [...new Set(payload.lines.map((line) => line.menuItemId))];
     const [items, servicePoints] = await Promise.all([
-      tx.menuItem.findMany({ where: { id: { in: ids }, establishmentId: ctx.establishmentId } }),
+      // Tout le menu : une formule se déplie en ses composants (D-060).
+      tx.menuItem.findMany({ where: { establishmentId: ctx.establishmentId } }),
       tx.servicePoint.findMany({
         where: { establishmentId: ctx.establishmentId },
         select: { id: true, sortOrder: true },
       }),
     ]);
-    const itemById = new Map(items.map((item) => [item.id, item]));
+    const itemById = new Map(items.map((item) => [item.id, menuItemSnapshot(item)]));
 
-    // Prix relus côté serveur (CLAUDE.md § 3.9, RG-RES-02) : le serveur fait foi.
-    const lines: OrderLine[] = payload.lines.map((line) => {
-      const item = itemById.get(line.menuItemId);
-      if (!item)
-        throw new DomainError("ITEM_NOT_FOUND", "Un élément commandé est inconnu du serveur.");
-      if (item.priceMinor === null) {
-        throw new DomainError("PRICE_NOT_SET", `« ${item.name} » n'a pas de prix (RG-PRX-01).`);
+    // Prix relus côté serveur (CLAUDE.md § 3.9, RG-RES-02) : le serveur fait foi,
+    // options et parts de formule comprises (D-060).
+    const lines: OrderLine[] = payload.lines.flatMap((line, index) => {
+      const expanded = expandOrderLine(line, itemById, `${payload.orderId}:${index}`, {
+        lenient: true,
+      });
+      if (!expanded.ok) {
+        throw new DomainError(
+          expanded.code,
+          expanded.code === "ITEM_NOT_FOUND"
+            ? "Un élément commandé est inconnu du serveur."
+            : expanded.message,
+        );
       }
-      return {
-        menuItemId: item.id,
-        name: item.name,
-        servicePointId: item.servicePointId,
-        unit: item.unit as SaleUnit,
-        unitPrice: moneyFromMinor(toSafeNumber(item.priceMinor), ctx.currency),
-        quantity: line.quantity,
-      };
+      return expanded.lines;
     });
 
     let tableLabel: string | null = null;
@@ -233,6 +238,10 @@ const orderCreated = handler({
           unitPriceMinor: BigInt(line.unitPrice.amountMinor),
           quantity: line.quantity,
           lineTotalMinor: BigInt(line.unitPrice.amountMinor * line.quantity),
+          options: toJson(line.options ?? []),
+          formulaItemId: line.formula?.menuItemId ?? null,
+          formulaName: line.formula?.name ?? null,
+          formulaLineId: line.formula?.lineId ?? null,
         })),
       });
     }
@@ -281,6 +290,19 @@ const menuItemCreated = handler({
         "Le prix doit être dans la devise de l'établissement.",
       );
     }
+    const isFormulaItem = item.kind === "formula";
+    if (isFormulaItem) {
+      // D-060 : composants relus dans cet établissement (pas d'élément d'ailleurs).
+      if (!item.price) throw new DomainError("PRICE_NOT_SET", "Une formule doit avoir un prix.");
+      const menu = await tx.menuItem.findMany({ where: { establishmentId: ctx.establishmentId } });
+      const issue = formulaIssue(
+        item.components ?? [],
+        new Map(menu.map((row) => [row.id, menuItemSnapshot(row)])),
+      );
+      if (issue) throw new DomainError(issue.code, issue.message);
+    }
+    const optionGroups = isFormulaItem ? [] : (item.optionGroups ?? []);
+    assertOptionGroups(optionGroups, ctx.currency);
     const created = await tx.menuItem.create({
       data: {
         id: item.id,
@@ -292,6 +314,9 @@ const menuItemCreated = handler({
         unit: item.unit,
         priceMinor: item.price ? BigInt(item.price.amountMinor) : null,
         currency: ctx.currency,
+        kind: isFormulaItem ? "formula" : "simple",
+        components: toJson(isFormulaItem ? (item.components ?? []) : []),
+        optionGroups: toJson(optionGroups),
       },
     });
     await writeAudit(tx, {
@@ -305,6 +330,54 @@ const menuItemCreated = handler({
       after: item,
     });
     await recordChange(tx, ctx, "menu_item", item.id, menuItemSnapshot(created));
+  },
+});
+
+function assertOptionGroups(groups: OptionGroup[], currency: Currency): void {
+  const issue = optionGroupsIssue(groups);
+  if (issue) throw new DomainError(issue.code, issue.message);
+  const ids = groups.flatMap((group) => [group.id, ...group.options.map((option) => option.id)]);
+  if (new Set(ids).size !== ids.length) {
+    throw new DomainError("DUPLICATE_OPTION", "Deux options portent le même identifiant.");
+  }
+  if (
+    groups.some((group) => group.options.some((option) => option.priceDelta.currency !== currency))
+  ) {
+    throw new DomainError(
+      "CURRENCY_MISMATCH",
+      "Les suppléments doivent être dans la devise de l'établissement.",
+    );
+  }
+}
+
+const menuItemOptionsSet = handler({
+  permission: "restaurant.menu.manage",
+  schema: menuItemOptionsSetSchema,
+  async apply(tx, ctx, payload) {
+    const item = await tx.menuItem.findFirst({
+      where: { id: payload.itemId, establishmentId: ctx.establishmentId },
+    });
+    if (!item) throw new DomainError("ITEM_NOT_FOUND", "Élément de menu inconnu du serveur.");
+    if (item.kind === "formula") {
+      throw new DomainError("FORMULA_OPTIONS", "Une formule ne porte pas d'options.");
+    }
+    assertOptionGroups(payload.optionGroups, ctx.currency);
+    const updated = await tx.menuItem.update({
+      where: { id: item.id },
+      data: { optionGroups: toJson(payload.optionGroups) },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.menu-item.options-set",
+      entity: "menu_item",
+      entityId: item.id,
+      before: { optionGroups: jsonArray<OptionGroup>(item.optionGroups) },
+      after: { optionGroups: payload.optionGroups },
+    });
+    await recordChange(tx, ctx, "menu_item", item.id, menuItemSnapshot(updated));
   },
 });
 
@@ -1405,6 +1478,7 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.order.created": orderCreated,
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
   "restaurant.menu-item.created": menuItemCreated,
+  "restaurant.menu-item.options-set": menuItemOptionsSet,
   "restaurant.morning-stock.entered": morningStockEntered,
   "restaurant.table.created": tableCreated,
   "restaurant.table.renamed": tableRenamed,

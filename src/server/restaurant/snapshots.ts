@@ -14,6 +14,7 @@ import type {
   MenuItem,
   MobileMoneyProvider,
   MorningStockEntry,
+  OptionGroup,
   Order,
   OrderLine,
   OrderMode,
@@ -85,9 +86,13 @@ export function menuItemSnapshot(row: {
   unit: string;
   priceMinor: bigint | null;
   currency: string;
+  kind: string;
+  components: unknown;
+  optionGroups: unknown;
   createdAt: Date;
   archivedAt: Date | null;
 }): MenuItem {
+  const optionGroups = jsonArray<OptionGroup>(row.optionGroups);
   return {
     id: row.id,
     establishmentId: row.establishmentId,
@@ -99,6 +104,11 @@ export function menuItemSnapshot(row: {
     price: row.priceMinor === null ? null : money(row.priceMinor, row.currency),
     createdAt: row.createdAt.toISOString(),
     archivedAt: row.archivedAt?.toISOString() ?? null,
+    // D-060 : champs présents seulement s'ils servent, comme sur l'appareil.
+    ...(row.kind === "formula"
+      ? { kind: "formula" as const, components: jsonArray<string>(row.components) }
+      : {}),
+    ...(optionGroups.length > 0 ? { optionGroups } : {}),
   };
 }
 
@@ -206,6 +216,7 @@ export async function orderSnapshots(
         unit: line.unit as SaleUnit,
         unitPrice: money(line.unitPriceMinor, row.currency),
         quantity: line.quantity,
+        ...optionsAndFormula(line),
       }));
     return {
       id: row.id,
@@ -328,6 +339,28 @@ export async function paymentSnapshots(
     deviceCode: deviceCode.get(row.deviceId) ?? "",
     createdAt: row.createdAt.toISOString(),
   }));
+}
+
+/** Options figées et appartenance à une formule d'une ligne de facture (D-060). */
+function optionsAndFormula(line: {
+  options: unknown;
+  formulaItemId: string | null;
+  formulaName: string | null;
+  formulaLineId: string | null;
+}): Pick<OrderLine, "options" | "formula"> {
+  const options = jsonArray<NonNullable<OrderLine["options"]>[number]>(line.options);
+  return {
+    ...(options.length > 0 ? { options } : {}),
+    ...(line.formulaItemId
+      ? {
+          formula: {
+            menuItemId: line.formulaItemId,
+            name: line.formulaName ?? "",
+            lineId: line.formulaLineId ?? "",
+          },
+        }
+      : {}),
+  };
 }
 
 export function jsonArray<T>(value: unknown): T[] {
