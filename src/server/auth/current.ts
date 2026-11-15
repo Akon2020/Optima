@@ -1,13 +1,19 @@
 import "server-only";
 
 import { cookies, headers } from "next/headers";
+import { connection } from "next/server";
 
 import { getPrisma } from "../db/client";
 import { AUTH_POLICY } from "./policy";
 import { validateSession, type ValidSession } from "./sessions";
 
-/** Session de la requête en cours, ou `null`. */
+/**
+ * Session de la requête en cours, ou `null`. `connection()` d'abord : la
+ * validation lit l'heure, ce qui n'est permis qu'au rendu propre à la requête
+ * (sinon Next 16 journalise « unstable value `new Date()` while prerendering »).
+ */
 export async function getCurrentSession(): Promise<ValidSession | null> {
+  await connection();
   const store = await cookies();
   return validateSession(getPrisma(), store.get(AUTH_POLICY.sessionCookieName)?.value);
 }
