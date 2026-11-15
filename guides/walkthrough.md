@@ -456,6 +456,26 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 20 : annulations et remises (15/11/2026)
+
+**Fait** (D-058)
+- **Demande** depuis le détail d'une commande : « Demander l'annulation » ou « Demander une remise » (montant en francs, au plus le reste à payer), avec un motif obligatoire. Un serveur ne demande que sur ses commandes ; une seule demande en attente par commande.
+- **Validation** : carte « Demandes à valider » en tête de l'écran Commandes, sur tout appareil du gérant ; « Valider » ou « Refuser » (refus expliqué au serveur). Le gérant qui agit lui-même valide dans le même geste.
+- **Effets** : une annulation garde les numéros de facture, marque « annulée » et rétablit le stock du jour ; une remise est répartie entre les factures et réduit le reste à payer (l'addition l'affiche). Une facture encaissée ne s'annule pas ; une journée validée ne se modifie plus.
+- **Serveur** : migration `20261115000002_adjustments` (colonne de remise sur les factures, tables `adjustment_requests` et `adjustment_decisions` en ajout seul, RLS). Le serveur refait les contrôles et trace demandes, validations et refus au journal d'audit. Le statut de paiement tient compte de la remise.
+- **Démonstration** : une demande d'annulation d'un serveur attend le gérant.
+- **Vérifié** dans Chrome : demande validée depuis la carte (commande « Annulée »), remise de 1 000 FC sur 4 500 FC (« Encaisser 3 500 FC »), 360 et 1280 px, clair et sombre, sans débordement ni erreur.
+- **Tests** : 200 tests unitaires et 99 tests d'intégration (dont 6 sur les annulations et remises : demande en double, droits du serveur, facture encaissée, refus sans motif, répartition de la remise, ajout seul et isolation).
+- **Correction** d'un test fragile (ordre des factures créées dans la même milliseconde).
+
+**Bloque encore**
+- **Plafond de remise par rôle** (RG-VTE-01) : avec le réglage des droits du personnel (EF-CPT-03).
+- **Remboursement** d'une facture encaissée, **transfert** d'une commande entre serveurs (RG-CMD-03).
+- **Base locale** : appliquer la migration (`pnpm db:migrate`).
+- **À valider par vous** : D-058.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -467,7 +487,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-057 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-058 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -482,7 +502,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Crédit, remises et annulations** (EF-ENC-03, RG-ENC-01, RG-CMD-02, RG-VTE-02) : validation du gérant, fiches clients (D-043).
+1. **Crédit** (EF-ENC-03, EF-VTE-05, EF-TRE-03, RG-ENC-02, D-037, D-043) : fiches clients, dettes validées par le gérant, remboursements en caisse.
 2. **Menus avec options et formules** (D-035).
 3. **D-Q14**, puis réquisitions et fiches recettes.
 4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).
