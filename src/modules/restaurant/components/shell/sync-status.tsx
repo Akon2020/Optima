@@ -68,6 +68,8 @@ export function SyncStatus({ compact = false }: { compact?: boolean }) {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
+        // En format compact, le bouton n'affiche qu'un nombre : son nom dit l'état entier.
+        aria-label={label}
         title={`${label}. ${detail}`}
         className={cn(
           "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-medium whitespace-nowrap",
