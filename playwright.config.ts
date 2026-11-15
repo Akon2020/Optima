@@ -18,7 +18,12 @@ const database = e2eDatabaseUrls();
 export default defineConfig({
   testDir: "tests/e2e",
   testMatch: "**/*.spec.ts",
-  ...(process.env.E2E_BASE_URL ? {} : { globalSetup: "./tests/e2e/global-setup.ts" }),
+  ...(process.env.E2E_BASE_URL
+    ? {}
+    : {
+        globalSetup: "./tests/e2e/global-setup.ts",
+        globalTeardown: "./tests/e2e/global-teardown.ts",
+      }),
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
@@ -41,7 +46,8 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? []
     : {
-        command: `pnpm exec next start -p ${PORT}`,
+        // `next start`, sortie d'erreur copiée pour global-teardown.ts.
+        command: `node scripts/e2e/start-server.mjs ${PORT}`,
         url: `${BASE_URL}/connexion`,
         // Jamais un serveur déjà lancé : il pourrait viser la base de développement.
         reuseExistingServer: false,
