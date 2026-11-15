@@ -32,6 +32,8 @@
   --color-on-primary: #ffffff;
   --color-primary-subtle: var(--navy-50);
   --color-link: var(--navy-600);
+  /* Texte de marque (logo « OPTIMA ») : le bleu nuit en clair. */
+  --color-brand-text: var(--navy-700);
   --color-action: var(--navy-700);
   --color-action-hover: var(--navy-800);
   --color-on-action: #ffffff;

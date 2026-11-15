@@ -14,7 +14,7 @@ export default function HomePage() {
     <div className="flex min-h-dvh flex-col">
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <span className="text-lg font-bold tracking-[0.2em] text-primary">OPTIMA</span>
+          <span className="text-lg font-bold tracking-[0.2em] text-brand-text">OPTIMA</span>
           <div className="flex items-center gap-2 sm:gap-3">
             <ThemeSwitcher />
             <Link href="/connexion" className={buttonClasses("action", "sm")}>

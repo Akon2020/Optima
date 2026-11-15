@@ -17,7 +17,7 @@ export function AuthCard({
 }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <Link href="/" className="text-lg font-bold tracking-[0.2em] text-primary">
+      <Link href="/" className="text-lg font-bold tracking-[0.2em] text-brand-text">
         OPTIMA
       </Link>
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-md sm:p-8">

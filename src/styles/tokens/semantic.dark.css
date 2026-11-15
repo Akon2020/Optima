@@ -19,6 +19,8 @@
   --color-on-primary: #ffffff;
   --color-primary-subtle: rgb(94 128 188 / 0.16);
   --color-link: #9db4de;
+  /* En sombre, le bleu des boutons (#4c6fb0) n'atteint que 3,75:1 en texte. */
+  --color-brand-text: #9db4de;
   --color-action: #4c6fb0;
   --color-action-hover: #5e80bc;
   --color-on-action: #ffffff;

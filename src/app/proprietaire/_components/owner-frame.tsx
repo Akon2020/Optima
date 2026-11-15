@@ -34,7 +34,7 @@ export function OwnerFrame({
     <div className="min-h-dvh bg-bg text-text">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-          <Link href="/proprietaire" className="text-lg font-bold tracking-[0.2em] text-primary">
+          <Link href="/proprietaire" className="text-lg font-bold tracking-[0.2em] text-brand-text">
             OPTIMA
           </Link>
           <div className="flex items-center gap-2">
