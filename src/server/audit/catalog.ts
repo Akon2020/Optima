@@ -71,6 +71,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "restaurant.cash-closing.declared": "Caisse déclarée",
   "restaurant.stock.counted": "Stock compté en fin de service",
   "restaurant.day.validated": "Journée validée",
+  "restaurant.closing.adjusted": "Clôture corrigée par une écriture",
+  "restaurant.period.closed": "Période clôturée",
   "restaurant.adjustment.requested": "Annulation ou remise demandée",
   "restaurant.invoice.cancelled": "Commande annulée",
   "restaurant.discount.granted": "Remise accordée",

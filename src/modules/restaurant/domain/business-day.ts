@@ -83,3 +83,23 @@ export function currentDayKey(
   while (validatedDays.has(day)) day = nextDayKey(day);
   return day;
 }
+
+/**
+ * Journée à laquelle appartient un fait daté `iso` (vente, paiement), D-039 :
+ * sa journée d'exploitation, sauf s'il suit la validation de celle-ci ; il
+ * passe alors à la journée suivante (et ainsi de suite).
+ */
+export function operatingDayOf(
+  iso: string,
+  validatedAtByDay: ReadonlyMap<string, string>,
+  startHour = DEFAULT_BUSINESS_DAY_START_HOUR,
+  timeZone = DEFAULT_TIME_ZONE,
+): string {
+  let day = businessDayKey(iso, startHour, timeZone);
+  let validatedAt = validatedAtByDay.get(day);
+  while (validatedAt !== undefined && iso > validatedAt) {
+    day = nextDayKey(day);
+    validatedAt = validatedAtByDay.get(day);
+  }
+  return day;
+}

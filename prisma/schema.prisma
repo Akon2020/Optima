@@ -494,6 +494,45 @@ model DayClosing {
   @@map("day_closings")
 }
 
+// Écriture d'ajustement d'une journée validée (RG-CLO-02, D-064) : datée,
+// motivée, faite par le gérant. Caisse : montant attribué à une personne
+// (positif : argent retrouvé ; négatif : manquant constaté après coup).
+// Stock : correction du stock compté d'un élément. Ajout seul.
+model ClosingAdjustment {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  day             String
+  kind            String
+  userId          String?  @map("user_id") @db.Uuid
+  currency        String?  @db.Char(3)
+  amountMinor     BigInt?  @map("amount_minor")
+  servicePointId  String?  @map("service_point_id") @db.Uuid
+  menuItemId      String?  @map("menu_item_id") @db.Uuid
+  quantity        Int?
+  reason          String
+  adjustedBy      String   @map("adjusted_by") @db.Uuid
+  adjustedAt      DateTime @default(now()) @map("adjusted_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, day])
+  @@map("closing_adjustments")
+}
+
+// Clôture de période (EF-CLO-05, D-064) : journées validées consécutives
+// choisies par le gérant, résumé figé à la validation. Ajout seul.
+model PeriodClosing {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  fromDay         String   @map("from_day")
+  toDay           String   @map("to_day")
+  summary         Json
+  comment         String?
+  validatedBy     String   @map("validated_by") @db.Uuid
+  validatedAt     DateTime @default(now()) @map("validated_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, fromDay])
+  @@map("period_closings")
+}
+
 // Demande d'annulation ou de remise (RG-CMD-02, RG-VTE-02, RG-ENC-01, D-058) :
 // le serveur demande, le gérant valide. Ajout seul.
 model AdjustmentRequest {

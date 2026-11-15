@@ -373,7 +373,7 @@ export async function getOwnerOverview(
  * total, remise et paiements reçus, avec le nom des clients. Lu sous le
  * drapeau RLS du propriétaire, tous établissements confondus.
  */
-async function creditInvoices(
+export async function creditInvoices(
   tx: Parameters<Parameters<typeof withContext>[2]>[0],
 ): Promise<{ rows: CreditInvoiceRow[]; names: Map<string, string> }> {
   const requests = await tx.adjustmentRequest.findMany({
