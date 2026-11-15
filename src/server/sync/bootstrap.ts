@@ -1,6 +1,8 @@
 import { businessDayStart } from "@/modules/restaurant/domain/business-day";
 import type {
   AdvanceInvoice,
+  CashClosing,
+  DayClosing,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -9,12 +11,15 @@ import type {
   Payment,
   ServicePoint,
   StaffMember,
+  StockCount,
   TableRelease,
 } from "@/modules/restaurant/domain/types";
 
 import type { Db } from "../db/context";
 import { withContext } from "../db/context";
 import {
+  cashClosingSnapshots,
+  dayClosingSnapshots,
   diningTableSnapshot,
   exchangeRateSnapshots,
   menuItemSnapshot,
@@ -22,6 +27,7 @@ import {
   orderSnapshots,
   paymentSnapshots,
   servicePointSnapshot,
+  stockCountSnapshots,
   tableReleaseSnapshots,
 } from "../restaurant/snapshots";
 import type { AuthenticatedDevice } from "./devices";
@@ -49,6 +55,10 @@ export type DeviceBootstrap = {
   /** Paiements de la même période et derniers taux du dollar (EF-ENC-02, EF-PRX-05). */
   payments: Payment[];
   exchangeRates: ExchangeRate[];
+  /** Clôtures de la même période et dernières journées validées (EF-CLO-01 à 04). */
+  cashClosings: CashClosing[];
+  stockCounts: StockCount[];
+  dayClosings: DayClosing[];
   cursor: string;
 };
 
@@ -83,6 +93,9 @@ export async function buildBootstrap(
       modules,
       payments,
       exchangeRates,
+      cashClosings,
+      stockCounts,
+      dayClosings,
       last,
     ] = await Promise.all([
       tx.servicePoint.findMany({ where, orderBy: { sortOrder: "asc" } }),
@@ -94,6 +107,9 @@ export async function buildBootstrap(
       tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
       paymentSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
       exchangeRateSnapshots(tx, establishment.id, {}, { latest: 10 }),
+      cashClosingSnapshots(tx, establishment.id, { declaredAt: { gte: since } }),
+      stockCountSnapshots(tx, establishment.id, { countedAt: { gte: since } }),
+      dayClosingSnapshots(tx, establishment.id, {}, { latest: 7 }),
       tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
     ]);
     return {
@@ -121,6 +137,9 @@ export async function buildBootstrap(
       modules: modules.map((entry) => entry.module).sort(),
       payments,
       exchangeRates,
+      cashClosings,
+      stockCounts,
+      dayClosings,
       cursor: last?.seq.toString() ?? "0",
     };
   });

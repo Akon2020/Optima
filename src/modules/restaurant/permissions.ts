@@ -18,6 +18,14 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.payment.collect",
   /** Saisir le taux du dollar (EF-PRX-05, D-042). */
   "restaurant.exchange-rate.manage",
+  /** Consulter les clôtures (matrice : lecture pour le lecteur). */
+  "restaurant.closing.read",
+  /** Déclarer sa propre caisse (EF-CLO-02 : « la sienne »). */
+  "restaurant.closing.declare",
+  /** Compter le stock d'un point de service en fin de service (EF-CLO-03). */
+  "restaurant.closing.count-stock",
+  /** Valider la journée (EF-CLO-04 : le gérant). */
+  "restaurant.closing.validate",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -33,10 +41,12 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.menu.read",
     "restaurant.table.release",
     "restaurant.payment.collect",
+    "restaurant.closing.read",
+    "restaurant.closing.declare",
   ],
   prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
   courier: [],
-  reader: ["restaurant.menu.read", "restaurant.morning-stock.read"],
+  reader: ["restaurant.menu.read", "restaurant.morning-stock.read", "restaurant.closing.read"],
 };
 
 export function hasPermission(role: RestaurantRole, permission: RestaurantPermission): boolean {

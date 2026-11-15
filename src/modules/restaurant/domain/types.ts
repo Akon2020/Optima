@@ -180,6 +180,80 @@ export type Payment = {
   createdAt: string;
 };
 
+/** Mode de paiement détenu à la clôture : déclaré compté face à l'attendu (EF-CLO-01, 02). */
+export type CashClosingLine = {
+  key: string;
+  method: PaymentMethod;
+  provider: MobileMoneyProvider | null;
+  expected: Money;
+  counted: Money;
+};
+
+/**
+ * Clôture de caisse d'une personne qui a encaissé (D-032, EF-CLO-01, 02) :
+ * elle couvre ses paiements qui ne figurent dans aucune clôture précédente.
+ * Figée une fois déclarée (ajout seul).
+ */
+export type CashClosing = {
+  id: string;
+  establishmentId: string;
+  /** Journée d'exploitation de la déclaration (clé `AAAA-MM-JJ`). */
+  day: string;
+  userId: string;
+  userName: string;
+  deviceCode: string;
+  declaredAt: string;
+  paymentIds: string[];
+  lines: CashClosingLine[];
+  /** Part encaissée revenant à chaque point de service, en devise de base. */
+  byServicePoint: { servicePointId: string; amount: Money }[];
+  /** RG-ENC-02 : factures de la personne encore impayées au moment de la clôture. */
+  unpaidInvoiceIds: string[];
+  comment: string | null;
+};
+
+/** Ligne du comptage de fin de service d'un point de service (EF-CLO-03). */
+export type StockCountLine = {
+  menuItemId: string;
+  name: string;
+  unit: SaleUnit;
+  /** Stock du matin en vigueur, `null` s'il n'a pas été saisi. */
+  morning: number | null;
+  sold: number;
+  /** Pertes, casse, repas du personnel, offerts : déclarés à part, avec un motif (D-044). */
+  declaredOut: number;
+  outReason: string | null;
+  counted: number;
+};
+
+export type StockCount = {
+  id: string;
+  establishmentId: string;
+  day: string;
+  servicePointId: string;
+  countedAt: string;
+  countedBy: string;
+  countedByName: string;
+  lines: StockCountLine[];
+  comment: string | null;
+};
+
+/**
+ * Validation de la journée par le gérant (EF-CLO-04, D-039) : elle fige les
+ * clôtures de caisse et les comptages (RG-CLO-02).
+ */
+export type DayClosing = {
+  id: string;
+  establishmentId: string;
+  day: string;
+  validatedAt: string;
+  validatedBy: string;
+  validatedByName: string;
+  cashClosingIds: string[];
+  stockCountIds: string[];
+  comment: string | null;
+};
+
 export type StaffMember = {
   id: string;
   establishmentId: string;

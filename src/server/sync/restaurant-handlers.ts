@@ -3,22 +3,51 @@ import type { z } from "zod";
 import { DomainError } from "@/shared/lib/errors";
 import { formatMoney, moneyFromMinor, type Currency } from "@/shared/lib/money";
 
+import {
+  businessDayStartOf,
+  DEFAULT_BUSINESS_DAY_START_HOUR,
+} from "@/modules/restaurant/domain/business-day";
+import {
+  collectedByServicePoint,
+  collectorsWithUnclosedPayments,
+  dayClosingIssues,
+  expectedCashLines,
+  latestStockCounts,
+  stockLineVariance,
+  unpaidInvoiceIds,
+  validateCashClosing,
+  validateStockCount,
+} from "@/modules/restaurant/domain/closing";
+import {
+  currentEntries,
+  isMorningStockComplete,
+  itemsRequiringMorningStock,
+} from "@/modules/restaurant/domain/morning-stock";
 import { splitOrderByServicePoint } from "@/modules/restaurant/domain/order";
 import {
   checkPaymentConsistency,
   convertMoney,
+  invoiceBalances,
   parseRate,
 } from "@/modules/restaurant/domain/payment";
 import { validateTableLabel } from "@/modules/restaurant/domain/tables";
-import type { OrderLine, SaleUnit } from "@/modules/restaurant/domain/types";
+import type {
+  CashClosingLine,
+  OrderLine,
+  SaleUnit,
+  StockCountLine,
+} from "@/modules/restaurant/domain/types";
 import type { Permission } from "@/modules/registry";
 import {
+  cashClosingDeclaredSchema,
+  dayValidatedSchema,
   exchangeRateAddedSchema,
   menuItemCreatedSchema,
   morningStockEnteredSchema,
   orderCreatedSchema,
   paymentRecordedSchema,
   prepStatusChangedSchema,
+  stockCountedSchema,
   tableArchivedSchema,
   tableCreatedSchema,
   tableReleasedSchema,
@@ -27,6 +56,8 @@ import {
 
 import { writeAudit } from "../audit/audit";
 import {
+  cashClosingSnapshots,
+  dayClosingSnapshots,
   diningTableSnapshot,
   exchangeRateSnapshots,
   menuItemSnapshot,
@@ -34,6 +65,7 @@ import {
   orderSnapshots,
   paymentSnapshots,
   rateText,
+  stockCountSnapshots,
   tableReleaseSnapshots,
 } from "../restaurant/snapshots";
 import type { Tx } from "../db/context";
@@ -46,6 +78,7 @@ export type HandlerContext = {
   userId: string;
   role: string;
   currency: Currency;
+  timeZone: string;
   receivedAt: Date;
 };
 
@@ -617,6 +650,327 @@ const paymentRecorded = handler({
   },
 });
 
+/** RG-CLO-02 : rien ne s'ajoute à une journée validée. */
+async function assertDayOpen(tx: Tx, ctx: HandlerContext, day: string): Promise<void> {
+  const validated = await tx.dayClosing.findFirst({
+    where: { establishmentId: ctx.establishmentId, day },
+    select: { id: true },
+  });
+  if (validated) {
+    throw new DomainError(
+      "DAY_VALIDATED",
+      `La journée du ${day} est déjà validée : elle ne se modifie plus.`,
+    );
+  }
+}
+
+/** Factures et paiements d'une journée d'exploitation, vus par le serveur. */
+async function dayActivity(tx: Tx, ctx: HandlerContext, day: string, until?: Date) {
+  const start = new Date(businessDayStartOf(day, DEFAULT_BUSINESS_DAY_START_HOUR, ctx.timeZone));
+  const end = until ?? new Date(start.getTime() + 24 * 3_600_000);
+  const [activity, payments] = await Promise.all([
+    orderSnapshots(tx, ctx.establishmentId, { createdAt: { gte: start, lt: end } }),
+    paymentSnapshots(tx, ctx.establishmentId, { createdAt: { gte: start, lte: end } }),
+  ]);
+  return { start, end, invoices: activity.invoices, payments };
+}
+
+const cashClosingDeclared = handler({
+  permission: "restaurant.closing.declare",
+  schema: cashClosingDeclaredSchema,
+  async apply(tx, ctx, { closing }) {
+    await assertDayOpen(tx, ctx, closing.day);
+    const payments = await paymentSnapshots(tx, ctx.establishmentId, {
+      id: { in: closing.paymentIds },
+    });
+    if (payments.length !== closing.paymentIds.length) {
+      throw new DomainError("PAYMENT_NOT_FOUND", "Un paiement déclaré est inconnu du serveur.");
+    }
+    if (payments.some((payment) => payment.collectedBy !== ctx.userId)) {
+      throw new DomainError(
+        "FORBIDDEN",
+        "Une clôture ne couvre que l'argent que vous avez vous-même encaissé.",
+      );
+    }
+    const alreadyClosed = await tx.cashClosingPayment.count({
+      where: { establishmentId: ctx.establishmentId, paymentId: { in: closing.paymentIds } },
+    });
+    if (alreadyClosed > 0) {
+      throw new DomainError(
+        "PAYMENT_ALREADY_CLOSED",
+        "Un paiement de cette déclaration figure déjà dans une clôture.",
+      );
+    }
+
+    // EF-CLO-01 : l'attendu est recalculé par le serveur ; seul le compté vient de l'appareil.
+    const expected = expectedCashLines(payments, ctx.currency);
+    const counted = new Map(closing.counted.map((line) => [line.key, line]));
+    if (
+      counted.size !== expected.length ||
+      expected.some((line) => counted.get(line.key)?.currency !== line.expected.currency)
+    ) {
+      throw new DomainError(
+        "CLOSING_MISMATCH",
+        "Les modes de paiement déclarés ne correspondent pas aux encaissements connus du serveur.",
+      );
+    }
+    const lines: CashClosingLine[] = expected.map((line) => ({
+      ...line,
+      counted: moneyFromMinor(counted.get(line.key)?.amountMinor ?? 0, line.expected.currency),
+    }));
+
+    const declaredAt = new Date(closing.declaredAt);
+    const activity = await dayActivity(tx, ctx, closing.day, declaredAt);
+    const allocated = await tx.advanceInvoice.findMany({
+      where: {
+        establishmentId: ctx.establishmentId,
+        id: { in: payments.flatMap((payment) => payment.allocations.map((a) => a.invoiceId)) },
+      },
+      select: { id: true, servicePointId: true },
+    });
+    const unpaid = unpaidInvoiceIds(
+      activity.invoices,
+      invoiceBalances(activity.invoices, activity.payments),
+      ctx.userId,
+    );
+    const issue = validateCashClosing({
+      lines,
+      unpaidInvoiceIds: unpaid,
+      comment: closing.comment ?? "",
+    });
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    await tx.cashClosing.create({
+      data: {
+        id: closing.id,
+        establishmentId: ctx.establishmentId,
+        day: closing.day,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        declaredAt,
+        lines: toJson(lines),
+        byServicePoint: toJson(collectedByServicePoint(payments, allocated, ctx.currency)),
+        unpaidInvoiceIds: toJson(unpaid),
+        comment: closing.comment,
+      },
+    });
+    await tx.cashClosingPayment.createMany({
+      data: closing.paymentIds.map((paymentId) => ({
+        establishmentId: ctx.establishmentId,
+        closingId: closing.id,
+        paymentId,
+      })),
+    });
+    // EF-AUD-01 : les clôtures et leurs écarts sont tracés.
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.cash-closing.declared",
+      entity: "cash_closing",
+      entityId: closing.id,
+      after: {
+        day: closing.day,
+        expected: lines.map((line) => formatMoney(line.expected)),
+        counted: lines.map((line) => formatMoney(line.counted)),
+        unpaid: unpaid.length,
+      },
+      reason: closing.comment,
+    });
+    const [snapshot] = await cashClosingSnapshots(tx, ctx.establishmentId, { id: closing.id });
+    if (snapshot) await recordChange(tx, ctx, "cash_closing", closing.id, snapshot);
+  },
+});
+
+const stockCounted = handler({
+  permission: "restaurant.closing.count-stock",
+  schema: stockCountedSchema,
+  async apply(tx, ctx, { count }) {
+    await assertDayOpen(tx, ctx, count.day);
+    const point = await tx.servicePoint.findFirst({
+      where: { id: count.servicePointId, establishmentId: ctx.establishmentId },
+    });
+    if (!point) throw new DomainError("SERVICE_POINT_NOT_FOUND", "Point de service inconnu.");
+    const items = (
+      await tx.menuItem.findMany({
+        where: { establishmentId: ctx.establishmentId, servicePointId: point.id },
+      })
+    ).map(menuItemSnapshot);
+    const required = itemsRequiringMorningStock(items, point.id);
+    const provided = new Map(count.lines.map((line) => [line.menuItemId, line]));
+    if (required.some((item) => !provided.has(item.id))) {
+      throw new DomainError(
+        "COUNT_INCOMPLETE",
+        "Le comptage ne couvre pas tous les éléments du point de service : synchronisez puis recomptez.",
+      );
+    }
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    if (count.lines.some((line) => !itemById.has(line.menuItemId))) {
+      throw new DomainError(
+        "ITEM_NOT_FOUND",
+        "Un élément compté n'appartient pas à ce point de service.",
+      );
+    }
+
+    // Stock du matin et ventes relus par le serveur (CLAUDE.md § 3.9).
+    const morning = currentEntries(
+      await morningEntrySnapshots(tx, ctx.establishmentId, { day: count.day }),
+    );
+    const activity = await dayActivity(tx, ctx, count.day);
+    const sold = new Map<string, number>();
+    for (const invoice of activity.invoices) {
+      if (invoice.paymentStatus === "cancelled") continue;
+      for (const line of invoice.lines) {
+        sold.set(line.menuItemId, (sold.get(line.menuItemId) ?? 0) + line.quantity);
+      }
+    }
+    const lines: StockCountLine[] = count.lines.map((line) => {
+      const item = itemById.get(line.menuItemId);
+      return {
+        menuItemId: line.menuItemId,
+        name: item?.name ?? "",
+        unit: item?.unit ?? "bottle",
+        morning: morning.get(line.menuItemId)?.quantity ?? null,
+        sold: sold.get(line.menuItemId) ?? 0,
+        declaredOut: line.declaredOut,
+        outReason: line.outReason,
+        counted: line.counted,
+      };
+    });
+    // Le serveur contrôle la forme (quantités, motif des sorties) ; l'exigence d'un
+    // commentaire dépend de l'écart vu au moment du comptage, contrôlée sur l'appareil.
+    const issue = validateStockCount({ lines, comment: "commentaire" })[0];
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    await tx.stockCount.create({
+      data: {
+        id: count.id,
+        establishmentId: ctx.establishmentId,
+        day: count.day,
+        servicePointId: point.id,
+        countedAt: new Date(count.countedAt),
+        countedBy: ctx.userId,
+        lines: toJson(lines),
+        comment: count.comment,
+      },
+    });
+    const variances = lines
+      .map((line) => ({ name: line.name, variance: stockLineVariance(line) }))
+      .filter((line) => line.variance !== null && line.variance !== 0)
+      .map((line) => `${line.name} : ${line.variance}`);
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.stock.counted",
+      entity: "service_point",
+      entityId: point.id,
+      after: { day: count.day, variances },
+      reason: count.comment,
+    });
+    const [snapshot] = await stockCountSnapshots(tx, ctx.establishmentId, { id: count.id });
+    if (snapshot) await recordChange(tx, ctx, "stock_count", count.id, snapshot);
+  },
+});
+
+const dayValidated = handler({
+  permission: "restaurant.closing.validate",
+  schema: dayValidatedSchema,
+  async apply(tx, ctx, { closing }) {
+    await assertDayOpen(tx, ctx, closing.day);
+    const validatedAt = new Date(closing.validatedAt);
+
+    // RG-CLO-03 : un appareil qui a encore des opérations à envoyer bloque la validation.
+    const waiting = await tx.device.findMany({
+      where: {
+        establishmentId: ctx.establishmentId,
+        revokedAt: null,
+        pendingOperations: { gt: 0 },
+      },
+      select: { code: true, pendingOperations: true },
+    });
+    const first = waiting[0];
+    if (first) {
+      throw new DomainError(
+        "PENDING_OPERATIONS",
+        `L'appareil ${first.code} a encore ${first.pendingOperations} opération(s) à envoyer : connectez-le avant de valider.`,
+      );
+    }
+
+    const [points, items, counts, closings] = await Promise.all([
+      tx.servicePoint.findMany({
+        where: { establishmentId: ctx.establishmentId },
+        orderBy: { sortOrder: "asc" },
+      }),
+      tx.menuItem.findMany({ where: { establishmentId: ctx.establishmentId } }),
+      stockCountSnapshots(tx, ctx.establishmentId, { day: closing.day }),
+      tx.cashClosingPayment.findMany({
+        where: { establishmentId: ctx.establishmentId },
+        select: { paymentId: true },
+      }),
+    ]);
+    const menu = items.map(menuItemSnapshot);
+    const morning = currentEntries(
+      await morningEntrySnapshots(tx, ctx.establishmentId, { day: closing.day }),
+    );
+    const latest = latestStockCounts(counts, closing.day);
+    const required = points.filter(
+      (point) => itemsRequiringMorningStock(menu, point.id).length > 0,
+    );
+    const activity = await dayActivity(tx, ctx, closing.day, validatedAt);
+    const closed = new Set(closings.map((link) => link.paymentId));
+    const issue = dayClosingIssues({
+      isAlreadyValidated: false,
+      pointsMissingMorningStock: required
+        .filter((point) => !isMorningStockComplete(menu, point.id, morning))
+        .map((point) => point.name),
+      pointsNotCounted: required
+        .filter((point) => !latest.has(point.id))
+        .map((point) => point.name),
+      undeclaredCollectors: collectorsWithUnclosedPayments(
+        activity.payments.filter((payment) => !closed.has(payment.id)),
+        [],
+      ).map((entry) => entry.name),
+      pendingOperations: 0,
+      isOnline: true,
+    })[0];
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    const cashClosings = await tx.cashClosing.findMany({
+      where: { establishmentId: ctx.establishmentId, day: closing.day },
+      select: { id: true },
+    });
+    const stockCountIds = [...latest.values()].map((count) => count.id);
+    await tx.dayClosing.create({
+      data: {
+        id: closing.id,
+        establishmentId: ctx.establishmentId,
+        day: closing.day,
+        validatedAt,
+        validatedBy: ctx.userId,
+        cashClosingIds: toJson(cashClosings.map((entry) => entry.id)),
+        stockCountIds: toJson(stockCountIds),
+        comment: closing.comment,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.day.validated",
+      entity: "day_closing",
+      entityId: closing.id,
+      after: { day: closing.day, closings: cashClosings.length, counts: stockCountIds.length },
+      reason: closing.comment,
+    });
+    const [snapshot] = await dayClosingSnapshots(tx, ctx.establishmentId, { id: closing.id });
+    if (snapshot) await recordChange(tx, ctx, "day_closing", closing.id, snapshot);
+  },
+});
+
 export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.order.created": orderCreated,
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
@@ -629,4 +983,7 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.table.released": tableReleased,
   "restaurant.exchange-rate.added": exchangeRateAdded,
   "restaurant.payment.recorded": paymentRecorded,
+  "restaurant.cash-closing.declared": cashClosingDeclared,
+  "restaurant.stock.counted": stockCounted,
+  "restaurant.day.validated": dayValidated,
 };

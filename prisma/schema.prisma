@@ -6,7 +6,8 @@
 //   lignes (RLS) est posée par la migration 0002_security.
 // - Tables en ajout seul (trigger) : audit_log, sync_operations, change_log,
 //   morning_stock_entries, table_releases, invoice_lines, exchange_rates,
-//   payments, payment_allocations.
+//   payments, payment_allocations, cash_closings, cash_closing_payments,
+//   stock_counts, day_closings.
 
 generator client {
   provider = "prisma-client"
@@ -174,16 +175,18 @@ model LoginAttempt {
 }
 
 model Device {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  establishmentId String    @map("establishment_id") @db.Uuid
+  id                String    @id @default(uuid(7)) @db.Uuid
+  establishmentId   String    @map("establishment_id") @db.Uuid
   /// D01, D02... utilisé dans la numérotation (EF-DOC-01).
-  code            String
-  name            String
-  secretHash      String    @map("secret_hash")
-  registeredBy    String    @map("registered_by") @db.Uuid
-  registeredAt    DateTime  @default(now()) @map("registered_at") @db.Timestamptz(6)
-  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
-  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  code              String
+  name              String
+  secretHash        String    @map("secret_hash")
+  registeredBy      String    @map("registered_by") @db.Uuid
+  registeredAt      DateTime  @default(now()) @map("registered_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastSyncAt        DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  /// RG-CLO-03 : opérations encore en attente sur l'appareil, signalées à chaque réception.
+  pendingOperations Int       @default(0) @map("pending_operations")
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
 
@@ -408,6 +411,69 @@ model PaymentAllocation {
   @@index([paymentId])
   @@index([establishmentId, invoiceId])
   @@map("payment_allocations")
+}
+
+// Clôture de caisse d'une personne (EF-CLO-01, 02, D-032), en ajout seul.
+// `lines` : attendu (recalculé par le serveur) et compté, par mode de paiement.
+model CashClosing {
+  id               String   @id @db.Uuid
+  establishmentId  String   @map("establishment_id") @db.Uuid
+  day              String
+  userId           String   @map("user_id") @db.Uuid
+  deviceId         String   @map("device_id") @db.Uuid
+  declaredAt       DateTime @map("declared_at") @db.Timestamptz(6)
+  lines            Json
+  byServicePoint   Json     @map("by_service_point")
+  unpaidInvoiceIds Json     @map("unpaid_invoice_ids")
+  comment          String?
+  receivedAt       DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, day])
+  @@map("cash_closings")
+}
+
+// Un paiement n'entre que dans une seule clôture de caisse.
+model CashClosingPayment {
+  id              String @id @default(uuid(7)) @db.Uuid
+  establishmentId String @map("establishment_id") @db.Uuid
+  closingId       String @map("closing_id") @db.Uuid
+  paymentId       String @map("payment_id") @db.Uuid
+
+  @@unique([establishmentId, paymentId])
+  @@index([closingId])
+  @@map("cash_closing_payments")
+}
+
+// Comptage de fin de service d'un point de service (EF-CLO-03, D-044).
+// `lines` : stock du matin et ventes relus par le serveur, compté et sorties déclarées.
+model StockCount {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  day             String
+  servicePointId  String   @map("service_point_id") @db.Uuid
+  countedAt       DateTime @map("counted_at") @db.Timestamptz(6)
+  countedBy       String   @map("counted_by") @db.Uuid
+  lines           Json
+  comment         String?
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, day])
+  @@map("stock_counts")
+}
+
+// Validation de la journée par le gérant (EF-CLO-04, D-039) : une par journée.
+model DayClosing {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  day             String
+  validatedAt     DateTime @map("validated_at") @db.Timestamptz(6)
+  validatedBy     String   @map("validated_by") @db.Uuid
+  cashClosingIds  Json     @map("cash_closing_ids")
+  stockCountIds   Json     @map("stock_count_ids")
+  comment         String?
+
+  @@unique([establishmentId, day])
+  @@map("day_closings")
 }
 
 model MorningStockEntry {

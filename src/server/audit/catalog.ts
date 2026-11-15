@@ -67,6 +67,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "restaurant.table.restored": "Table remise en service",
   "restaurant.exchange-rate.added": "Taux du dollar saisi",
   "restaurant.payment.overpaid": "Trop-perçu sur une facture",
+  "restaurant.cash-closing.declared": "Caisse déclarée",
+  "restaurant.stock.counted": "Stock compté en fin de service",
+  "restaurant.day.validated": "Journée validée",
 };
 
 /** Motifs techniques enregistrés par le serveur (refus de connexion), en français. */
@@ -120,6 +123,13 @@ const FIELD_LABELS: Record<string, string> = {
   number: "Numéro",
   total: "Total",
   paid: "Payé",
+  day: "Journée",
+  expected: "Attendu",
+  counted: "Compté",
+  unpaid: "Factures impayées",
+  variances: "Écarts",
+  closings: "Caisses déclarées",
+  counts: "Comptages",
 };
 
 export type AuditChange = { field: string; before: string | null; after: string | null };

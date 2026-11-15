@@ -2,6 +2,8 @@ import type { OutboxOperation } from "@/offline/outbox";
 
 import type {
   AdvanceInvoice,
+  CashClosing,
+  DayClosing,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -10,6 +12,7 @@ import type {
   Payment,
   ServicePoint,
   StaffMember,
+  StockCount,
   TableRelease,
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
@@ -52,6 +55,10 @@ export type Bootstrap = {
   /** Encaissements récents et taux du dollar (EF-ENC-02) ; absents d'un serveur plus ancien. */
   payments?: Payment[];
   exchangeRates?: ExchangeRate[];
+  /** Clôtures récentes (EF-CLO-01 à 04) ; absentes d'un serveur plus ancien. */
+  cashClosings?: CashClosing[];
+  stockCounts?: StockCount[];
+  dayClosings?: DayClosing[];
   cursor: string;
 };
 
@@ -97,6 +104,9 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.tableReleases,
       db.payments,
       db.exchangeRates,
+      db.cashClosings,
+      db.stockCounts,
+      db.dayClosings,
       db.deviceUsers,
       db.meta,
     ],
@@ -114,6 +124,9 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.tableReleases.bulkPut(snapshot.releases);
       if (snapshot.payments) await db.payments.bulkPut(snapshot.payments);
       if (snapshot.exchangeRates) await db.exchangeRates.bulkPut(snapshot.exchangeRates);
+      if (snapshot.cashClosings) await db.cashClosings.bulkPut(snapshot.cashClosings);
+      if (snapshot.stockCounts) await db.stockCounts.bulkPut(snapshot.stockCounts);
+      if (snapshot.dayClosings) await db.dayClosings.bulkPut(snapshot.dayClosings);
       if (snapshot.modules) await saveEnabledModules(db, snapshot.modules);
       if (BigInt(snapshot.cursor) > BigInt(await getCursor(db))) {
         await saveCursor(db, snapshot.cursor);
@@ -152,6 +165,15 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "exchange_rate":
       await db.exchangeRates.put(change.data as ExchangeRate);
+      break;
+    case "cash_closing":
+      await db.cashClosings.put(change.data as CashClosing);
+      break;
+    case "stock_count":
+      await db.stockCounts.put(change.data as StockCount);
+      break;
+    case "day_closing":
+      await db.dayClosings.put(change.data as DayClosing);
       break;
     case "establishment_modules":
       await saveEnabledModules(db, (change.data as { modules: string[] }).modules);
@@ -208,9 +230,12 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
   let received = 0;
   for (;;) {
     const cursor = await getCursor(db);
+    // RG-CLO-03 : l'appareil signale les opérations qu'il n'a pas encore envoyées.
+    const pending = await db.outbox.where("status").equals("pending").count();
     const page = await request<{ changes: Change[]; cursor: string; hasMore: boolean }>(
       device,
       `/api/sync/pull?cursor=${encodeURIComponent(cursor)}`,
+      { headers: { "X-Pending-Operations": String(pending) } },
     );
     await db.transaction(
       "rw",
@@ -223,6 +248,9 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.morningStockEntries,
         db.payments,
         db.exchangeRates,
+        db.cashClosings,
+        db.stockCounts,
+        db.dayClosings,
         // Changements de personnel (EF-CPT-01, EF-CPT-05) : applyStaffMember
         // ouvre une sous-transaction sur ces tables.
         db.staff,

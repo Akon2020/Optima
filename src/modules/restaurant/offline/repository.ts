@@ -6,7 +6,23 @@ import { uuidv7 } from "@/shared/lib/ids";
 import { moneyFromMajor, type Money } from "@/shared/lib/money";
 import { createOperation } from "@/offline/outbox";
 
-import { businessDayKey, businessDayStart } from "../domain/business-day";
+import {
+  businessDayKey,
+  businessDayStart,
+  businessDayStartOf,
+  currentDayKey,
+} from "../domain/business-day";
+import {
+  collectedByServicePoint,
+  collectorsWithUnclosedPayments,
+  dayClosingIssues,
+  expectedCashLines,
+  latestStockCounts,
+  unclosedPayments,
+  unpaidInvoiceIds,
+  validateCashClosing,
+  validateStockCount,
+} from "../domain/closing";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
@@ -19,12 +35,15 @@ import {
 } from "../domain/payment";
 import {
   currentEntries,
+  isMorningStockComplete,
   itemsRequiringMorningStock,
   proposeMorningQuantity,
   validateMorningLines,
 } from "../domain/morning-stock";
 import type {
   AdvanceInvoice,
+  CashClosing,
+  CashClosingLine,
   MenuItem,
   DiningTable,
   ExchangeRate,
@@ -33,16 +52,28 @@ import type {
   OrderLine,
   Payment,
   PrepStatus,
+  ServicePoint,
+  StockCount,
+  StockCountLine,
   TableRelease,
 } from "../domain/types";
 import { nextTableLabel, validateTableLabel } from "../domain/tables";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
 import { paymentInputSchema, type PaymentInput } from "../schemas/payment";
-import type { orderCreatedSchema, paymentRecordedSchema } from "../schemas/sync";
+import type {
+  cashClosingDeclaredSchema,
+  dayValidatedSchema,
+  orderCreatedSchema,
+  paymentRecordedSchema,
+  stockCountedSchema,
+} from "../schemas/sync";
 
 type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
 type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
+type CashClosingDeclaredPayload = z.infer<typeof cashClosingDeclaredSchema>;
+type StockCountedPayload = z.infer<typeof stockCountedSchema>;
+type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -367,17 +398,23 @@ export async function morningProposals(
   const { businessDayStartHour, timeZone } = ctx.settings;
   const previousStart = new Date(new Date(dayStartIso).getTime() - DAY_MS).toISOString();
   const previousDay = businessDayKey(previousStart, businessDayStartHour, timeZone);
-  const [previousMorning, previousSold, items] = await Promise.all([
+  const [previousMorning, previousSold, items, previousCounts] = await Promise.all([
     currentMorningStock(db, previousDay),
     soldQuantitiesBetween(db, previousStart, dayStartIso),
     db.menuItems.toArray(),
+    db.stockCounts.where("day").equals(previousDay).toArray(),
   ]);
+  const counted = new Map<string, number>();
+  for (const count of latestStockCounts(previousCounts, previousDay).values()) {
+    for (const line of count.lines) counted.set(line.menuItemId, line.counted);
+  }
   return new Map(
     items.map((item) => [
       item.id,
       proposeMorningQuantity({
         previousMorning: previousMorning.get(item.id)?.quantity ?? null,
         previousSold: previousSold.get(item.id) ?? 0,
+        previousCounted: counted.get(item.id) ?? null,
         // HYPOTHÈSE D-Q14 : les réquisitions ne sont pas encore gérées.
         requisitioned: null,
       }),
@@ -407,7 +444,15 @@ export async function saveMorningStock(
 
   return db.transaction(
     "rw",
-    [db.servicePoints, db.menuItems, db.invoices, db.morningStockEntries, db.outbox],
+    // stockCounts : la proposition part du stock compté à la clôture de la veille.
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.invoices,
+      db.morningStockEntries,
+      db.stockCounts,
+      db.outbox,
+    ],
     async () => {
       const point = await db.servicePoints.get(input.servicePointId);
       if (!point) {
@@ -770,4 +815,369 @@ export async function recordPayment(
     }
     return payment;
   });
+}
+
+// ─── Clôtures de service (EF-CLO-01 à 04, D-039, D-056) ─────────────────────
+
+/** Journées déjà validées par le gérant (RG-CLO-02 : plus rien ne s'y ajoute). */
+export async function validatedDays(db: RestaurantDb): Promise<Set<string>> {
+  return new Set((await db.dayClosings.toArray()).map((closing) => closing.day));
+}
+
+export type CashClosingDraft = {
+  day: string;
+  payments: Payment[];
+  lines: Omit<CashClosingLine, "counted">[];
+  byServicePoint: CashClosing["byServicePoint"];
+  unpaidInvoiceIds: string[];
+};
+
+/**
+ * Ce que la personne active doit déclarer (EF-CLO-01) : ses paiements pas
+ * encore clôturés, l'attendu par mode de paiement, la part de chaque point de
+ * service et ses factures encore impayées (RG-ENC-02).
+ */
+export async function cashClosingDraft(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  at: string = new Date().toISOString(),
+): Promise<CashClosingDraft> {
+  const { currency, businessDayStartHour, timeZone } = ctx.settings;
+  const day = currentDayKey(at, await validatedDays(db), businessDayStartHour, timeZone);
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [mine, closings] = await Promise.all([
+    db.payments.where("collectedBy").equals(ctx.userId).toArray(),
+    db.cashClosings.where("userId").equals(ctx.userId).toArray(),
+  ]);
+  const payments = unclosedPayments(mine, closings, ctx.userId)
+    .filter((payment) => payment.createdAt <= at)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const allocated = await db.invoices.bulkGet([
+    ...new Set(payments.flatMap((payment) => payment.allocations.map((a) => a.invoiceId))),
+  ]);
+  const ownInvoices = (
+    await db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray()
+  ).filter((invoice) => invoice.waiterId === ctx.userId && invoice.createdAt <= at);
+  const dayPayments = await db.payments.where("createdAt").aboveOrEqual(dayStart).toArray();
+  return {
+    day,
+    payments,
+    lines: expectedCashLines(payments, currency),
+    byServicePoint: collectedByServicePoint(
+      payments,
+      allocated.filter((invoice) => invoice !== undefined),
+      currency,
+    ),
+    unpaidInvoiceIds: unpaidInvoiceIds(
+      ownInvoices,
+      invoiceBalances(ownInvoices, dayPayments),
+      ctx.userId,
+    ),
+  };
+}
+
+/**
+ * Déclare la caisse de la personne active (EF-CLO-02, D-032) : montant compté
+ * par mode de paiement, écart figé, commentaire exigé s'il n'est pas nul.
+ * `counted` donne, pour chaque ligne attendue, le montant en unité principale.
+ */
+export async function declareCashClosing(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { counted: Readonly<Record<string, number>>; comment: string },
+  options: { declaredAt?: string; enqueue?: boolean } = {},
+): Promise<CashClosing> {
+  assertPermission(ctx, "restaurant.closing.declare", "déclarer une caisse");
+  const declaredAt = options.declaredAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [db.payments, db.invoices, db.cashClosings, db.dayClosings, db.outbox],
+    async () => {
+      const draft = await cashClosingDraft(db, ctx, declaredAt);
+      const lines: CashClosingLine[] = draft.lines.map((line) => {
+        const value = input.counted[line.key];
+        if (value === undefined || !Number.isFinite(value) || value < 0) {
+          throw new DomainError(
+            "COUNTED_REQUIRED",
+            "Saisissez le montant compté pour chaque mode de paiement (0 s'il n'y a rien).",
+          );
+        }
+        return { ...line, counted: moneyFromMajor(value, line.expected.currency) };
+      });
+      const issue = validateCashClosing({
+        lines,
+        unpaidInvoiceIds: draft.unpaidInvoiceIds,
+        comment: input.comment,
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const closing: CashClosing = {
+        id: uuidv7(new Date(declaredAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        day: draft.day,
+        userId: ctx.userId,
+        userName: ctx.userName,
+        deviceCode: ctx.deviceCode,
+        declaredAt,
+        paymentIds: draft.payments.map((payment) => payment.id),
+        lines,
+        byServicePoint: draft.byServicePoint,
+        unpaidInvoiceIds: draft.unpaidInvoiceIds,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+      };
+      await db.cashClosings.add(closing);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.cash-closing.declared",
+            {
+              closing: {
+                id: closing.id,
+                day: closing.day,
+                declaredAt,
+                paymentIds: closing.paymentIds,
+                counted: lines.map((line) => ({
+                  key: line.key,
+                  amountMinor: line.counted.amountMinor,
+                  currency: line.counted.currency,
+                })),
+                comment: closing.comment,
+              },
+            } satisfies CashClosingDeclaredPayload,
+            declaredAt,
+          ),
+        );
+      }
+      return closing;
+    },
+  );
+}
+
+/**
+ * Lignes du comptage d'un point de service (EF-CLO-03) : stock du matin en
+ * vigueur et ventes de la journée, pour chaque élément vendable.
+ */
+export async function stockCountDraft(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  servicePointId: string,
+  day: string,
+): Promise<Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [items, morning, sold] = await Promise.all([
+    db.menuItems.toArray(),
+    currentMorningStock(db, day),
+    soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart)),
+  ]);
+  return itemsRequiringMorningStock(items, servicePointId).map((item) => ({
+    menuItemId: item.id,
+    name: item.name,
+    unit: item.unit,
+    morning: morning.get(item.id)?.quantity ?? null,
+    sold: sold.get(item.id) ?? 0,
+  }));
+}
+
+export type StockCountInputLine = {
+  menuItemId: string;
+  counted: number | null;
+  declaredOut: number;
+  outReason: string;
+};
+
+/**
+ * Enregistre le comptage de fin de service d'un point de service (EF-CLO-03,
+ * D-044 ; gérant). Un nouveau comptage remplace le précédent tant que la
+ * journée n'est pas validée (le plus récent fait foi, l'historique reste).
+ */
+export async function recordStockCount(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { servicePointId: string; lines: readonly StockCountInputLine[]; comment: string },
+  options: { countedAt?: string; enqueue?: boolean } = {},
+): Promise<StockCount> {
+  assertPermission(ctx, "restaurant.closing.count-stock", "compter le stock");
+  const countedAt = options.countedAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.invoices,
+      db.morningStockEntries,
+      db.stockCounts,
+      db.dayClosings,
+      db.outbox,
+    ],
+    async () => {
+      const point = await db.servicePoints.get(input.servicePointId);
+      if (!point) {
+        throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+      }
+      const { businessDayStartHour, timeZone } = ctx.settings;
+      const day = currentDayKey(countedAt, await validatedDays(db), businessDayStartHour, timeZone);
+      const draft = await stockCountDraft(db, ctx, point.id, day);
+      const byId = new Map(input.lines.map((line) => [line.menuItemId, line]));
+      const lines: StockCountLine[] = draft.map((line) => {
+        const entry = byId.get(line.menuItemId);
+        if (!entry || entry.counted === null) {
+          throw new DomainError(
+            "COUNTED_REQUIRED",
+            `Saisissez le stock compté de « ${line.name} » (0 s'il n'y en a plus).`,
+          );
+        }
+        return {
+          ...line,
+          counted: entry.counted,
+          declaredOut: entry.declaredOut,
+          outReason: entry.outReason.trim() === "" ? null : entry.outReason.trim(),
+        };
+      });
+      const issue = validateStockCount({ lines, comment: input.comment })[0];
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const count: StockCount = {
+        id: uuidv7(new Date(countedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        day,
+        servicePointId: point.id,
+        countedAt,
+        countedBy: ctx.userId,
+        countedByName: ctx.userName,
+        lines,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+      };
+      await db.stockCounts.add(count);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.stock.counted",
+            {
+              count: {
+                id: count.id,
+                day,
+                servicePointId: point.id,
+                countedAt,
+                lines: lines.map((line) => ({
+                  menuItemId: line.menuItemId,
+                  counted: line.counted,
+                  declaredOut: line.declaredOut,
+                  outReason: line.outReason,
+                })),
+                comment: count.comment,
+              },
+            } satisfies StockCountedPayload,
+            countedAt,
+          ),
+        );
+      }
+      return count;
+    },
+  );
+}
+
+export type DayClosingStatus = {
+  day: string;
+  dayStart: string;
+  isValidated: boolean;
+  cashClosings: CashClosing[];
+  stockCounts: Map<string, StockCount>;
+  undeclared: { userId: string; name: string; payments: number }[];
+  pointsMissingMorningStock: ServicePoint[];
+  pointsNotCounted: ServicePoint[];
+};
+
+/** État de la journée à valider : ce qui est déclaré, compté, et ce qui manque. */
+export async function dayClosingStatus(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  at: string = new Date().toISOString(),
+): Promise<DayClosingStatus> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const validated = await validatedDays(db);
+  const day = currentDayKey(at, validated, businessDayStartHour, timeZone);
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [points, items, payments, closings, counts, morning] = await Promise.all([
+    db.servicePoints.orderBy("sortOrder").toArray(),
+    db.menuItems.toArray(),
+    db.payments.where("createdAt").between(dayStart, at, true, true).toArray(),
+    db.cashClosings.toArray(),
+    db.stockCounts.where("day").equals(day).toArray(),
+    currentMorningStock(db, day),
+  ]);
+  const latest = latestStockCounts(counts, day);
+  const required = points.filter((point) => itemsRequiringMorningStock(items, point.id).length > 0);
+  return {
+    day,
+    dayStart,
+    isValidated: validated.has(day),
+    cashClosings: closings.filter((closing) => closing.day === day),
+    stockCounts: latest,
+    undeclared: collectorsWithUnclosedPayments(payments, closings),
+    pointsMissingMorningStock: required.filter(
+      (point) => !isMorningStockComplete(items, point.id, morning),
+    ),
+    pointsNotCounted: required.filter((point) => !latest.has(point.id)),
+  };
+}
+
+/**
+ * Valide la journée (EF-CLO-04 ; gérant). Refusée tant que manquent le stock
+ * du matin (RG-REQ-03), un comptage (EF-CLO-03), une déclaration de caisse
+ * (RG-CLO-01) ou l'envoi des opérations de l'appareil (RG-CLO-03). Le serveur
+ * refait ces contrôles avec les données de tous les appareils.
+ *
+ * Hors démonstration, rien n'est écrit sur l'appareil : la validation n'existe
+ * qu'une fois acceptée par le serveur, qui la renvoie aux appareils.
+ */
+export async function validateDay(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { comment: string; isOnline: boolean; writeLocally: boolean },
+  options: { validatedAt?: string } = {},
+): Promise<{ id: string; day: string; operationId: string }> {
+  assertPermission(ctx, "restaurant.closing.validate", "valider la journée");
+  const validatedAt = options.validatedAt ?? new Date().toISOString();
+  const status = await dayClosingStatus(db, ctx, validatedAt);
+  const pending = await db.outbox.where("status").equals("pending").count();
+  const issue = dayClosingIssues({
+    isAlreadyValidated: status.isValidated,
+    pointsMissingMorningStock: status.pointsMissingMorningStock.map((point) => point.name),
+    pointsNotCounted: status.pointsNotCounted.map((point) => point.name),
+    undeclaredCollectors: status.undeclared.map((entry) => entry.name),
+    pendingOperations: input.writeLocally ? 0 : pending,
+    isOnline: input.writeLocally || input.isOnline,
+  })[0];
+  if (issue) throw new DomainError(issue.code, issue.message);
+
+  const comment = input.comment.trim() === "" ? null : input.comment.trim();
+  const id = uuidv7(new Date(validatedAt).getTime());
+  const operation = tableOperation(
+    ctx,
+    "restaurant.day.validated",
+    { closing: { id, day: status.day, validatedAt, comment } } satisfies DayValidatedPayload,
+    validatedAt,
+  );
+  await db.transaction("rw", db.dayClosings, db.outbox, async () => {
+    if (input.writeLocally) {
+      await db.dayClosings.add({
+        id,
+        establishmentId: ctx.establishmentId,
+        day: status.day,
+        validatedAt,
+        validatedBy: ctx.userId,
+        validatedByName: ctx.userName,
+        cashClosingIds: status.cashClosings.map((closing) => closing.id),
+        stockCountIds: [...status.stockCounts.values()].map((count) => count.id),
+        comment,
+      });
+    } else {
+      // Hors démonstration, la validation n'existe qu'une fois acceptée par le serveur.
+      await db.outbox.add(operation);
+    }
+  });
+  return { id, day: status.day, operationId: operation.id };
 }

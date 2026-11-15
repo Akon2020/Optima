@@ -15,9 +15,12 @@ export async function GET(request: Request): Promise<Response> {
   if (response) return response;
   try {
     const cursor = new URL(request.url).searchParams.get("cursor");
-    return Response.json(await pullChanges(db, device, cursor), {
-      headers: { "Cache-Control": "no-store" },
-    });
+    return Response.json(
+      await pullChanges(db, device, cursor, undefined, pendingFromHeader(request)),
+      {
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   } catch (error) {
     if (error instanceof DomainError) {
       return Response.json({ code: error.code, message: error.message }, { status: 400 });
@@ -29,4 +32,11 @@ export async function GET(request: Request): Promise<Response> {
       { status: 500 },
     );
   }
+}
+
+/** RG-CLO-03 : en-tête `X-Pending-Operations` envoyé par l'appareil (entier borné). */
+function pendingFromHeader(request: Request): number | undefined {
+  const value = request.headers.get("x-pending-operations");
+  if (value === null || !/^\d{1,6}$/.test(value)) return undefined;
+  return Number(value);
 }

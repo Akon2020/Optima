@@ -130,6 +130,60 @@ export const paymentRecordedSchema = z.object({
   }),
 });
 
+const dayKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const comment = z.string().trim().max(300).nullable();
+
+/**
+ * Clôture de caisse déclarée (EF-CLO-01, 02). L'appareil envoie les paiements
+ * couverts et les montants comptés ; le serveur recalcule l'attendu, la
+ * ventilation par point de service et les impayés.
+ */
+export const cashClosingDeclaredSchema = z.object({
+  closing: z.object({
+    id: uuid,
+    day: dayKey,
+    declaredAt: isoDate,
+    paymentIds: z.array(uuid).max(1_000),
+    counted: z
+      .array(
+        z.object({
+          key: z.string().min(1).max(60),
+          amountMinor: z.number().int().min(0).max(1_000_000_000_000),
+          currency: z.enum(["CDF", "USD"]),
+        }),
+      )
+      .max(20),
+    comment,
+  }),
+});
+
+/** Comptage de fin de service d'un point de service (EF-CLO-03, D-044). */
+export const stockCountedSchema = z.object({
+  count: z.object({
+    id: uuid,
+    day: dayKey,
+    servicePointId: uuid,
+    countedAt: isoDate,
+    lines: z
+      .array(
+        z.object({
+          menuItemId: uuid,
+          counted: z.number().int().min(0).max(100_000),
+          declaredOut: z.number().int().min(0).max(100_000),
+          outReason: z.string().trim().max(160).nullable(),
+        }),
+      )
+      .min(1)
+      .max(300),
+    comment,
+  }),
+});
+
+/** Validation de la journée par le gérant (EF-CLO-04, D-039). */
+export const dayValidatedSchema = z.object({
+  closing: z.object({ id: uuid, day: dayKey, validatedAt: isoDate, comment }),
+});
+
 export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.order.created",
   "restaurant.invoice.prep-status-changed",
@@ -142,6 +196,9 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.table.released",
   "restaurant.exchange-rate.added",
   "restaurant.payment.recorded",
+  "restaurant.cash-closing.declared",
+  "restaurant.stock.counted",
+  "restaurant.day.validated",
 ] as const;
 
 export type RestaurantOperationType = (typeof RESTAURANT_OPERATION_TYPES)[number];

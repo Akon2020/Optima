@@ -168,6 +168,7 @@ async function processOperation(
           userId: user.id,
           role: access.role,
           currency: device.currency as Currency,
+          timeZone: device.timeZone,
           receivedAt: now,
         },
         payload,

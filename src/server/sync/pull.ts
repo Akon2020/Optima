@@ -23,6 +23,8 @@ export async function pullChanges(
   device: AuthenticatedDevice,
   cursorParam: string | null,
   limit = MAX_CHANGES_PER_PULL,
+  /** RG-CLO-03 : opérations encore en attente sur l'appareil, s'il les signale. */
+  pendingOperations?: number,
 ): Promise<{ changes: PulledChange[]; cursor: string; hasMore: boolean }> {
   const cursor = cursorParam === null || cursorParam === "" ? "0" : cursorParam;
   if (!/^\d{1,19}$/.test(cursor)) throw new DomainError("INVALID_CURSOR", "Curseur invalide.");
@@ -40,7 +42,7 @@ export async function pullChanges(
   );
   const page = rows.slice(0, take);
   // Dernier contact visible sur l'écran « Appareils », même sans opération à envoyer.
-  await touchDevice(db, device.id);
+  await touchDevice(db, device.id, new Date(), pendingOperations);
   return {
     changes: page.map((row) => ({
       seq: row.seq.toString(),

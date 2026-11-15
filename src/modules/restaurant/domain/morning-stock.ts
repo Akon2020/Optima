@@ -6,19 +6,24 @@ import type { MenuItem, MorningStockEntry } from "./types";
  * Proposition = stock restant de la veille + réquisition du jour, en unités
  * de vente (bouteilles, plats, morceaux).
  *
- * HYPOTHÈSE D-Q14 : tant que les clôtures (stock compté) et les réquisitions
- * n'existent pas, le « stock de clôture de la veille » est le stock théorique
- * (stock du matin de la veille moins les ventes de la veille), et la
- * réquisition du jour est inconnue. Les apports du jour apparaissent donc
- * comme des écarts, justifiés par le motif « Réquisition du jour ». Seule
- * cette fonction changera quand ces écrans existeront.
+ * Le « stock de clôture de la veille » est le stock compté à la clôture
+ * (EF-CLO-03) ; sans comptage, c'est le stock théorique (stock du matin de la
+ * veille moins les ventes de la veille).
+ *
+ * HYPOTHÈSE D-Q14 : tant que les réquisitions n'existent pas, la réquisition
+ * du jour est inconnue. Les apports du jour apparaissent donc comme des
+ * écarts, justifiés par le motif « Réquisition du jour ».
  */
 export function proposeMorningQuantity(input: {
   previousMorning: number | null;
   previousSold: number;
+  /** Stock compté à la clôture de la veille, s'il existe. */
+  previousCounted?: number | null;
   requisitioned: number | null;
 }): number | null {
   const { previousMorning, previousSold, requisitioned } = input;
+  const previousCounted = input.previousCounted ?? null;
+  if (previousCounted !== null) return previousCounted + (requisitioned ?? 0);
   if (previousMorning === null && requisitioned === null) return null;
   // Un reste négatif (RG-STK-03, ventes hors connexion) n'est pas un stock :
   // il est ramené à zéro et l'anomalie reste visible dans les ventes de la veille.

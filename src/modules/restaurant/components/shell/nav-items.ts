@@ -59,7 +59,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Clôtures",
     shortLabel: "Clôtures",
     icon: Calculator,
-    isUpcoming: true,
   },
   {
     segment: "livraisons",

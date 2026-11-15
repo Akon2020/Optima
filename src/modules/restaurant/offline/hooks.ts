@@ -18,10 +18,18 @@ import type {
   Payment,
   ServicePoint,
   StaffMember,
+  StockCountLine,
   TableRelease,
 } from "../domain/types";
 import { useRestaurant } from "../components/restaurant-provider";
-import { morningProposals } from "./repository";
+import {
+  cashClosingDraft,
+  dayClosingStatus,
+  morningProposals,
+  stockCountDraft,
+  type CashClosingDraft,
+  type DayClosingStatus,
+} from "./repository";
 
 const CLOCK_INTERVAL_MS = 30_000;
 let clock: string | null = null;
@@ -219,4 +227,37 @@ export function useIsOnline(): boolean {
     () => navigator.onLine,
     () => true,
   );
+}
+
+export type ClosingData = {
+  status: DayClosingStatus;
+  /** Ce que la personne active doit déclarer (EF-CLO-01). */
+  myDraft: CashClosingDraft;
+  /** Lignes à compter de chaque point de service (EF-CLO-03). */
+  stockDrafts: Map<string, Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]>;
+  pendingOperations: number;
+};
+
+/** Clôture de la journée en cours, lue en direct dans la base locale (EF-CLO-01 à 04). */
+export function useClosingData(): ClosingData | undefined {
+  const { db, ctx, status } = useRestaurant();
+  const now = useNow();
+  return useLiveQuery(async () => {
+    if (status !== "ready" || now === null) return undefined;
+    const [dayStatus, myDraft, pendingOperations, points] = await Promise.all([
+      dayClosingStatus(db, ctx, now),
+      cashClosingDraft(db, ctx, now),
+      db.outbox.where("status").equals("pending").count(),
+      db.servicePoints.orderBy("sortOrder").toArray(),
+    ]);
+    const stockDrafts = new Map(
+      await Promise.all(
+        points.map(
+          async (point) =>
+            [point.id, await stockCountDraft(db, ctx, point.id, dayStatus.day)] as const,
+        ),
+      ),
+    );
+    return { status: dayStatus, myDraft, stockDrafts, pendingOperations };
+  }, [db, ctx, status, now]);
 }

@@ -16,6 +16,7 @@ export type AuthenticatedDevice = {
   code: string;
   establishmentId: string;
   currency: string;
+  timeZone: string;
 };
 
 export async function registerDevice(
@@ -192,8 +193,20 @@ export async function listDevices(
 }
 
 /** Dernier contact d'un appareil avec le serveur (envoi ou réception). */
-export async function touchDevice(db: Db, deviceId: string, now: Date = new Date()): Promise<void> {
-  await db.device.update({ where: { id: deviceId }, data: { lastSyncAt: now } });
+export async function touchDevice(
+  db: Db,
+  deviceId: string,
+  now: Date = new Date(),
+  pendingOperations?: number,
+): Promise<void> {
+  await db.device.update({
+    where: { id: deviceId },
+    data: {
+      lastSyncAt: now,
+      // RG-CLO-03 : nombre d'opérations encore en attente sur l'appareil.
+      ...(pendingOperations === undefined ? {} : { pendingOperations }),
+    },
+  });
 }
 
 /**
@@ -212,7 +225,7 @@ export async function resolveDevice(
   if (!match?.[1] || !match[2]) return { status: "unknown" };
   const device = await db.device.findUnique({
     where: { id: match[1] },
-    include: { establishment: { select: { status: true, baseCurrency: true } } },
+    include: { establishment: { select: { status: true, baseCurrency: true, timeZone: true } } },
   });
   if (!device || device.revokedAt) return { status: "unknown" };
   if (!safeEqualHex(device.secretHash, sha256(match[2]))) return { status: "unknown" };
@@ -224,6 +237,7 @@ export async function resolveDevice(
       code: device.code,
       establishmentId: device.establishmentId,
       currency: device.establishment.baseCurrency,
+      timeZone: device.establishment.timeZone,
     },
   };
 }

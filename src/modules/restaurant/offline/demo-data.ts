@@ -13,6 +13,7 @@
 import { moneyFromMajor, sumMoney, toMajor } from "@/shared/lib/money";
 
 import { businessDayStart } from "../domain/business-day";
+import { businessDayKey } from "../domain/business-day";
 import { minimumTendered } from "../domain/payment";
 import type {
   DiningTable,
@@ -25,11 +26,16 @@ import type {
 import type { RestaurantDb } from "./db";
 import {
   addExchangeRate,
+  cashClosingDraft,
   createOrder,
+  declareCashClosing,
   morningProposals,
   recordPayment,
+  recordStockCount,
   releaseTable,
   saveMorningStock,
+  stockCountDraft,
+  validateDay,
   type DeviceContext,
 } from "./repository";
 
@@ -437,6 +443,103 @@ async function seedOrders(
   return created;
 }
 
+/**
+ * La veille, clôturée de bout en bout (EF-CLO-01 à 04) : chaque commande est
+ * payée en francs, chaque serveur déclare sa caisse (l'un avec un manquant
+ * expliqué), le gérant compte le stock (une casse déclarée) puis valide.
+ */
+async function seedYesterdayClosing(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  manager: DeviceContext,
+  orders: readonly SeededOrder[],
+  yesterdayStart: number,
+): Promise<void> {
+  const at = (hours: number) => new Date(yesterdayStart + hours * HOUR_MS).toISOString();
+  const asWaiter = (waiter: { id: string; name: string }): DeviceContext => ({
+    ...ctx,
+    userId: waiter.id,
+    userName: waiter.name,
+    role: "waiter",
+  });
+  try {
+    for (const order of orders) {
+      const invoices = (await db.invoices.bulkGet(order.invoiceIds)).filter(
+        (invoice) => invoice !== undefined,
+      );
+      const due = sumMoney(
+        invoices.map((invoice) => invoice.total),
+        ctx.settings.currency,
+      );
+      await recordPayment(
+        db,
+        asWaiter(order.waiter),
+        {
+          invoiceIds: order.invoiceIds,
+          method: "cash",
+          provider: null,
+          reference: null,
+          currency: ctx.settings.currency,
+          amountMajor: Math.ceil(toMajor(due) / 5_000) * 5_000,
+        },
+        { createdAt: new Date(order.createdAt + 50 * 60_000).toISOString(), enqueue: false },
+      );
+    }
+    for (const [index, waiter] of WAITERS.entries()) {
+      const draft = await cashClosingDraft(db, asWaiter(waiter), at(17));
+      if (draft.lines.length === 0 && draft.unpaidInvoiceIds.length === 0) continue;
+      const isShort = index === 0;
+      await declareCashClosing(
+        db,
+        asWaiter(waiter),
+        {
+          counted: Object.fromEntries(
+            draft.lines.map((line) => [
+              line.key,
+              toMajor(line.expected) - (isShort && line.key.startsWith("cash") ? 2_000 : 0),
+            ]),
+          ),
+          comment: isShort ? "Monnaie rendue en trop à une table" : "",
+        },
+        { declaredAt: at(17), enqueue: false },
+      );
+    }
+    const day = businessDayKey(at(12), ctx.settings.businessDayStartHour, ctx.settings.timeZone);
+    for (const point of SERVICE_POINTS) {
+      const lines = await stockCountDraft(db, manager, point.id, day);
+      if (lines.length === 0) continue;
+      const brokenKey = point.id === "sp-counter" ? "item-primus" : null;
+      await recordStockCount(
+        db,
+        manager,
+        {
+          servicePointId: point.id,
+          lines: lines.map((line) => {
+            const expected = Math.max(0, (line.morning ?? 0) - line.sold);
+            const isBroken = line.menuItemId === brokenKey && expected >= 1;
+            return {
+              menuItemId: line.menuItemId,
+              counted: isBroken ? expected - 1 : expected,
+              declaredOut: isBroken ? 1 : 0,
+              outReason: isBroken ? "Casse" : "",
+            };
+          }),
+          comment: "",
+        },
+        { countedAt: at(17.5), enqueue: false },
+      );
+    }
+    await validateDay(
+      db,
+      manager,
+      { comment: "Journée calme.", isOnline: true, writeLocally: true },
+      { validatedAt: at(18) },
+    );
+  } catch {
+    // Démonstration : une clôture incomplète reste simplement à faire.
+  }
+}
+
 async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
   const now = new Date();
   const nowIso = now.toISOString();
@@ -503,6 +606,7 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
       order.invoiceIds.map((key) => ({ key, changes: { prepStatus: "served" as PrepStatus } })),
     );
   }
+  await seedYesterdayClosing(db, ctx, manager, yesterdayOrders, yesterdayStart.getTime());
 
   // Aujourd'hui : comptoir et cuisine saisis ; les apports du jour sont des
   // écarts justifiés (HYPOTHÈSE D-Q14 : pas encore de réquisitions).

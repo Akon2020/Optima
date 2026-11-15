@@ -2,6 +2,9 @@ import type { Currency, Money } from "@/shared/lib/money";
 
 import type {
   AdvanceInvoice,
+  CashClosing,
+  CashClosingLine,
+  DayClosing,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -18,6 +21,8 @@ import type {
   ServicePoint,
   ServicePointKind,
   MenuKind,
+  StockCount,
+  StockCountLine,
   TableRelease,
 } from "@/modules/restaurant/domain/types";
 
@@ -133,7 +138,7 @@ export async function tableReleaseSnapshots(
 export async function morningEntrySnapshots(
   tx: Tx,
   establishmentId: string,
-  where: { id?: { in: string[] }; enteredAt?: { gte: Date } },
+  where: { id?: { in: string[] }; enteredAt?: { gte: Date }; day?: string },
 ): Promise<MorningStockEntry[]> {
   const rows = await tx.morningStockEntry.findMany({ where: { ...where, establishmentId } });
   const names = await userNames(
@@ -163,7 +168,7 @@ export async function morningEntrySnapshots(
 export async function orderSnapshots(
   tx: Tx,
   establishmentId: string,
-  where: { id?: string; createdAt?: { gte: Date } },
+  where: { id?: string; createdAt?: { gte: Date; lt?: Date } },
 ): Promise<{ orders: Order[]; invoices: AdvanceInvoice[] }> {
   const orders = await tx.order.findMany({ where: { ...where, establishmentId } });
   if (orders.length === 0) return { orders: [], invoices: [] };
@@ -274,7 +279,7 @@ export async function exchangeRateSnapshots(
 export async function paymentSnapshots(
   tx: Tx,
   establishmentId: string,
-  where: { id?: string; createdAt?: { gte: Date } },
+  where: { id?: string | { in: string[] }; createdAt?: { gte: Date; lte?: Date } },
 ): Promise<Payment[]> {
   const rows = await tx.payment.findMany({ where: { ...where, establishmentId } });
   if (rows.length === 0) return [];
@@ -313,5 +318,101 @@ export async function paymentSnapshots(
     collectedByName: names.get(row.collectedBy) ?? "",
     deviceCode: deviceCode.get(row.deviceId) ?? "",
     createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+function jsonArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** Clôtures de caisse, avec les paiements couverts, le nom de la personne et le code appareil. */
+export async function cashClosingSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; day?: string; declaredAt?: { gte: Date } },
+): Promise<CashClosing[]> {
+  const rows = await tx.cashClosing.findMany({
+    where: { ...where, establishmentId },
+    orderBy: { declaredAt: "asc" },
+  });
+  if (rows.length === 0) return [];
+  const [links, devices, names] = await Promise.all([
+    tx.cashClosingPayment.findMany({
+      where: { establishmentId, closingId: { in: rows.map((row) => row.id) } },
+    }),
+    tx.device.findMany({
+      where: { establishmentId, id: { in: [...new Set(rows.map((row) => row.deviceId))] } },
+      select: { id: true, code: true },
+    }),
+    userNames(
+      tx,
+      rows.map((row) => row.userId),
+    ),
+  ]);
+  const deviceCode = new Map(devices.map((device) => [device.id, device.code]));
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    day: row.day,
+    userId: row.userId,
+    userName: names.get(row.userId) ?? "",
+    deviceCode: deviceCode.get(row.deviceId) ?? "",
+    declaredAt: row.declaredAt.toISOString(),
+    paymentIds: links.filter((link) => link.closingId === row.id).map((link) => link.paymentId),
+    lines: jsonArray<CashClosingLine>(row.lines),
+    byServicePoint: jsonArray<CashClosing["byServicePoint"][number]>(row.byServicePoint),
+    unpaidInvoiceIds: jsonArray<string>(row.unpaidInvoiceIds),
+    comment: row.comment,
+  }));
+}
+
+export async function stockCountSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; day?: string; countedAt?: { gte: Date } },
+): Promise<StockCount[]> {
+  const rows = await tx.stockCount.findMany({ where: { ...where, establishmentId } });
+  const names = await userNames(
+    tx,
+    rows.map((row) => row.countedBy),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    day: row.day,
+    servicePointId: row.servicePointId,
+    countedAt: row.countedAt.toISOString(),
+    countedBy: row.countedBy,
+    countedByName: names.get(row.countedBy) ?? "",
+    lines: jsonArray<StockCountLine>(row.lines),
+    comment: row.comment,
+  }));
+}
+
+export async function dayClosingSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string },
+  options: { latest?: number } = {},
+): Promise<DayClosing[]> {
+  const rows = await tx.dayClosing.findMany({
+    where: { ...where, establishmentId },
+    orderBy: { validatedAt: "desc" },
+    ...(options.latest ? { take: options.latest } : {}),
+  });
+  const names = await userNames(
+    tx,
+    rows.map((row) => row.validatedBy),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    day: row.day,
+    validatedAt: row.validatedAt.toISOString(),
+    validatedBy: row.validatedBy,
+    validatedByName: names.get(row.validatedBy) ?? "",
+    cashClosingIds: jsonArray<string>(row.cashClosingIds),
+    stockCountIds: jsonArray<string>(row.stockCountIds),
+    comment: row.comment,
   }));
 }

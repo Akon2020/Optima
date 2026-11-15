@@ -5,6 +5,8 @@ import type { PinVerifier } from "@/offline/pin";
 
 import type {
   AdvanceInvoice,
+  CashClosing,
+  DayClosing,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -13,6 +15,7 @@ import type {
   Payment,
   ServicePoint,
   StaffMember,
+  StockCount,
   TableRelease,
 } from "../domain/types";
 
@@ -50,6 +53,9 @@ export class RestaurantDb extends Dexie {
   tableReleases!: EntityTable<TableRelease, "id">;
   payments!: EntityTable<Payment, "id">;
   exchangeRates!: EntityTable<ExchangeRate, "id">;
+  cashClosings!: EntityTable<CashClosing, "id">;
+  stockCounts!: EntityTable<StockCount, "id">;
+  dayClosings!: EntityTable<DayClosing, "id">;
   deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
@@ -127,6 +133,12 @@ export class RestaurantDb extends Dexie {
     this.version(6).stores({
       payments: "id, createdAt, collectedBy",
       exchangeRates: "id, effectiveAt",
+    });
+    // v7 : clôtures de service (EF-CLO-01 à 04).
+    this.version(7).stores({
+      cashClosings: "id, day, userId",
+      stockCounts: "id, day, servicePointId",
+      dayClosings: "id, day, validatedAt",
     });
   }
 }
