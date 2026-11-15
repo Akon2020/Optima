@@ -515,6 +515,27 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 23 : tests de bout en bout et intégration continue (15/11/2026)
+
+**Fait** (D-061)
+- **Playwright** (`pnpm test:e2e`, `tests/e2e/`), sur le build de production et le Chrome installé : 21 tests.
+  - Parcours P2 à 360 px : commande à table avec options et formule, deux factures d'avance dont les totaux font celui de la commande ; commande à emporter encaissée en espèces.
+  - Hors connexion : rechargement sans réseau, page Tables, commande enregistrée en moins de 2 secondes (ENF-01), page « Pas de connexion » pour l'espace propriétaire, aucune réponse d'API en cache.
+  - Sécurité : CSP avec nonce neuf à chaque requête, chaque script porte le nonce, aucune violation, en-têtes ; espaces connectés renvoyés vers la connexion.
+  - Thèmes : choix appliqué sur `<html>`, retenu d'une page à l'autre.
+  - Accessibilité : contrôle axe (WCAG 2.2 AA) de l'accueil, de la connexion et de trois écrans du Restaurant, en clair et en sombre, capture jointe au rapport.
+- **Corrections de contraste** trouvées par axe : texte secondaire du Restaurant, rouge d'état, logotype en sombre (`--color-brand-text`).
+- **Intégration continue** (`.github/workflows/ci.yml`) : typage, lint, format, tests unitaires et d'intégration, build, bout en bout, audit.
+- **Audit** : zod 4.6.5 (faille élevée), embarqué par Serwist, remplacé par 4.6.7.
+- **Remarque** : l'antivirus du poste (inspection du trafic) injecte son propre script dans les pages HTTP. Le test CSP lit donc le HTML hors du navigateur ; ce script n'existe pas en production (HTTPS) ni dans la CI.
+
+**Bloque encore**
+- **Parcours avec la base** (connexion, appairage, P1, P5 avec validation, P6, deux appareils synchronisés) : il faut une base de test préparée, avec un PostgreSQL de service dans la CI.
+- **Première exécution sur GitHub** : à vérifier dans l'onglet « Actions » après ce push.
+- **À valider par vous** : D-061.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -527,7 +548,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-060 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-061 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -542,7 +563,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Tests de bout en bout Playwright** (parcours P1 à P6, hors connexion, deux appareils) et **intégration continue GitHub Actions** (D-047).
+1. **Parcours de bout en bout avec la base** : base de test préparée, connexion, appairage, P5 avec validation du gérant, deux appareils synchronisés, PostgreSQL de service en CI.
 2. **D-Q14**, puis réquisitions et fiches recettes.
 3. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
 4. **D-Q20** (choix de l'offre), puis préproduction.

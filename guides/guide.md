@@ -193,7 +193,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
 6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-060**.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-061**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -273,7 +273,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] Service worker (Serwist), manifeste, icônes provisoires, installation sur l'écran d'accueil (EF-OFF-05, D-028).
 - [x] Ouverture de l'application sans réseau, y compris après un rechargement (`pnpm check:offline`).
 - [ ] Logo définitif (logotype textuel provisoire confirmé, D-040), puis `pnpm exec tsx scripts/generate-icons.mts`.
-- [ ] Tests Playwright de bout en bout (`@playwright/test`) : hors connexion et deux appareils synchronisés.
+- [x] Test Playwright hors connexion (`tests/e2e/offline.spec.ts`, D-061).
+- [ ] Test de deux appareils synchronisés (exige une base de test préparée).
 
 ### 7.7 Sécurité restante ⬜
 
@@ -281,17 +282,16 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] CSP stricte avec nonce, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (`CLAUDE.md` § 5.4, D-029, `pnpm check:csp`). En production, `APP_ORIGIN` en `https://` active HSTS et `upgrade-insecure-requests`.
 - [ ] Contrôle de l'en-tête `Origin` sur les route handlers modifiants qui utiliseraient un cookie.
 - [ ] Limitation de débit partagée si plusieurs instances (aujourd'hui en mémoire).
-- [ ] `pnpm audit` en intégration continue.
+- [x] `pnpm audit --audit-level high` en intégration continue (D-061).
 - [ ] Purge régulière des sessions expirées et des anciennes tentatives de connexion.
 
 ### 7.8 Qualité ⬜
 
-- [ ] Playwright :
-  - parcours P1 à P6 ;
-  - captures dans les quatre combinaisons (deux chartes, clair et sombre) ;
-  - contrôle d'accessibilité axe.
+- [x] Playwright (`pnpm test:e2e`, D-061) : parcours P2 au téléphone (factures d'avance, options, formules, encaissement), hors connexion, CSP, thèmes, contrôle axe et captures dans les quatre combinaisons.
+- [ ] Parcours qui exigent la base : connexion, appairage, P1, P5 avec validation, P6, deux appareils synchronisés (base de test préparée, PostgreSQL de service en CI).
 - [ ] Stylelint : interdire les couleurs littérales hors des tokens.
-- [ ] GitHub Actions (D-047) sur `develop` et sur les pull requests vers `main` : typage, lint, tests, intégration, build, audit. Ajouter un passage des tests d'intégration contre un vrai PostgreSQL (D-021).
+- [x] GitHub Actions (D-047, D-061) sur `develop` et sur les pull requests vers `main` : typage, lint, format, tests, intégration, build, bout en bout, audit.
+- [ ] Passage des tests d'intégration contre un vrai PostgreSQL (D-021).
 
 ### 7.9 Landing page ⬜ 🔒 D-Q26
 

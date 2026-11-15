@@ -205,6 +205,7 @@ Valeurs confirmées par le cahier : `#1F3864` (bleu nuit principal), `#EEF2F8` (
 | `--color-on-primary` | `#FFFFFF` | `#FFFFFF` | Texte sur `--color-primary` |
 | `--color-primary-subtle` | `--navy-50` | `rgba(94,128,188,.16)` | Encadrés, sélection |
 | `--color-link` | `--navy-600` | `#9DB4DE` | Liens, texte d'action |
+| `--color-brand-text` | `--navy-700` | `#9DB4DE` | Logotype « OPTIMA » en texte (D-061 : le bleu des boutons n'atteint que 3,75:1 en sombre) |
 | `--color-action` | `--navy-700` | `#4C6FB0` | Action forte (alias de primary dans la charte générale) |
 | `--color-action-hover` | `--navy-800` | `#5E80BC` | |
 | `--color-on-action` | `#FFFFFF` | `#FFFFFF` | |
@@ -251,7 +252,7 @@ Les valeurs sombres sont **[PROPOSÉ]**. Leurs contrastes doivent être vérifi�
   --ink-800: #2F2F2F;   /* navigation active, bouton plein mesuré */
   --ink-700: #3A3A3A;   /* carte vitrine sombre mesurée (#343434 à #474747) */
   --ink-600: #474747;
-  --ink-400: #6E6E6E;   /* texte secondaire : assombri par rapport aux maquettes (contraste, § 8) */
+  --ink-400: #666666;   /* texte secondaire : assombri par rapport aux maquettes (contraste, § 8, D-061) */
   --ink-300: #B5B5B5;
   --ink-200: #D9D9D9;   /* bouton gris, chips mesurés */
   --ink-150: #E3E3E3;
@@ -278,7 +279,7 @@ Les valeurs sombres sont **[PROPOSÉ]**. Leurs contrastes doivent être vérifi�
   --status-yellow: #E3B530;  /* en cours, en route */
   --status-amber:  #E8902E;  /* en attente */
   --status-grey:   #A3A3A3;  /* inactif, en pause */
-  --status-red:    #D64532;  /* annulé, échec */
+  --status-red:    #C93F2C;  /* annulé, échec ; assombri pour 4,5:1 sur blanc (D-061) */
 }
 ```
 
@@ -465,7 +466,7 @@ Les maquettes affichent des « Restaurants » (plusieurs adresses). Dans OPTIMA,
 
 - Contraste **WCAG 2.2 AA** au minimum : 4,5:1 pour le texte normal, 3:1 pour le texte de 18px ou plus et pour les composants d'interface (bordures de champs, focus, icônes porteuses de sens).
 - **Écart volontaire par rapport aux maquettes [CONFIRMÉ, D-017]** : les maquettes mettent du **texte blanc sur le doré** `#D9A22A`, soit un contraste de 2,3:1, insuffisant. OPTIMA met du **texte encre** `#1F1F1F` sur le doré (7,2:1). Si le porteur du projet tient au blanc, le fond de ce bouton doit être assombri au moins jusqu'à `#9A6B0F` (4,7:1).
-- Le texte gris très clair des maquettes (libellés `#BDBDBD` à `#D2D2D2` sur blanc) est également insuffisant. Le texte secondaire utilise donc `--color-text-muted` = `#6E6E6E` (5,1:1 sur blanc, 4,5:1 sur le fond `#F1F1F1`), plus foncé que les maquettes. `--color-text-subtle` (`#B5B5B5` en clair, `#737373` en sombre) est réservé aux placeholders et aux éléments non essentiels, jamais à une information nécessaire.
+- Le texte gris très clair des maquettes (libellés `#BDBDBD` à `#D2D2D2` sur blanc) est également insuffisant. Le texte secondaire utilise donc `--color-text-muted` = `#666666` (5,7:1 sur blanc, 4,8:1 sur le fond des onglets `#EAEAEA`), plus foncé que les maquettes ; le contrôle axe des tests de bout en bout l'a imposé (D-061). `--color-text-subtle` (`#B5B5B5` en clair, `#737373` en sombre) est réservé aux placeholders et aux éléments non essentiels, jamais à une information nécessaire.
 - Focus visible sur tout élément interactif : anneau de 2px `--color-focus-ring` avec un décalage de 2px, jamais supprimé.
 - Un statut n'est jamais porté par la seule couleur : toujours un libellé ou une icône (exigence du cahier, chapitre 7).
 - Les boutons-icônes ont un `aria-label` en français. Les icônes décoratives ont `aria-hidden`.

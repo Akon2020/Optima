@@ -53,6 +53,7 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
   - les **annulations et remises** (D-058) : demandées par le serveur, validées par le gérant (carte « Demandes à valider » de l'écran Commandes). Règles dans `src/modules/restaurant/domain/adjustment.ts`, tables `adjustment_requests` et `adjustment_decisions` en ajout seul.
   - la **vente à crédit** (D-059) : fiches clients, crédit validé par le gérant, dettes et remboursements sur l'écran « Clients » (`/restaurant/clients`). Règles dans `src/modules/restaurant/domain/customers.ts`, table `customers`.
   - les **options et formules** du menu (D-060) : groupes d'options avec suppléments fixés par le gérant, formules réparties entre les points de service. Règles dans `src/modules/restaurant/domain/menu-options.ts`, colonnes `option_groups` et `components` de `menu_items`.
+  - les **tests de bout en bout** Playwright (`tests/e2e/`, `pnpm test:e2e`) et l'**intégration continue** GitHub Actions (D-047, D-061). Les parcours qui exigent la base (connexion, deux appareils synchronisés) restent à ajouter.
 - `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
 - La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
 - Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
@@ -754,12 +755,15 @@ Scripts existants dans `package.json` :
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm test` / `pnpm test:watch` | Tests unitaires Vitest (`*.test.ts` à côté du code ; IndexedDB simulée par `fake-indexeddb`) |
 | `pnpm test:integration` | Tests d'intégration sur PostgreSQL 18 embarqué (PGlite), sans serveur ni mot de passe |
+| `pnpm test:e2e` | Tests de bout en bout Playwright (`tests/e2e/*.spec.ts`) avec le Chrome installé, sur le build de production (`pnpm build` d'abord ; `next start -p 3100` est lancé s'il ne tourne pas) : parcours de commande, hors connexion, CSP, thèmes, accessibilité axe (D-061) |
 | `pnpm db:generate` | Génère le client Prisma (aussi lancé après `pnpm install`) |
 | `pnpm db:migrate` / `pnpm db:status` | Applique / liste les migrations (`MIGRATION_DATABASE_URL`) |
 | `pnpm db:seed` | Données de développement, mots de passe provisoires affichés une fois (refusé en production) |
 | `psql -U postgres -h localhost -f scripts/db/setup-local.sql` | Crée la base `optima` et les rôles `optima_migrator` / `optima_app` (une seule fois) |
 
-Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Stylelint, Dockerfile et `docker-compose` de production.
+L'intégration continue (`.github/workflows/ci.yml`, D-047, D-061) enchaîne typage, lint, format, tests unitaires, d'intégration, build, tests de bout en bout et `pnpm audit --audit-level high` sur `develop` et sur les pull requests vers `main`.
+
+Prévus, pas encore créés **[PROPOSÉ]** : Stylelint, Dockerfile et `docker-compose` de production.
 
 ---
 
@@ -768,7 +772,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:e2e` (Playwright), Style
 | Étape | Contenu | Statut |
 |---|---|---|
 | 1 | Analyse, spécifications, `CLAUDE.md`, `docs/` | Fait le 07/11/2026 |
-| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Restent Stylelint et Playwright |
+| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Playwright et intégration continue faits le 15/11/2026 (D-061). Reste Stylelint |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
 | 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (fait le 15/11/2026, D-055), annulations et remises (faites le 15/11/2026, D-058), vente à crédit (faite le 15/11/2026, D-059), options et formules (faites le 15/11/2026, D-060), clôtures de service (faites le 15/11/2026, D-056, remontées dans l'espace propriétaire, D-057 ; restent la clôture de période et les ajustements), livraison (après les frais de D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
