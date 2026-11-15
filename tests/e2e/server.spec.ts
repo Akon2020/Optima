@@ -269,6 +269,39 @@ test("EF-ENC-03, D-059 : la gérante vend à crédit à une nouvelle cliente", a
   await expect(deviceB.getByText("Maman Rose E2E").first()).toBeVisible();
 });
 
+test("RG-CLO-02, EF-CLO-05 : la gérante corrige la caisse puis clôture la période", async ({
+  page,
+}) => {
+  await login(page, ready().manager);
+  await expect(page).toHaveURL(/\/compte/);
+  await page.goto(`/e/${ready().slug}/clotures`);
+  await expect(page.getByRole("heading", { name: "Clôtures", level: 1 })).toBeVisible();
+
+  // Correction datée et motivée : 500 FC retrouvés dans la caisse de la gérante.
+  await page.getByRole("button", { name: "Corriger une journée" }).click();
+  const sheet = page.getByRole("dialog", { name: "Corriger une journée validée" });
+  await sheet.getByLabel("Personne").selectOption({ label: ready().manager.name });
+  await sheet.getByRole("radio", { name: "Argent retrouvé" }).check();
+  await sheet.getByLabel("Montant (FC)").fill("500");
+  await sheet.getByLabel("Motif").fill("Billet retrouvé sous le tiroir");
+  await sheet.getByRole("button", { name: "Enregistrer la correction" }).click();
+  await expect(sheet).toBeHidden();
+  const corrections = page.getByRole("region", { name: "Corrections" });
+  await expect(corrections.getByText("+500 FC")).toBeVisible();
+
+  // Période d'une journée : aperçu, puis clôture définitive.
+  await page.getByRole("button", { name: "Voir le résumé" }).click();
+  await expect(page.getByText("Ventes", { exact: true })).toBeVisible();
+  await expect(page.getByText("+500 FC").first()).toBeVisible();
+  await page.getByRole("button", { name: /^Clôturer la période/ }).click();
+  await expect(page.getByText("Période clôturée : son résumé est figé")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Périodes clôturées" }).getByText(/7\s000\sFC de ventes/),
+  ).toBeVisible();
+  // Ses journées ne se corrigent plus.
+  await expect(page.getByRole("button", { name: "Corriger une journée" })).toBeDisabled();
+});
+
 test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établissement", async ({
   page,
 }) => {
@@ -281,7 +314,7 @@ test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établ
   await expect(page.getByRole("heading", { name: "Vue d'ensemble" })).toBeVisible();
   await expect(page.getByText(establishmentName).first()).toBeVisible();
   // La vente encaissée sur l'appareil remonte au propriétaire.
-  await expect(page.getByText("7 000 FC").first()).toBeVisible();
+  await expect(page.getByText("7 000 FC").filter({ visible: true }).first()).toBeVisible();
   // EF-PRO-01, D-063 : la dette de la cliente apparaît, nommée.
   const debts = page.getByRole("region", { name: "Dettes clients" });
   await expect(debts.getByText("1 000 FC").first()).toBeVisible();

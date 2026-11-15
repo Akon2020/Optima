@@ -386,6 +386,11 @@ function Establishments({ overview, nowIso }: { overview: OwnerOverview; nowIso:
                 <Link href={`/e/${entry.slug}/appareils`} className={buttonClasses("ghost", "sm")}>
                   Appareils
                 </Link>
+                {entry.hasRestaurant ? (
+                  <Link href={`/e/${entry.slug}/clotures`} className={buttonClasses("ghost", "sm")}>
+                    Clôtures
+                  </Link>
+                ) : null}
               </div>
             </Card>
           </li>

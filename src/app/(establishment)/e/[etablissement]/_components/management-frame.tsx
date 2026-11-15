@@ -11,11 +11,12 @@ import { ThemeSwitcher } from "@/shared/theme/theme-switcher";
 
 import { LogoutButton } from "../../../../_components/logout-button";
 
-export type ManagementSection = "equipe" | "appareils" | "journal";
+export type ManagementSection = "equipe" | "appareils" | "clotures" | "journal";
 
 const SECTIONS: { id: ManagementSection; label: string }[] = [
   { id: "equipe", label: "Équipe" },
   { id: "appareils", label: "Appareils" },
+  { id: "clotures", label: "Clôtures" },
   { id: "journal", label: "Journal" },
 ];
 

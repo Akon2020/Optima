@@ -1,6 +1,7 @@
 "use client";
 
-import { ClipboardCheck, ShieldCheck, Wallet } from "lucide-react";
+import { CalendarRange, ClipboardCheck, ShieldCheck, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { formatLongDate } from "@/shared/lib/dates";
@@ -21,7 +22,7 @@ type Section = "cash" | "stock" | "day";
  * la journée. Une journée validée ne se modifie plus (RG-CLO-02).
  */
 export function ClosingsScreen() {
-  const { ctx } = useRestaurant();
+  const { ctx, slug, isDemo } = useRestaurant();
   const data = useDayData();
   const closing = useClosingData();
   const canDeclare = hasPermission(ctx.role, "restaurant.closing.declare");
@@ -42,6 +43,16 @@ export function ClosingsScreen() {
           Journée du {formatLongDate(`${closing.status.day}T12:00:00.000Z`)}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">Clôtures</h1>
+        {/* D-064 : périodes et corrections se font en ligne, avec la session web du gérant. */}
+        {!isDemo && hasPermission(ctx.role, "restaurant.closing.validate") ? (
+          <Link
+            href={`/e/${slug}/clotures`}
+            className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-link underline-offset-2 hover:underline"
+          >
+            <CalendarRange aria-hidden className="size-4" />
+            Périodes et corrections (en ligne)
+          </Link>
+        ) : null}
       </div>
       <Tabs<Section>
         label="Étapes de la clôture"
