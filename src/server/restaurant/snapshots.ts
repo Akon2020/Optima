@@ -1,6 +1,9 @@
 import type { Currency, Money } from "@/shared/lib/money";
 
 import type {
+  AdjustmentDecision,
+  AdjustmentKind,
+  AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
   CashClosingLine,
@@ -14,6 +17,7 @@ import type {
   OrderLine,
   OrderMode,
   Payment,
+  PaymentAllocation,
   PaymentMethod,
   PaymentStatus,
   PrepStatus,
@@ -218,6 +222,8 @@ export async function orderSnapshots(
       total: money(row.totalMinor, row.currency),
       prepStatus: row.prepStatus as PrepStatus,
       paymentStatus: (row.cancelledAt ? "cancelled" : row.paymentStatus) as PaymentStatus,
+      discount: money(row.discountMinor, row.currency),
+      cancelReason: row.cancelReason,
     };
   });
 
@@ -321,7 +327,7 @@ export async function paymentSnapshots(
   }));
 }
 
-function jsonArray<T>(value: unknown): T[] {
+export function jsonArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
@@ -414,5 +420,64 @@ export async function dayClosingSnapshots(
     cashClosingIds: jsonArray<string>(row.cashClosingIds),
     stockCountIds: jsonArray<string>(row.stockCountIds),
     comment: row.comment,
+  }));
+}
+
+/** Demandes d'annulation ou de remise, avec le nom du demandeur et le code appareil. */
+export async function adjustmentRequestSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; requestedAt?: { gte: Date } },
+): Promise<AdjustmentRequest[]> {
+  const rows = await tx.adjustmentRequest.findMany({ where: { ...where, establishmentId } });
+  if (rows.length === 0) return [];
+  const [devices, names, establishment] = await Promise.all([
+    tx.device.findMany({
+      where: { establishmentId, id: { in: [...new Set(rows.map((row) => row.deviceId))] } },
+      select: { id: true, code: true },
+    }),
+    userNames(
+      tx,
+      rows.map((row) => row.requestedBy),
+    ),
+    tx.establishment.findUnique({ where: { id: establishmentId }, select: { baseCurrency: true } }),
+  ]);
+  const deviceCode = new Map(devices.map((device) => [device.id, device.code]));
+  const currency = establishment?.baseCurrency ?? "CDF";
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    kind: row.kind as AdjustmentKind,
+    orderId: row.orderId,
+    invoiceIds: jsonArray<string>(row.invoiceIds),
+    reason: row.reason,
+    discount: row.discountMinor === null ? null : money(row.discountMinor, currency),
+    requestedBy: row.requestedBy,
+    requestedByName: names.get(row.requestedBy) ?? "",
+    requestedAt: row.requestedAt.toISOString(),
+    deviceCode: deviceCode.get(row.deviceId) ?? "",
+  }));
+}
+
+export async function adjustmentDecisionSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; requestId?: { in: string[] } },
+): Promise<AdjustmentDecision[]> {
+  const rows = await tx.adjustmentDecision.findMany({ where: { ...where, establishmentId } });
+  const names = await userNames(
+    tx,
+    rows.map((row) => row.decidedBy),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    requestId: row.requestId,
+    approved: row.approved,
+    comment: row.comment,
+    discounts: jsonArray<PaymentAllocation>(row.discounts),
+    decidedBy: row.decidedBy,
+    decidedByName: names.get(row.decidedBy) ?? "",
+    decidedAt: row.decidedAt.toISOString(),
   }));
 }

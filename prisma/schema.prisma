@@ -7,7 +7,7 @@
 // - Tables en ajout seul (trigger) : audit_log, sync_operations, change_log,
 //   morning_stock_entries, table_releases, invoice_lines, exchange_rates,
 //   payments, payment_allocations, cash_closings, cash_closing_payments,
-//   stock_counts, day_closings.
+//   stock_counts, day_closings, adjustment_requests, adjustment_decisions.
 
 generator client {
   provider = "prisma-client"
@@ -334,6 +334,8 @@ model AdvanceInvoice {
   currency        String    @db.Char(3)
   prepStatus      String    @default("pending") @map("prep_status")
   paymentStatus   String    @default("unpaid") @map("payment_status")
+  /// RG-ENC-01 : remises accordées par le gérant, cumulées.
+  discountMinor   BigInt    @default(0) @map("discount_minor")
   cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
   cancelReason    String?   @map("cancel_reason")
   createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
@@ -474,6 +476,43 @@ model DayClosing {
 
   @@unique([establishmentId, day])
   @@map("day_closings")
+}
+
+// Demande d'annulation ou de remise (RG-CMD-02, RG-VTE-02, RG-ENC-01, D-058) :
+// le serveur demande, le gérant valide. Ajout seul.
+model AdjustmentRequest {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  kind            String
+  orderId         String   @map("order_id") @db.Uuid
+  invoiceIds      Json     @map("invoice_ids")
+  reason          String
+  discountMinor   BigInt?  @map("discount_minor")
+  requestedBy     String   @map("requested_by") @db.Uuid
+  deviceId        String   @map("device_id") @db.Uuid
+  requestedAt     DateTime @map("requested_at") @db.Timestamptz(6)
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([establishmentId, orderId])
+  @@index([establishmentId, requestedAt])
+  @@map("adjustment_requests")
+}
+
+// Décision du gérant sur une demande : une seule par demande.
+model AdjustmentDecision {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  requestId       String   @map("request_id") @db.Uuid
+  approved        Boolean
+  comment         String?
+  /// Remise répartie entre les factures, fixée par le serveur à l'approbation.
+  discounts       Json
+  decidedBy       String   @map("decided_by") @db.Uuid
+  deviceId        String   @map("device_id") @db.Uuid
+  decidedAt       DateTime @map("decided_at") @db.Timestamptz(6)
+
+  @@unique([establishmentId, requestId])
+  @@map("adjustment_decisions")
 }
 
 model MorningStockEntry {

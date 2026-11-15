@@ -70,6 +70,10 @@ export const ACTION_LABELS: Record<string, string> = {
   "restaurant.cash-closing.declared": "Caisse déclarée",
   "restaurant.stock.counted": "Stock compté en fin de service",
   "restaurant.day.validated": "Journée validée",
+  "restaurant.adjustment.requested": "Annulation ou remise demandée",
+  "restaurant.invoice.cancelled": "Commande annulée",
+  "restaurant.discount.granted": "Remise accordée",
+  "restaurant.adjustment.rejected": "Demande refusée par le gérant",
 };
 
 /** Motifs techniques enregistrés par le serveur (refus de connexion), en français. */
@@ -130,6 +134,8 @@ const FIELD_LABELS: Record<string, string> = {
   variances: "Écarts",
   closings: "Caisses déclarées",
   counts: "Comptages",
+  kind: "Demande",
+  discount: "Remise",
 };
 
 export type AuditChange = { field: string; before: string | null; after: string | null };

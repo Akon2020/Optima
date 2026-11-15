@@ -1,6 +1,8 @@
 import type { OutboxOperation } from "@/offline/outbox";
 
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
   DayClosing,
@@ -59,6 +61,9 @@ export type Bootstrap = {
   cashClosings?: CashClosing[];
   stockCounts?: StockCount[];
   dayClosings?: DayClosing[];
+  /** Demandes d'annulation ou de remise et décisions (D-058) ; absentes d'un serveur plus ancien. */
+  adjustmentRequests?: AdjustmentRequest[];
+  adjustmentDecisions?: AdjustmentDecision[];
   cursor: string;
 };
 
@@ -107,6 +112,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.cashClosings,
       db.stockCounts,
       db.dayClosings,
+      db.adjustmentRequests,
+      db.adjustmentDecisions,
       db.deviceUsers,
       db.meta,
     ],
@@ -127,6 +134,12 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       if (snapshot.cashClosings) await db.cashClosings.bulkPut(snapshot.cashClosings);
       if (snapshot.stockCounts) await db.stockCounts.bulkPut(snapshot.stockCounts);
       if (snapshot.dayClosings) await db.dayClosings.bulkPut(snapshot.dayClosings);
+      if (snapshot.adjustmentRequests) {
+        await db.adjustmentRequests.bulkPut(snapshot.adjustmentRequests);
+      }
+      if (snapshot.adjustmentDecisions) {
+        await db.adjustmentDecisions.bulkPut(snapshot.adjustmentDecisions);
+      }
       if (snapshot.modules) await saveEnabledModules(db, snapshot.modules);
       if (BigInt(snapshot.cursor) > BigInt(await getCursor(db))) {
         await saveCursor(db, snapshot.cursor);
@@ -174,6 +187,12 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "day_closing":
       await db.dayClosings.put(change.data as DayClosing);
+      break;
+    case "adjustment_request":
+      await db.adjustmentRequests.put(change.data as AdjustmentRequest);
+      break;
+    case "adjustment_decision":
+      await db.adjustmentDecisions.put(change.data as AdjustmentDecision);
       break;
     case "establishment_modules":
       await saveEnabledModules(db, (change.data as { modules: string[] }).modules);
@@ -251,6 +270,8 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.cashClosings,
         db.stockCounts,
         db.dayClosings,
+        db.adjustmentRequests,
+        db.adjustmentDecisions,
         // Changements de personnel (EF-CPT-01, EF-CPT-05) : applyStaffMember
         // ouvre une sous-transaction sur ces tables.
         db.staff,

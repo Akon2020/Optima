@@ -3,9 +3,15 @@ import type { z } from "zod";
 import { localYear } from "@/shared/lib/dates";
 import { DomainError } from "@/shared/lib/errors";
 import { uuidv7 } from "@/shared/lib/ids";
-import { moneyFromMajor, type Money } from "@/shared/lib/money";
+import { addMoney, moneyFromMajor, zero as zeroMoney, type Money } from "@/shared/lib/money";
 import { createOperation } from "@/offline/outbox";
 
+import {
+  MIN_REASON_LENGTH as MIN_ADJUSTMENT_REASON,
+  adjustmentIssue,
+  pendingRequests,
+  splitDiscount,
+} from "../domain/adjustment";
 import {
   businessDayKey,
   businessDayStart,
@@ -41,6 +47,9 @@ import {
   validateMorningLines,
 } from "../domain/morning-stock";
 import type {
+  AdjustmentDecision,
+  AdjustmentKind,
+  AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
   CashClosingLine,
@@ -51,6 +60,7 @@ import type {
   Order,
   OrderLine,
   Payment,
+  PaymentAllocation,
   PrepStatus,
   ServicePoint,
   StockCount,
@@ -62,6 +72,8 @@ import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
 import { paymentInputSchema, type PaymentInput } from "../schemas/payment";
 import type {
+  adjustmentDecidedSchema,
+  adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
   dayValidatedSchema,
   orderCreatedSchema,
@@ -74,6 +86,8 @@ type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
 type CashClosingDeclaredPayload = z.infer<typeof cashClosingDeclaredSchema>;
 type StockCountedPayload = z.infer<typeof stockCountedSchema>;
 type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
+type AdjustmentRequestedPayload = z.infer<typeof adjustmentRequestedSchema>;
+type AdjustmentDecidedPayload = z.infer<typeof adjustmentDecidedSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -1180,4 +1194,252 @@ export async function validateDay(
     }
   });
   return { id, day: status.day, operationId: operation.id };
+}
+
+// ─── Annulations et remises validées par le gérant (D-058) ──────────────────
+
+/** Factures actives d'une commande et leurs soldes (paiements et remises compris). */
+async function orderBalances(db: RestaurantDb, orderId: string) {
+  const invoices = await db.invoices.where("orderId").equals(orderId).toArray();
+  const since = invoices.map((invoice) => invoice.createdAt).sort()[0] ?? new Date(0).toISOString();
+  const payments = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
+  return { invoices, balances: invoiceBalances(invoices, payments) };
+}
+
+/** RG-CLO-02 : la commande appartient-elle à une journée validée ? */
+async function isOrderDayValidated(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  order: Pick<Order, "createdAt">,
+): Promise<boolean> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const day = businessDayKey(order.createdAt, businessDayStartHour, timeZone);
+  return (await db.dayClosings.where("day").equals(day).count()) > 0;
+}
+
+export type AdjustmentInput = {
+  kind: AdjustmentKind;
+  orderId: string;
+  reason: string;
+  /** Remise demandée, en unité principale ; ignorée pour une annulation. */
+  discountMajor?: number | null;
+};
+
+/**
+ * Demande une annulation ou une remise sur une commande (RG-CMD-02,
+ * RG-VTE-02, RG-ENC-01). Un serveur ne demande que sur ses commandes
+ * (RG-CMD-03). Un gérant qui agit lui-même valide dans le même geste.
+ */
+export async function requestAdjustment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: AdjustmentInput,
+  options: { requestedAt?: string; enqueue?: boolean } = {},
+): Promise<{ request: AdjustmentRequest; decision: AdjustmentDecision | null }> {
+  assertPermission(ctx, "restaurant.adjustment.request", "demander une annulation ou une remise");
+  const requestedAt = options.requestedAt ?? new Date().toISOString();
+  const request = await db.transaction(
+    "rw",
+    [
+      db.orders,
+      db.invoices,
+      db.payments,
+      db.dayClosings,
+      db.adjustmentRequests,
+      db.adjustmentDecisions,
+      db.outbox,
+    ],
+    async () => {
+      const order = await db.orders.get(input.orderId);
+      if (!order) throw new DomainError("ORDER_NOT_FOUND", "Cette commande est introuvable.");
+      if (ctx.role === "waiter" && order.waiterId !== ctx.userId) {
+        throw new DomainError(
+          "FORBIDDEN",
+          `Cette commande appartient à ${order.waiterName} : lui seul ou le gérant peut demander un ajustement (RG-CMD-03).`,
+        );
+      }
+      const { invoices, balances } = await orderBalances(db, order.id);
+      const [requests, decisions] = await Promise.all([
+        db.adjustmentRequests.where("orderId").equals(order.id).toArray(),
+        db.adjustmentDecisions.toArray(),
+      ]);
+      const discount =
+        input.kind === "discount" && input.discountMajor
+          ? moneyFromMajor(input.discountMajor, ctx.settings.currency)
+          : null;
+      const issue = adjustmentIssue({
+        kind: input.kind,
+        reason: input.reason,
+        discount,
+        balances: invoices.flatMap((invoice) => {
+          const balance = balances.get(invoice.id);
+          return balance ? [balance] : [];
+        }),
+        isDayValidated: await isOrderDayValidated(db, ctx, order),
+        hasPendingRequest: pendingRequests(requests, decisions).length > 0,
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const created: AdjustmentRequest = {
+        id: uuidv7(new Date(requestedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        kind: input.kind,
+        orderId: order.id,
+        invoiceIds: invoices
+          .filter((invoice) => invoice.paymentStatus !== "cancelled")
+          .map((invoice) => invoice.id),
+        reason: input.reason.trim(),
+        discount,
+        requestedBy: ctx.userId,
+        requestedByName: ctx.userName,
+        requestedAt,
+        deviceCode: ctx.deviceCode,
+      };
+      await db.adjustmentRequests.add(created);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.adjustment.requested",
+            {
+              request: {
+                id: created.id,
+                kind: created.kind,
+                orderId: created.orderId,
+                reason: created.reason,
+                discountMinor: discount?.amountMinor ?? null,
+                requestedAt,
+              },
+            } satisfies AdjustmentRequestedPayload,
+            requestedAt,
+          ),
+        );
+      }
+      return created;
+    },
+  );
+  const decision = hasPermission(ctx.role, "restaurant.adjustment.approve")
+    ? await decideAdjustment(
+        db,
+        ctx,
+        { requestId: request.id, approved: true, comment: "" },
+        { decidedAt: requestedAt, ...(options.enqueue === false ? { enqueue: false } : {}) },
+      )
+    : null;
+  return { request, decision };
+}
+
+/**
+ * Le gérant valide ou refuse une demande (matrice des droits). À la
+ * validation, l'annulation ou la remise est appliquée aux factures, après un
+ * nouveau contrôle : un paiement a pu arriver depuis la demande.
+ */
+export async function decideAdjustment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { requestId: string; approved: boolean; comment: string },
+  options: { decidedAt?: string; enqueue?: boolean } = {},
+): Promise<AdjustmentDecision> {
+  assertPermission(ctx, "restaurant.adjustment.approve", "valider une demande");
+  const decidedAt = options.decidedAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.orders,
+      db.invoices,
+      db.payments,
+      db.dayClosings,
+      db.adjustmentRequests,
+      db.adjustmentDecisions,
+      db.outbox,
+    ],
+    async () => {
+      const request = await db.adjustmentRequests.get(input.requestId);
+      if (!request) throw new DomainError("REQUEST_NOT_FOUND", "Cette demande est introuvable.");
+      if ((await db.adjustmentDecisions.where("requestId").equals(request.id).count()) > 0) {
+        throw new DomainError("ALREADY_DECIDED", "Cette demande a déjà reçu une décision.");
+      }
+      if (!input.approved && input.comment.trim().length < MIN_ADJUSTMENT_REASON) {
+        throw new DomainError(
+          "COMMENT_REQUIRED",
+          "Expliquez au serveur pourquoi la demande est refusée.",
+        );
+      }
+      const order = await db.orders.get(request.orderId);
+      const { invoices, balances } = await orderBalances(db, request.orderId);
+      const targets = invoices.filter((invoice) => request.invoiceIds.includes(invoice.id));
+      let discounts: PaymentAllocation[] = [];
+      if (input.approved) {
+        const issue = adjustmentIssue({
+          kind: request.kind,
+          reason: request.reason,
+          discount: request.discount,
+          balances: targets.flatMap((invoice) => {
+            const balance = balances.get(invoice.id);
+            return balance ? [balance] : [];
+          }),
+          isDayValidated: order ? await isOrderDayValidated(db, ctx, order) : false,
+          hasPendingRequest: false,
+        });
+        if (issue) throw new DomainError(issue.code, issue.message);
+        if (request.kind === "cancel") {
+          for (const invoice of targets) {
+            await db.invoices.update(invoice.id, {
+              paymentStatus: "cancelled",
+              cancelReason: request.reason,
+            });
+          }
+        } else if (request.discount) {
+          discounts = splitDiscount(
+            request.discount,
+            targets.map((invoice) => ({
+              id: invoice.id,
+              remaining: balances.get(invoice.id)?.remaining ?? invoice.total,
+            })),
+          );
+          for (const share of discounts) {
+            const invoice = targets.find((entry) => entry.id === share.invoiceId);
+            if (!invoice) continue;
+            await db.invoices.update(invoice.id, {
+              discount: addMoney(
+                invoice.discount ?? zeroMoney(share.amount.currency),
+                share.amount,
+              ),
+            });
+          }
+        }
+      }
+      const decision: AdjustmentDecision = {
+        id: uuidv7(new Date(decidedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        requestId: request.id,
+        approved: input.approved,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+        discounts,
+        decidedBy: ctx.userId,
+        decidedByName: ctx.userName,
+        decidedAt,
+      };
+      await db.adjustmentDecisions.add(decision);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.adjustment.decided",
+            {
+              decision: {
+                id: decision.id,
+                requestId: request.id,
+                approved: input.approved,
+                comment: decision.comment,
+                decidedAt,
+              },
+            } satisfies AdjustmentDecidedPayload,
+            decidedAt,
+          ),
+        );
+      }
+      return decision;
+    },
+  );
 }

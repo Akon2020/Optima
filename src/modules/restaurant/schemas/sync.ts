@@ -184,6 +184,29 @@ export const dayValidatedSchema = z.object({
   closing: z.object({ id: uuid, day: dayKey, validatedAt: isoDate, comment }),
 });
 
+/** Demande d'annulation ou de remise (RG-CMD-02, RG-ENC-01, D-058). */
+export const adjustmentRequestedSchema = z.object({
+  request: z.object({
+    id: uuid,
+    kind: z.enum(["cancel", "discount"]),
+    orderId: uuid,
+    reason: z.string().trim().min(3).max(160),
+    discountMinor: z.number().int().positive().max(1_000_000_000_000).nullable(),
+    requestedAt: isoDate,
+  }),
+});
+
+/** Décision du gérant ; la répartition d'une remise est refaite par le serveur. */
+export const adjustmentDecidedSchema = z.object({
+  decision: z.object({
+    id: uuid,
+    requestId: uuid,
+    approved: z.boolean(),
+    comment,
+    decidedAt: isoDate,
+  }),
+});
+
 export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.order.created",
   "restaurant.invoice.prep-status-changed",
@@ -199,6 +222,8 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.cash-closing.declared",
   "restaurant.stock.counted",
   "restaurant.day.validated",
+  "restaurant.adjustment.requested",
+  "restaurant.adjustment.decided",
 ] as const;
 
 export type RestaurantOperationType = (typeof RESTAURANT_OPERATION_TYPES)[number];

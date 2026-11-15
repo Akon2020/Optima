@@ -1,5 +1,7 @@
 import { businessDayStart } from "@/modules/restaurant/domain/business-day";
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
   DayClosing,
@@ -18,6 +20,8 @@ import type {
 import type { Db } from "../db/context";
 import { withContext } from "../db/context";
 import {
+  adjustmentDecisionSnapshots,
+  adjustmentRequestSnapshots,
   cashClosingSnapshots,
   dayClosingSnapshots,
   diningTableSnapshot,
@@ -59,6 +63,9 @@ export type DeviceBootstrap = {
   cashClosings: CashClosing[];
   stockCounts: StockCount[];
   dayClosings: DayClosing[];
+  /** Demandes d'annulation ou de remise récentes et leurs décisions (D-058). */
+  adjustmentRequests: AdjustmentRequest[];
+  adjustmentDecisions: AdjustmentDecision[];
   cursor: string;
 };
 
@@ -96,6 +103,7 @@ export async function buildBootstrap(
       cashClosings,
       stockCounts,
       dayClosings,
+      adjustmentRequests,
       last,
     ] = await Promise.all([
       tx.servicePoint.findMany({ where, orderBy: { sortOrder: "asc" } }),
@@ -110,8 +118,12 @@ export async function buildBootstrap(
       cashClosingSnapshots(tx, establishment.id, { declaredAt: { gte: since } }),
       stockCountSnapshots(tx, establishment.id, { countedAt: { gte: since } }),
       dayClosingSnapshots(tx, establishment.id, {}, { latest: 7 }),
+      adjustmentRequestSnapshots(tx, establishment.id, { requestedAt: { gte: since } }),
       tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
     ]);
+    const adjustmentDecisions = await adjustmentDecisionSnapshots(tx, establishment.id, {
+      requestId: { in: adjustmentRequests.map((request) => request.id) },
+    });
     return {
       establishment: {
         id: establishment.id,
@@ -140,6 +152,8 @@ export async function buildBootstrap(
       cashClosings,
       stockCounts,
       dayClosings,
+      adjustmentRequests,
+      adjustmentDecisions,
       cursor: last?.seq.toString() ?? "0",
     };
   });

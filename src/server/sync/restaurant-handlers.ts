@@ -4,6 +4,13 @@ import { DomainError } from "@/shared/lib/errors";
 import { formatMoney, moneyFromMinor, type Currency } from "@/shared/lib/money";
 
 import {
+  ADJUSTMENT_LABELS,
+  MIN_REASON_LENGTH as MIN_ADJUSTMENT_REASON,
+  adjustmentIssue,
+  splitDiscount,
+} from "@/modules/restaurant/domain/adjustment";
+import {
+  businessDayKey,
   businessDayStartOf,
   DEFAULT_BUSINESS_DAY_START_HOUR,
 } from "@/modules/restaurant/domain/business-day";
@@ -32,13 +39,17 @@ import {
 } from "@/modules/restaurant/domain/payment";
 import { validateTableLabel } from "@/modules/restaurant/domain/tables";
 import type {
+  AdjustmentKind,
   CashClosingLine,
   OrderLine,
+  PaymentAllocation,
   SaleUnit,
   StockCountLine,
 } from "@/modules/restaurant/domain/types";
 import type { Permission } from "@/modules/registry";
 import {
+  adjustmentDecidedSchema,
+  adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
   dayValidatedSchema,
   exchangeRateAddedSchema,
@@ -56,10 +67,13 @@ import {
 
 import { writeAudit } from "../audit/audit";
 import {
+  adjustmentDecisionSnapshots,
+  adjustmentRequestSnapshots,
   cashClosingSnapshots,
   dayClosingSnapshots,
   diningTableSnapshot,
   exchangeRateSnapshots,
+  jsonArray,
   menuItemSnapshot,
   morningEntrySnapshots,
   orderSnapshots,
@@ -610,7 +624,9 @@ const paymentRecorded = handler({
       const invoice = invoiceById.get(sum.invoiceId);
       if (!invoice) continue;
       const paid = sum._sum.amountMinor ?? 0n;
-      const status = paid >= invoice.totalMinor ? "paid" : paid > 0n ? "partial" : "unpaid";
+      // RG-ENC-01 : une remise accordée réduit ce que le client doit.
+      const due = invoice.totalMinor - invoice.discountMinor;
+      const status = paid >= due ? "paid" : paid > 0n ? "partial" : "unpaid";
       if (status !== invoice.paymentStatus) {
         await tx.advanceInvoice.update({
           where: { id: invoice.id },
@@ -971,6 +987,262 @@ const dayValidated = handler({
   },
 });
 
+/**
+ * État d'une commande vu par le serveur pour une annulation ou une remise :
+ * factures (remises comprises), soldes, journée validée, demande en attente.
+ */
+async function adjustmentState(
+  tx: Tx,
+  ctx: HandlerContext,
+  order: { id: string; createdAt: Date },
+) {
+  const { invoices } = await orderSnapshots(tx, ctx.establishmentId, { id: order.id });
+  const sums = await tx.paymentAllocation.groupBy({
+    by: ["invoiceId"],
+    where: {
+      establishmentId: ctx.establishmentId,
+      invoiceId: { in: invoices.map((invoice) => invoice.id) },
+    },
+    _sum: { amountMinor: true },
+  });
+  const balances = invoiceBalances(
+    invoices,
+    sums.map((sum) => ({
+      allocations: [
+        {
+          invoiceId: sum.invoiceId,
+          amount: moneyFromMinor(toSafeNumber(sum._sum.amountMinor ?? 0n), ctx.currency),
+        },
+      ],
+    })),
+  );
+  const day = businessDayKey(
+    order.createdAt.toISOString(),
+    DEFAULT_BUSINESS_DAY_START_HOUR,
+    ctx.timeZone,
+  );
+  const [validated, requests] = await Promise.all([
+    tx.dayClosing.count({ where: { establishmentId: ctx.establishmentId, day } }),
+    tx.adjustmentRequest.findMany({
+      where: { establishmentId: ctx.establishmentId, orderId: order.id },
+      select: { id: true },
+    }),
+  ]);
+  const decided = await tx.adjustmentDecision.count({
+    where: {
+      establishmentId: ctx.establishmentId,
+      requestId: { in: requests.map((request) => request.id) },
+    },
+  });
+  return {
+    invoices,
+    balances,
+    isDayValidated: validated > 0,
+    hasPendingRequest: requests.length > decided,
+  };
+}
+
+const adjustmentRequested = handler({
+  permission: "restaurant.adjustment.request",
+  schema: adjustmentRequestedSchema,
+  async apply(tx, ctx, { request }) {
+    const order = await tx.order.findFirst({
+      where: { id: request.orderId, establishmentId: ctx.establishmentId },
+    });
+    if (!order) throw new DomainError("ORDER_NOT_FOUND", "Commande inconnue du serveur.");
+    // RG-CMD-03 : une commande appartient au serveur qui l'a créée.
+    if (ctx.role === "waiter" && order.waiterId !== ctx.userId) {
+      throw new DomainError(
+        "FORBIDDEN",
+        "Un serveur ne demande d'ajustement que sur ses propres commandes.",
+      );
+    }
+    const state = await adjustmentState(tx, ctx, order);
+    const discount =
+      request.kind === "discount" && request.discountMinor !== null
+        ? moneyFromMinor(request.discountMinor, ctx.currency)
+        : null;
+    const issue = adjustmentIssue({
+      kind: request.kind,
+      reason: request.reason,
+      discount,
+      balances: [...state.balances.values()],
+      isDayValidated: state.isDayValidated,
+      hasPendingRequest: state.hasPendingRequest,
+    });
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    await tx.adjustmentRequest.create({
+      data: {
+        id: request.id,
+        establishmentId: ctx.establishmentId,
+        kind: request.kind,
+        orderId: order.id,
+        invoiceIds: toJson(
+          state.invoices
+            .filter((invoice) => invoice.paymentStatus !== "cancelled")
+            .map((invoice) => invoice.id),
+        ),
+        reason: request.reason,
+        discountMinor: discount ? BigInt(discount.amountMinor) : null,
+        requestedBy: ctx.userId,
+        deviceId: ctx.deviceId,
+        requestedAt: new Date(request.requestedAt),
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.adjustment.requested",
+      entity: "order",
+      entityId: order.id,
+      after: {
+        kind: ADJUSTMENT_LABELS[request.kind],
+        number: order.number,
+        ...(discount ? { discount: formatMoney(discount) } : {}),
+      },
+      reason: request.reason,
+    });
+    const [snapshot] = await adjustmentRequestSnapshots(tx, ctx.establishmentId, {
+      id: request.id,
+    });
+    if (snapshot) await recordChange(tx, ctx, "adjustment_request", request.id, snapshot);
+  },
+});
+
+const adjustmentDecided = handler({
+  permission: "restaurant.adjustment.approve",
+  schema: adjustmentDecidedSchema,
+  async apply(tx, ctx, { decision }) {
+    const request = await tx.adjustmentRequest.findFirst({
+      where: { id: decision.requestId, establishmentId: ctx.establishmentId },
+    });
+    if (!request) throw new DomainError("REQUEST_NOT_FOUND", "Demande inconnue du serveur.");
+    const already = await tx.adjustmentDecision.count({
+      where: { establishmentId: ctx.establishmentId, requestId: request.id },
+    });
+    if (already > 0) {
+      throw new DomainError("ALREADY_DECIDED", "Cette demande a déjà reçu une décision.");
+    }
+    if (!decision.approved && (decision.comment ?? "").length < MIN_ADJUSTMENT_REASON) {
+      throw new DomainError("COMMENT_REQUIRED", "Un refus doit être expliqué au serveur.");
+    }
+    const order = await tx.order.findFirst({
+      where: { id: request.orderId, establishmentId: ctx.establishmentId },
+    });
+    if (!order) throw new DomainError("ORDER_NOT_FOUND", "Commande inconnue du serveur.");
+    const decidedAt = new Date(decision.decidedAt);
+    const targetIds = new Set(jsonArray<string>(request.invoiceIds));
+    let discounts: PaymentAllocation[] = [];
+
+    if (decision.approved) {
+      const state = await adjustmentState(tx, ctx, order);
+      const targets = state.invoices.filter((invoice) => targetIds.has(invoice.id));
+      const discount =
+        request.discountMinor === null
+          ? null
+          : moneyFromMinor(toSafeNumber(request.discountMinor), ctx.currency);
+      const issue = adjustmentIssue({
+        kind: request.kind as AdjustmentKind,
+        reason: request.reason,
+        discount,
+        balances: targets.flatMap((invoice) => {
+          const balance = state.balances.get(invoice.id);
+          return balance ? [balance] : [];
+        }),
+        isDayValidated: state.isDayValidated,
+        hasPendingRequest: false,
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      if (request.kind === "cancel") {
+        // RG-CMD-02 : la facture garde son numéro ; le stock se rétablit, les
+        // ventes ne comptant que les factures non annulées.
+        await tx.advanceInvoice.updateMany({
+          where: {
+            establishmentId: ctx.establishmentId,
+            id: { in: targets.map((invoice) => invoice.id) },
+          },
+          data: { cancelledAt: decidedAt, cancelReason: request.reason },
+        });
+      } else if (discount) {
+        discounts = splitDiscount(
+          discount,
+          targets.map((invoice) => ({
+            id: invoice.id,
+            remaining: state.balances.get(invoice.id)?.remaining ?? invoice.total,
+          })),
+        );
+        for (const share of discounts) {
+          const balance = state.balances.get(share.invoiceId);
+          const settled =
+            balance !== undefined && balance.remaining.amountMinor - share.amount.amountMinor <= 0;
+          await tx.advanceInvoice.update({
+            where: { id: share.invoiceId },
+            data: {
+              discountMinor: { increment: BigInt(share.amount.amountMinor) },
+              ...(settled ? { paymentStatus: "paid" } : {}),
+            },
+          });
+        }
+      }
+    }
+
+    await tx.adjustmentDecision.create({
+      data: {
+        id: decision.id,
+        establishmentId: ctx.establishmentId,
+        requestId: request.id,
+        approved: decision.approved,
+        comment: decision.comment,
+        discounts: toJson(discounts),
+        decidedBy: ctx.userId,
+        deviceId: ctx.deviceId,
+        decidedAt,
+      },
+    });
+    // EF-AUD-01 : annulations et remises sont tracées, avec leur motif.
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: !decision.approved
+        ? "restaurant.adjustment.rejected"
+        : request.kind === "cancel"
+          ? "restaurant.invoice.cancelled"
+          : "restaurant.discount.granted",
+      entity: "order",
+      entityId: order.id,
+      after: {
+        number: order.number,
+        ...(request.discountMinor !== null
+          ? {
+              discount: formatMoney(
+                moneyFromMinor(toSafeNumber(request.discountMinor), ctx.currency),
+              ),
+            }
+          : {}),
+      },
+      reason: decision.approved ? request.reason : decision.comment,
+    });
+    const [snapshot] = await adjustmentDecisionSnapshots(tx, ctx.establishmentId, {
+      id: decision.id,
+    });
+    if (snapshot) await recordChange(tx, ctx, "adjustment_decision", decision.id, snapshot);
+    if (decision.approved) {
+      const updated = await orderSnapshots(tx, ctx.establishmentId, { id: order.id });
+      for (const invoice of updated.invoices) {
+        if (targetIds.has(invoice.id)) {
+          await recordChange(tx, ctx, "advance_invoice", invoice.id, invoice);
+        }
+      }
+    }
+  },
+});
+
 export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.order.created": orderCreated,
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
@@ -986,4 +1258,6 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.cash-closing.declared": cashClosingDeclared,
   "restaurant.stock.counted": stockCounted,
   "restaurant.day.validated": dayValidated,
+  "restaurant.adjustment.requested": adjustmentRequested,
+  "restaurant.adjustment.decided": adjustmentDecided,
 };

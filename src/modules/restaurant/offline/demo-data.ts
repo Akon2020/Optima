@@ -33,6 +33,7 @@ import {
   recordPayment,
   recordStockCount,
   releaseTable,
+  requestAdjustment,
   saveMorningStock,
   stockCountDraft,
   validateDay,
@@ -722,6 +723,26 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
         await db.invoices.bulkUpdate(
           order.invoiceIds.map((key) => ({ key, changes: { prepStatus: status } })),
         );
+      }
+    }
+
+    // D-058 : une demande d'annulation d'un serveur attend la décision du gérant.
+    const latest = created.at(-1);
+    const latestInvoice = latest ? await db.invoices.get(latest.invoiceIds[0] ?? "") : undefined;
+    if (latest && latestInvoice) {
+      try {
+        await requestAdjustment(
+          db,
+          { ...ctx, userId: latest.waiter.id, userName: latest.waiter.name, role: "waiter" },
+          {
+            kind: "cancel",
+            orderId: latestInvoice.orderId,
+            reason: "Le client a changé d'avis avant la préparation",
+          },
+          { requestedAt: new Date(latest.createdAt + 2 * 60_000).toISOString(), enqueue: false },
+        );
+      } catch {
+        // Commande déjà payée dans la démo : pas de demande.
       }
     }
   }

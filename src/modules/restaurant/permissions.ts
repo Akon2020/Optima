@@ -26,6 +26,10 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.closing.count-stock",
   /** Valider la journée (EF-CLO-04 : le gérant). */
   "restaurant.closing.validate",
+  /** Demander une annulation ou une remise sur ses commandes (matrice : « Demande »). */
+  "restaurant.adjustment.request",
+  /** Valider ou refuser ces demandes (matrice : gérant, « Validation »). */
+  "restaurant.adjustment.approve",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -43,6 +47,7 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.payment.collect",
     "restaurant.closing.read",
     "restaurant.closing.declare",
+    "restaurant.adjustment.request",
   ],
   prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
   courier: [],

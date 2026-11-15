@@ -4,6 +4,8 @@ import type { OutboxOperation } from "@/offline/outbox";
 import type { PinVerifier } from "@/offline/pin";
 
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
   DayClosing,
@@ -56,6 +58,8 @@ export class RestaurantDb extends Dexie {
   cashClosings!: EntityTable<CashClosing, "id">;
   stockCounts!: EntityTable<StockCount, "id">;
   dayClosings!: EntityTable<DayClosing, "id">;
+  adjustmentRequests!: EntityTable<AdjustmentRequest, "id">;
+  adjustmentDecisions!: EntityTable<AdjustmentDecision, "id">;
   deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
@@ -139,6 +143,11 @@ export class RestaurantDb extends Dexie {
       cashClosings: "id, day, userId",
       stockCounts: "id, day, servicePointId",
       dayClosings: "id, day, validatedAt",
+    });
+    // v8 : annulations et remises soumises au gérant (D-058).
+    this.version(8).stores({
+      adjustmentRequests: "id, orderId, requestedAt",
+      adjustmentDecisions: "id, requestId",
     });
   }
 }

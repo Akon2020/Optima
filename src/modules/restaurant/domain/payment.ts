@@ -254,7 +254,7 @@ export type InvoiceBalance = {
  * s'additionnent, et un trop-perçu reste visible.
  */
 export function invoiceBalances(
-  invoices: readonly Pick<AdvanceInvoice, "id" | "total" | "paymentStatus">[],
+  invoices: readonly Pick<AdvanceInvoice, "id" | "total" | "paymentStatus" | "discount">[],
   payments: readonly Pick<Payment, "allocations">[],
 ): Map<string, InvoiceBalance> {
   const paidById = new Map<string, number>();
@@ -270,7 +270,8 @@ export function invoiceBalances(
   for (const invoice of invoices) {
     const currency = invoice.total.currency;
     const paid = paidById.get(invoice.id) ?? 0;
-    const total = invoice.total.amountMinor;
+    // RG-ENC-01 : la remise accordée réduit ce que le client doit.
+    const total = invoice.total.amountMinor - (invoice.discount?.amountMinor ?? 0);
     const status: PaymentStatus =
       invoice.paymentStatus === "cancelled"
         ? "cancelled"

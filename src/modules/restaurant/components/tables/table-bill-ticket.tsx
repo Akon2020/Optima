@@ -30,7 +30,14 @@ export function TableBillTicket({
         bill.total.currency,
       )
     : bill.total;
-  const paid = moneyFromMinor(bill.total.amountMinor - remaining.amountMinor, bill.total.currency);
+  const discount = moneyFromMinor(
+    session.invoices.reduce((sum, invoice) => sum + (invoice.discount?.amountMinor ?? 0), 0),
+    bill.total.currency,
+  );
+  const paid = moneyFromMinor(
+    bill.total.amountMinor - discount.amountMinor - remaining.amountMinor,
+    bill.total.currency,
+  );
   return (
     <article
       aria-label={`Addition ${tableLabel}`}
@@ -71,7 +78,13 @@ export function TableBillTicket({
         <span>TOTAL</span>
         <span className="tabular">{formatMoney(bill.total)}</span>
       </p>
-      {paid.amountMinor > 0 ? (
+      {discount.amountMinor > 0 ? (
+        <p className="flex justify-between">
+          <span>Remise</span>
+          <span className="tabular">−{formatMoney(discount)}</span>
+        </p>
+      ) : null}
+      {paid.amountMinor > 0 || discount.amountMinor > 0 ? (
         <>
           <p className="flex justify-between">
             <span>Déjà payé</span>

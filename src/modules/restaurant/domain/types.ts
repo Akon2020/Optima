@@ -94,6 +94,10 @@ export type AdvanceInvoice = {
   total: Money;
   prepStatus: PrepStatus;
   paymentStatus: PaymentStatus;
+  /** Remise accordée par le gérant (RG-ENC-01), absente des enregistrements anciens. */
+  discount?: Money;
+  /** Motif de l'annulation validée par le gérant (RG-CMD-02). */
+  cancelReason?: string | null;
 };
 
 export type Order = {
@@ -252,6 +256,41 @@ export type DayClosing = {
   cashClosingIds: string[];
   stockCountIds: string[];
   comment: string | null;
+};
+
+/** Ajustement d'une commande soumis au gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01). */
+export type AdjustmentKind = "cancel" | "discount";
+
+/**
+ * Demande d'annulation ou de remise : le serveur demande, le gérant valide
+ * (matrice des droits). Fait en ajout seul ; la décision est un fait séparé.
+ */
+export type AdjustmentRequest = {
+  id: string;
+  establishmentId: string;
+  kind: AdjustmentKind;
+  orderId: string;
+  invoiceIds: string[];
+  reason: string;
+  /** Remise demandée, en devise de base ; `null` pour une annulation. */
+  discount: Money | null;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  deviceCode: string;
+};
+
+export type AdjustmentDecision = {
+  id: string;
+  establishmentId: string;
+  requestId: string;
+  approved: boolean;
+  comment: string | null;
+  /** Remise répartie entre les factures, fixée à l'approbation. */
+  discounts: PaymentAllocation[];
+  decidedBy: string;
+  decidedByName: string;
+  decidedAt: string;
 };
 
 export type StaffMember = {

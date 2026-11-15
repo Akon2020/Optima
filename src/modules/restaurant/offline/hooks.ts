@@ -9,6 +9,8 @@ import { currentEntries } from "../domain/morning-stock";
 import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
   DiningTable,
   ExchangeRate,
@@ -93,6 +95,9 @@ export type DayData = {
   balances: Map<string, InvoiceBalance>;
   /** Dernier taux du dollar saisi (D-042), `null` s'il n'y en a pas encore. */
   exchangeRate: ExchangeRate | null;
+  /** Demandes d'annulation ou de remise et décisions du gérant (D-058). */
+  adjustmentRequests: AdjustmentRequest[];
+  adjustmentDecisions: AdjustmentDecision[];
 };
 
 /**
@@ -119,6 +124,8 @@ export function useDayData(): DayData | undefined {
       releases,
       payments,
       exchangeRate,
+      adjustmentRequests,
+      adjustmentDecisions,
     ] = await Promise.all([
       db.servicePoints.orderBy("sortOrder").toArray(),
       db.menuItems.toArray(),
@@ -130,6 +137,9 @@ export function useDayData(): DayData | undefined {
       db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
       db.payments.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
       db.exchangeRates.orderBy("effectiveAt").last(),
+      // Peu nombreuses : toutes, pour qu'une demande ancienne en attente reste visible.
+      db.adjustmentRequests.orderBy("requestedAt").toArray(),
+      db.adjustmentDecisions.toArray(),
     ]);
     return {
       servicePoints,
@@ -142,6 +152,8 @@ export function useDayData(): DayData | undefined {
       releases,
       payments,
       exchangeRate: exchangeRate ?? null,
+      adjustmentRequests,
+      adjustmentDecisions,
     };
   }, [db, status, dayStart, day]);
 
