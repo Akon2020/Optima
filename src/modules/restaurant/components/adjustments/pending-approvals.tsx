@@ -51,6 +51,7 @@ function PendingRow({ request, data }: { request: AdjustmentRequest; data: DayDa
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const order = data.orders.find((entry) => entry.id === request.orderId);
+  const customer = data.customers.find((entry) => entry.id === request.customerId);
 
   async function decide(approved: boolean) {
     setError(null);
@@ -67,7 +68,8 @@ function PendingRow({ request, data }: { request: AdjustmentRequest; data: DayDa
         <div className="min-w-0 text-sm">
           <p className="font-medium">
             {ADJUSTMENT_LABELS[request.kind]}
-            {request.discount ? ` de ${formatMoney(request.discount)}` : ""} ·{" "}
+            {request.discount ? ` de ${formatMoney(request.discount)}` : ""}
+            {customer ? ` à ${customer.name} (${customer.phone})` : ""} ·{" "}
             {order ? orderPlaceLabel(order.mode, order.tableLabel) : "Commande"}{" "}
             {order ? (
               <span className="text-xs font-normal text-text-muted tabular">

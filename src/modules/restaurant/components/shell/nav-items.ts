@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   SquarePlus,
   Sunrise,
+  Users,
   UtensilsCrossed,
   Wallet,
   type LucideIcon,
@@ -41,6 +42,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { segment: "menus", label: "Menus", shortLabel: "Menus", icon: UtensilsCrossed },
   { segment: "tables", label: "Tables", shortLabel: "Tables", icon: Armchair },
   { segment: "caisse", label: "Caisse", shortLabel: "Caisse", icon: Wallet },
+  { segment: "clients", label: "Clients", shortLabel: "Clients", icon: Users },
   {
     segment: "stock-du-matin",
     label: "Stock du matin",

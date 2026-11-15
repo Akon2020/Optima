@@ -119,9 +119,12 @@ export function collectedByServicePoint(
   return [...amounts.entries()].map(([servicePointId, amount]) => ({ servicePointId, amount }));
 }
 
-/** RG-ENC-02 : factures d'un serveur encore impayées (en tout ou en partie). */
+/**
+ * RG-ENC-02 : factures d'un serveur encore impayées (en tout ou en partie),
+ * sauf celles converties en dette client par le gérant (D-059).
+ */
 export function unpaidInvoiceIds(
-  invoices: readonly Pick<AdvanceInvoice, "id" | "waiterId">[],
+  invoices: readonly Pick<AdvanceInvoice, "id" | "waiterId" | "creditRequestId">[],
   balances: ReadonlyMap<string, Pick<InvoiceBalance, "remaining" | "status">>,
   waiterId: string,
 ): string[] {
@@ -130,6 +133,7 @@ export function unpaidInvoiceIds(
       const balance = balances.get(invoice.id);
       return (
         invoice.waiterId === waiterId &&
+        !invoice.creditRequestId &&
         balance !== undefined &&
         balance.status !== "cancelled" &&
         balance.remaining.amountMinor > 0

@@ -27,6 +27,7 @@ import type { RestaurantDb } from "./db";
 import {
   addExchangeRate,
   cashClosingDraft,
+  createCustomer,
   createOrder,
   declareCashClosing,
   morningProposals,
@@ -464,7 +465,39 @@ async function seedYesterdayClosing(
     role: "waiter",
   });
   try {
+    // D-059 : deux fiches clients fictives ; la dernière commande de la veille
+    // part à crédit (validée par le gérant) au lieu d'être payée.
+    const rose = await createCustomer(
+      db,
+      manager,
+      { name: "Maman Rose", phone: "+243 990 000 001" },
+      { createdAt: at(10), enqueue: false },
+    );
+    await createCustomer(
+      db,
+      manager,
+      { name: "Papa Jean", phone: "+243 990 000 002" },
+      { createdAt: at(10), enqueue: false },
+    );
+    const credited = orders.at(-1);
+    const creditedInvoice = credited
+      ? await db.invoices.get(credited.invoiceIds[0] ?? "")
+      : undefined;
+    if (creditedInvoice) {
+      await requestAdjustment(
+        db,
+        manager,
+        {
+          kind: "credit",
+          orderId: creditedInvoice.orderId,
+          reason: "Cliente habituelle, paiera samedi",
+          customerId: rose.id,
+        },
+        { requestedAt: at(16), enqueue: false },
+      );
+    }
     for (const order of orders) {
+      if (order === credited) continue;
       const invoices = (await db.invoices.bulkGet(order.invoiceIds)).filter(
         (invoice) => invoice !== undefined,
       );

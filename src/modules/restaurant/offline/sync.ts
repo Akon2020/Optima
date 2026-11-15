@@ -5,6 +5,7 @@ import type {
   AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
+  Customer,
   DayClosing,
   DiningTable,
   ExchangeRate,
@@ -64,6 +65,8 @@ export type Bootstrap = {
   /** Demandes d'annulation ou de remise et décisions (D-058) ; absentes d'un serveur plus ancien. */
   adjustmentRequests?: AdjustmentRequest[];
   adjustmentDecisions?: AdjustmentDecision[];
+  /** Fiches clients de la vente à crédit (D-059) ; absentes d'un serveur plus ancien. */
+  customers?: Customer[];
   cursor: string;
 };
 
@@ -114,6 +117,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.dayClosings,
       db.adjustmentRequests,
       db.adjustmentDecisions,
+      db.customers,
       db.deviceUsers,
       db.meta,
     ],
@@ -140,6 +144,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       if (snapshot.adjustmentDecisions) {
         await db.adjustmentDecisions.bulkPut(snapshot.adjustmentDecisions);
       }
+      if (snapshot.customers) await db.customers.bulkPut(snapshot.customers);
       if (snapshot.modules) await saveEnabledModules(db, snapshot.modules);
       if (BigInt(snapshot.cursor) > BigInt(await getCursor(db))) {
         await saveCursor(db, snapshot.cursor);
@@ -193,6 +198,9 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "adjustment_decision":
       await db.adjustmentDecisions.put(change.data as AdjustmentDecision);
+      break;
+    case "customer":
+      await db.customers.put(change.data as Customer);
       break;
     case "establishment_modules":
       await saveEnabledModules(db, (change.data as { modules: string[] }).modules);
@@ -272,6 +280,7 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.dayClosings,
         db.adjustmentRequests,
         db.adjustmentDecisions,
+        db.customers,
         // Changements de personnel (EF-CPT-01, EF-CPT-05) : applyStaffMember
         // ouvre une sous-transaction sur ces tables.
         db.staff,

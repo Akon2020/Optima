@@ -25,6 +25,7 @@ import {
   validateCashClosing,
   validateStockCount,
 } from "@/modules/restaurant/domain/closing";
+import { customerIssue, normalizePhone } from "@/modules/restaurant/domain/customers";
 import {
   currentEntries,
   isMorningStockComplete,
@@ -51,6 +52,8 @@ import {
   adjustmentDecidedSchema,
   adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
+  customerCreatedSchema,
+  customerLimitSetSchema,
   dayValidatedSchema,
   exchangeRateAddedSchema,
   menuItemCreatedSchema,
@@ -70,6 +73,7 @@ import {
   adjustmentDecisionSnapshots,
   adjustmentRequestSnapshots,
   cashClosingSnapshots,
+  customerSnapshot,
   dayClosingSnapshots,
   diningTableSnapshot,
   exchangeRateSnapshots,
@@ -1062,6 +1066,10 @@ const adjustmentRequested = handler({
       request.kind === "discount" && request.discountMinor !== null
         ? moneyFromMinor(request.discountMinor, ctx.currency)
         : null;
+    const credit =
+      request.kind === "credit"
+        ? await serverCreditState(tx, ctx, request.customerId, state.invoices)
+        : null;
     const issue = adjustmentIssue({
       kind: request.kind,
       reason: request.reason,
@@ -1069,6 +1077,7 @@ const adjustmentRequested = handler({
       balances: [...state.balances.values()],
       isDayValidated: state.isDayValidated,
       hasPendingRequest: state.hasPendingRequest,
+      ...(credit ? { credit: credit.state } : {}),
     });
     if (issue) throw new DomainError(issue.code, issue.message);
 
@@ -1085,6 +1094,7 @@ const adjustmentRequested = handler({
         ),
         reason: request.reason,
         discountMinor: discount ? BigInt(discount.amountMinor) : null,
+        customerId: credit?.customer?.id ?? null,
         requestedBy: ctx.userId,
         deviceId: ctx.deviceId,
         requestedAt: new Date(request.requestedAt),
@@ -1102,6 +1112,7 @@ const adjustmentRequested = handler({
         kind: ADJUSTMENT_LABELS[request.kind],
         number: order.number,
         ...(discount ? { discount: formatMoney(discount) } : {}),
+        ...(credit?.customer ? { customer: credit.customer.name } : {}),
       },
       reason: request.reason,
     });
@@ -1154,10 +1165,26 @@ const adjustmentDecided = handler({
         }),
         isDayValidated: state.isDayValidated,
         hasPendingRequest: false,
+        ...(request.kind === "credit"
+          ? { credit: (await serverCreditState(tx, ctx, request.customerId, targets)).state }
+          : {}),
       });
       if (issue) throw new DomainError(issue.code, issue.message);
 
-      if (request.kind === "cancel") {
+      if (request.kind === "credit") {
+        // D-059 : le reste de chaque facture devient la dette du client.
+        for (const invoice of targets) {
+          const remaining = state.balances.get(invoice.id)?.remaining;
+          if (!remaining || remaining.amountMinor <= 0) continue;
+          await tx.advanceInvoice.update({
+            where: { id: invoice.id },
+            data: {
+              creditRequestId: request.id,
+              creditedMinor: BigInt(remaining.amountMinor),
+            },
+          });
+        }
+      } else if (request.kind === "cancel") {
         // RG-CMD-02 : la facture garde son numéro ; le stock se rétablit, les
         // ventes ne comptant que les factures non annulées.
         await tx.advanceInvoice.updateMany({
@@ -1213,7 +1240,9 @@ const adjustmentDecided = handler({
         ? "restaurant.adjustment.rejected"
         : request.kind === "cancel"
           ? "restaurant.invoice.cancelled"
-          : "restaurant.discount.granted",
+          : request.kind === "credit"
+            ? "restaurant.credit.granted"
+            : "restaurant.discount.granted",
       entity: "order",
       entityId: order.id,
       after: {
@@ -1243,6 +1272,135 @@ const adjustmentDecided = handler({
   },
 });
 
+/**
+ * Contrôles serveur de la vente à crédit (EF-ENC-03, D-037, D-059) : client
+ * de l'établissement, commande pas encore à crédit, plafond respecté.
+ */
+async function serverCreditState(
+  tx: Tx,
+  ctx: HandlerContext,
+  customerId: string | null,
+  invoices: readonly { creditRequestId?: string | null }[],
+) {
+  const customer = customerId
+    ? await tx.customer.findFirst({
+        where: { id: customerId, establishmentId: ctx.establishmentId },
+      })
+    : null;
+  let outstanding = moneyFromMinor(0, ctx.currency);
+  if (customer) {
+    const credits = await tx.adjustmentRequest.findMany({
+      where: { establishmentId: ctx.establishmentId, kind: "credit", customerId: customer.id },
+      select: { id: true },
+    });
+    const approved = await tx.adjustmentDecision.findMany({
+      where: {
+        establishmentId: ctx.establishmentId,
+        approved: true,
+        requestId: { in: credits.map((request) => request.id) },
+      },
+      select: { requestId: true },
+    });
+    const owed = await tx.advanceInvoice.findMany({
+      where: {
+        establishmentId: ctx.establishmentId,
+        creditRequestId: { in: approved.map((decision) => decision.requestId) },
+        cancelledAt: null,
+      },
+      select: { id: true, totalMinor: true, discountMinor: true },
+    });
+    const paid = await tx.paymentAllocation.groupBy({
+      by: ["invoiceId"],
+      where: { establishmentId: ctx.establishmentId, invoiceId: { in: owed.map((row) => row.id) } },
+      _sum: { amountMinor: true },
+    });
+    const paidBy = new Map(paid.map((row) => [row.invoiceId, row._sum.amountMinor ?? 0n]));
+    const remaining = owed.reduce((sum, row) => {
+      const left = row.totalMinor - row.discountMinor - (paidBy.get(row.id) ?? 0n);
+      return sum + (left > 0n ? left : 0n);
+    }, 0n);
+    outstanding = moneyFromMinor(toSafeNumber(remaining), ctx.currency);
+  }
+  return {
+    customer,
+    state: {
+      hasCustomer: customer !== null,
+      isAlreadyCredited: invoices.some((invoice) => Boolean(invoice.creditRequestId)),
+      creditLimit:
+        customer?.creditLimitMinor === null || customer?.creditLimitMinor === undefined
+          ? null
+          : moneyFromMinor(toSafeNumber(customer.creditLimitMinor), ctx.currency),
+      outstanding,
+    },
+  };
+}
+
+const customerCreated = handler({
+  permission: "restaurant.customer.create",
+  schema: customerCreatedSchema,
+  async apply(tx, ctx, { customer }) {
+    const existing = await tx.customer.findMany({
+      where: { establishmentId: ctx.establishmentId },
+      select: { phone: true },
+    });
+    const issue = customerIssue(customer, existing);
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const created = await tx.customer.create({
+      data: {
+        id: customer.id,
+        establishmentId: ctx.establishmentId,
+        name: customer.name,
+        phone: normalizePhone(customer.phone) ?? customer.phone,
+        createdBy: ctx.userId,
+        createdAt: new Date(customer.createdAt),
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.customer.created",
+      entity: "customer",
+      entityId: created.id,
+      after: { name: created.name, phone: created.phone },
+    });
+    await recordChange(tx, ctx, "customer", created.id, customerSnapshot(created, ctx.currency));
+  },
+});
+
+const customerLimitSet = handler({
+  permission: "restaurant.customer.manage",
+  schema: customerLimitSetSchema,
+  async apply(tx, ctx, payload) {
+    const customer = await tx.customer.findFirst({
+      where: { id: payload.customerId, establishmentId: ctx.establishmentId },
+    });
+    if (!customer) throw new DomainError("CUSTOMER_NOT_FOUND", "Client inconnu du serveur.");
+    const updated = await tx.customer.update({
+      where: { id: customer.id },
+      data: {
+        creditLimitMinor:
+          payload.creditLimitMinor === null ? null : BigInt(payload.creditLimitMinor),
+      },
+    });
+    const limit = (value: bigint | null) =>
+      value === null ? "aucun" : formatMoney(moneyFromMinor(toSafeNumber(value), ctx.currency));
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.customer.limit-set",
+      entity: "customer",
+      entityId: customer.id,
+      before: { creditLimit: limit(customer.creditLimitMinor) },
+      after: { creditLimit: limit(updated.creditLimitMinor) },
+    });
+    await recordChange(tx, ctx, "customer", customer.id, customerSnapshot(updated, ctx.currency));
+  },
+});
+
 export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.order.created": orderCreated,
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
@@ -1260,4 +1418,6 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.day.validated": dayValidated,
   "restaurant.adjustment.requested": adjustmentRequested,
   "restaurant.adjustment.decided": adjustmentDecided,
+  "restaurant.customer.created": customerCreated,
+  "restaurant.customer.limit-set": customerLimitSet,
 };

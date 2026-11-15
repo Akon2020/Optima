@@ -336,6 +336,10 @@ model AdvanceInvoice {
   paymentStatus   String    @default("unpaid") @map("payment_status")
   /// RG-ENC-01 : remises accordées par le gérant, cumulées.
   discountMinor   BigInt    @default(0) @map("discount_minor")
+  /// D-059 : demande de crédit validée qui a converti le reste en dette client.
+  creditRequestId String?   @map("credit_request_id") @db.Uuid
+  /// Montant converti en dette à la validation.
+  creditedMinor   BigInt    @default(0) @map("credited_minor")
   cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
   cancelReason    String?   @map("cancel_reason")
   createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
@@ -488,6 +492,8 @@ model AdjustmentRequest {
   invoiceIds      Json     @map("invoice_ids")
   reason          String
   discountMinor   BigInt?  @map("discount_minor")
+  /// Client débiteur d'une vente à crédit (D-059).
+  customerId      String?  @map("customer_id") @db.Uuid
   requestedBy     String   @map("requested_by") @db.Uuid
   deviceId        String   @map("device_id") @db.Uuid
   requestedAt     DateTime @map("requested_at") @db.Timestamptz(6)
@@ -513,6 +519,23 @@ model AdjustmentDecision {
 
   @@unique([establishmentId, requestId])
   @@map("adjustment_decisions")
+}
+
+// Fiche client de la vente à crédit (EF-ENC-03, D-037, D-043, D-059).
+model Customer {
+  id               String    @id @db.Uuid
+  establishmentId  String    @map("establishment_id") @db.Uuid
+  name             String
+  /// Numéro normalisé, unique dans l'établissement.
+  phone            String
+  /// Plafond de crédit fixé par le gérant ; null : pas de plafond.
+  creditLimitMinor BigInt?   @map("credit_limit_minor")
+  createdBy        String    @map("created_by") @db.Uuid
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@unique([establishmentId, phone])
+  @@map("customers")
 }
 
 model MorningStockEntry {

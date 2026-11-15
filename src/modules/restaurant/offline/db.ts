@@ -8,6 +8,7 @@ import type {
   AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
+  Customer,
   DayClosing,
   DiningTable,
   ExchangeRate,
@@ -60,6 +61,7 @@ export class RestaurantDb extends Dexie {
   dayClosings!: EntityTable<DayClosing, "id">;
   adjustmentRequests!: EntityTable<AdjustmentRequest, "id">;
   adjustmentDecisions!: EntityTable<AdjustmentDecision, "id">;
+  customers!: EntityTable<Customer, "id">;
   deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
@@ -149,6 +151,8 @@ export class RestaurantDb extends Dexie {
       adjustmentRequests: "id, orderId, requestedAt",
       adjustmentDecisions: "id, requestId",
     });
+    // v9 : fiches clients de la vente à crédit (D-059).
+    this.version(9).stores({ customers: "id, phone" });
   }
 }
 

@@ -6,6 +6,7 @@ import { uuidv7 } from "@/shared/lib/ids";
 import { addMoney, moneyFromMajor, zero as zeroMoney, type Money } from "@/shared/lib/money";
 import { createOperation } from "@/offline/outbox";
 
+import { customerDebts, customerIssue, normalizePhone, outstandingOf } from "../domain/customers";
 import {
   MIN_REASON_LENGTH as MIN_ADJUSTMENT_REASON,
   adjustmentIssue,
@@ -53,6 +54,7 @@ import type {
   AdvanceInvoice,
   CashClosing,
   CashClosingLine,
+  Customer,
   MenuItem,
   DiningTable,
   ExchangeRate,
@@ -75,6 +77,8 @@ import type {
   adjustmentDecidedSchema,
   adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
+  customerCreatedSchema,
+  customerLimitSetSchema,
   dayValidatedSchema,
   orderCreatedSchema,
   paymentRecordedSchema,
@@ -88,6 +92,8 @@ type StockCountedPayload = z.infer<typeof stockCountedSchema>;
 type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
 type AdjustmentRequestedPayload = z.infer<typeof adjustmentRequestedSchema>;
 type AdjustmentDecidedPayload = z.infer<typeof adjustmentDecidedSchema>;
+type CustomerCreatedPayload = z.infer<typeof customerCreatedSchema>;
+type CustomerLimitSetPayload = z.infer<typeof customerLimitSetSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -1223,6 +1229,8 @@ export type AdjustmentInput = {
   reason: string;
   /** Remise demandée, en unité principale ; ignorée pour une annulation. */
   discountMajor?: number | null;
+  /** Vente à crédit (D-059) : client débiteur. */
+  customerId?: string | null;
 };
 
 /**
@@ -1247,6 +1255,7 @@ export async function requestAdjustment(
       db.dayClosings,
       db.adjustmentRequests,
       db.adjustmentDecisions,
+      db.customers,
       db.outbox,
     ],
     async () => {
@@ -1277,6 +1286,9 @@ export async function requestAdjustment(
         }),
         isDayValidated: await isOrderDayValidated(db, ctx, order),
         hasPendingRequest: pendingRequests(requests, decisions).length > 0,
+        ...(input.kind === "credit"
+          ? { credit: await creditState(db, ctx, input.customerId ?? null, invoices) }
+          : {}),
       });
       if (issue) throw new DomainError(issue.code, issue.message);
 
@@ -1290,6 +1302,7 @@ export async function requestAdjustment(
           .map((invoice) => invoice.id),
         reason: input.reason.trim(),
         discount,
+        customerId: input.kind === "credit" ? (input.customerId ?? null) : null,
         requestedBy: ctx.userId,
         requestedByName: ctx.userName,
         requestedAt,
@@ -1308,6 +1321,7 @@ export async function requestAdjustment(
                 orderId: created.orderId,
                 reason: created.reason,
                 discountMinor: discount?.amountMinor ?? null,
+                customerId: created.customerId,
                 requestedAt,
               },
             } satisfies AdjustmentRequestedPayload,
@@ -1351,6 +1365,7 @@ export async function decideAdjustment(
       db.dayClosings,
       db.adjustmentRequests,
       db.adjustmentDecisions,
+      db.customers,
       db.outbox,
     ],
     async () => {
@@ -1380,6 +1395,9 @@ export async function decideAdjustment(
           }),
           isDayValidated: order ? await isOrderDayValidated(db, ctx, order) : false,
           hasPendingRequest: false,
+          ...(request.kind === "credit"
+            ? { credit: await creditState(db, ctx, request.customerId, targets) }
+            : {}),
         });
         if (issue) throw new DomainError(issue.code, issue.message);
         if (request.kind === "cancel") {
@@ -1387,6 +1405,17 @@ export async function decideAdjustment(
             await db.invoices.update(invoice.id, {
               paymentStatus: "cancelled",
               cancelReason: request.reason,
+            });
+          }
+        } else if (request.kind === "credit") {
+          // D-059 : le reste à payer devient la dette du client ; la facture n'est
+          // plus un impayé du serveur (RG-ENC-02).
+          for (const invoice of targets) {
+            const remaining = balances.get(invoice.id)?.remaining;
+            if (!remaining || remaining.amountMinor <= 0) continue;
+            await db.invoices.update(invoice.id, {
+              creditRequestId: request.id,
+              credited: remaining,
             });
           }
         } else if (request.discount) {
@@ -1442,4 +1471,122 @@ export async function decideAdjustment(
       return decision;
     },
   );
+}
+
+// ─── Fiches clients et vente à crédit (D-059) ───────────────────────────────
+
+/**
+ * Contrôles de la vente à crédit (EF-ENC-03, D-037) : client connu, commande
+ * pas encore à crédit, encours du client sous son plafond.
+ */
+async function creditState(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  customerId: string | null,
+  invoices: readonly AdvanceInvoice[],
+) {
+  const currency = ctx.settings.currency;
+  const customer = customerId ? await db.customers.get(customerId) : undefined;
+  const credits = customer
+    ? (await db.adjustmentRequests.toArray()).filter(
+        (request) => request.kind === "credit" && request.customerId === customer.id,
+      )
+    : [];
+  const decisions = await db.adjustmentDecisions.toArray();
+  const debtInvoices = credits.length
+    ? await db.invoices
+        .where("orderId")
+        .anyOf(credits.map((request) => request.orderId))
+        .toArray()
+    : [];
+  const since = debtInvoices.map((invoice) => invoice.createdAt).sort()[0];
+  const payments = since ? await db.payments.where("createdAt").aboveOrEqual(since).toArray() : [];
+  const debts = customerDebts({
+    requests: credits,
+    decisions,
+    invoices: debtInvoices,
+    balances: invoiceBalances(debtInvoices, payments),
+    currency,
+  });
+  return {
+    hasCustomer: customer !== undefined,
+    isAlreadyCredited: invoices.some((invoice) => Boolean(invoice.creditRequestId)),
+    creditLimit: customer?.creditLimit ?? null,
+    outstanding: customer ? outstandingOf(customer.id, debts, currency) : zeroMoney(currency),
+  };
+}
+
+/** Crée la fiche d'un client pour une vente à crédit (EF-ENC-03 : nom et téléphone). */
+export async function createCustomer(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { name: string; phone: string },
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Customer> {
+  assertPermission(ctx, "restaurant.customer.create", "créer une fiche client");
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  return db.transaction("rw", db.customers, db.outbox, async () => {
+    const issue = customerIssue(input, await db.customers.toArray());
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const customer: Customer = {
+      id: uuidv7(new Date(createdAt).getTime()),
+      establishmentId: ctx.establishmentId,
+      name: input.name.trim(),
+      phone: normalizePhone(input.phone) ?? input.phone.trim(),
+      creditLimit: null,
+      createdAt,
+      createdBy: ctx.userId,
+    };
+    await db.customers.add(customer);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.customer.created",
+          {
+            customer: {
+              id: customer.id,
+              name: customer.name,
+              phone: customer.phone,
+              createdAt,
+            },
+          } satisfies CustomerCreatedPayload,
+          createdAt,
+        ),
+      );
+    }
+    return customer;
+  });
+}
+
+/** Fixe ou retire le plafond de crédit d'un client (D-037 ; gérant). */
+export async function setCustomerCreditLimit(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  customerId: string,
+  limitMajor: number | null,
+): Promise<void> {
+  assertPermission(ctx, "restaurant.customer.manage", "fixer un plafond de crédit");
+  if (limitMajor !== null && (!Number.isFinite(limitMajor) || limitMajor <= 0)) {
+    throw new DomainError("INVALID_LIMIT", "Le plafond doit être un montant positif.");
+  }
+  const at = new Date().toISOString();
+  await db.transaction("rw", db.customers, db.outbox, async () => {
+    const customer = await db.customers.get(customerId);
+    if (!customer) throw new DomainError("CUSTOMER_NOT_FOUND", "Ce client est introuvable.");
+    const creditLimit =
+      limitMajor === null ? null : moneyFromMajor(limitMajor, ctx.settings.currency);
+    await db.customers.update(customerId, { creditLimit });
+    await db.outbox.add(
+      tableOperation(
+        ctx,
+        "restaurant.customer.limit-set",
+        {
+          customerId,
+          creditLimitMinor: creditLimit?.amountMinor ?? null,
+        } satisfies CustomerLimitSetPayload,
+        at,
+      ),
+    );
+  });
 }

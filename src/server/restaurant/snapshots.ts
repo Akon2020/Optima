@@ -7,6 +7,7 @@ import type {
   AdvanceInvoice,
   CashClosing,
   CashClosingLine,
+  Customer,
   DayClosing,
   DiningTable,
   ExchangeRate,
@@ -172,7 +173,7 @@ export async function morningEntrySnapshots(
 export async function orderSnapshots(
   tx: Tx,
   establishmentId: string,
-  where: { id?: string; createdAt?: { gte: Date; lt?: Date } },
+  where: { id?: string | { in: string[] }; createdAt?: { gte: Date; lt?: Date } },
 ): Promise<{ orders: Order[]; invoices: AdvanceInvoice[] }> {
   const orders = await tx.order.findMany({ where: { ...where, establishmentId } });
   if (orders.length === 0) return { orders: [], invoices: [] };
@@ -224,6 +225,8 @@ export async function orderSnapshots(
       paymentStatus: (row.cancelledAt ? "cancelled" : row.paymentStatus) as PaymentStatus,
       discount: money(row.discountMinor, row.currency),
       cancelReason: row.cancelReason,
+      creditRequestId: row.creditRequestId,
+      credited: money(row.creditedMinor, row.currency),
     };
   });
 
@@ -427,7 +430,7 @@ export async function dayClosingSnapshots(
 export async function adjustmentRequestSnapshots(
   tx: Tx,
   establishmentId: string,
-  where: { id?: string; requestedAt?: { gte: Date } },
+  where: { id?: string | { in: string[] }; requestedAt?: { gte: Date } },
 ): Promise<AdjustmentRequest[]> {
   const rows = await tx.adjustmentRequest.findMany({ where: { ...where, establishmentId } });
   if (rows.length === 0) return [];
@@ -452,6 +455,7 @@ export async function adjustmentRequestSnapshots(
     invoiceIds: jsonArray<string>(row.invoiceIds),
     reason: row.reason,
     discount: row.discountMinor === null ? null : money(row.discountMinor, currency),
+    customerId: row.customerId,
     requestedBy: row.requestedBy,
     requestedByName: names.get(row.requestedBy) ?? "",
     requestedAt: row.requestedAt.toISOString(),
@@ -480,4 +484,28 @@ export async function adjustmentDecisionSnapshots(
     decidedByName: names.get(row.decidedBy) ?? "",
     decidedAt: row.decidedAt.toISOString(),
   }));
+}
+
+/** Fiche client, telle que l'appareil la conserve (D-059). */
+export function customerSnapshot(
+  row: {
+    id: string;
+    establishmentId: string;
+    name: string;
+    phone: string;
+    creditLimitMinor: bigint | null;
+    createdBy: string;
+    createdAt: Date;
+  },
+  currency: string,
+): Customer {
+  return {
+    id: row.id,
+    establishmentId: row.establishmentId,
+    name: row.name,
+    phone: row.phone,
+    creditLimit: row.creditLimitMinor === null ? null : money(row.creditLimitMinor, currency),
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdBy,
+  };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Banknote, Check, Percent, Printer, Utensils } from "lucide-react";
+import { Ban, Banknote, Check, HandCoins, Percent, Printer, Utensils } from "lucide-react";
 import { useState } from "react";
 
 import { formatTime } from "@/shared/lib/dates";
@@ -141,6 +141,18 @@ export function OrderDetailSheet({
                     {isManager ? "Remise" : "Demander une remise"}
                   </Button>
                 ) : null}
+                {remaining &&
+                remaining.amountMinor > 0 &&
+                !row.invoices.some((invoice) => invoice.creditRequestId) ? (
+                  <Button
+                    variant="ghost"
+                    className="col-span-2"
+                    onClick={() => setAdjusting("credit")}
+                  >
+                    <HandCoins aria-hidden />
+                    {isManager ? "Vendre à crédit" : "Demander un crédit"}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -158,7 +170,12 @@ export function OrderDetailSheet({
             const point = row.servicePoints.find((p) => p.id === invoice.servicePointId);
             const Icon = point ? SERVICE_POINT_ICONS[point.kind] : Utensils;
             const status = PREP_STATUS[invoice.prepStatus];
-            const payment = PAYMENT_STATUS[balances?.get(invoice.id)?.status ?? "unpaid"];
+            const paymentStatus = balances?.get(invoice.id)?.status ?? "unpaid";
+            // D-059 : un reste converti en dette client s'affiche « À crédit ».
+            const payment =
+              invoice.creditRequestId && paymentStatus !== "paid"
+                ? { label: "À crédit", tone: "accent" as const }
+                : PAYMENT_STATUS[paymentStatus];
             const next = NEXT_STATUS[invoice.prepStatus];
             return (
               <section

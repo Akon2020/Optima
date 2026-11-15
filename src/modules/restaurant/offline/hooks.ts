@@ -5,6 +5,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
+import { customerDebts, type CustomerDebt } from "../domain/customers";
 import { currentEntries } from "../domain/morning-stock";
 import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
@@ -12,6 +13,7 @@ import type {
   AdjustmentDecision,
   AdjustmentRequest,
   AdvanceInvoice,
+  Customer,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -98,6 +100,8 @@ export type DayData = {
   /** Demandes d'annulation ou de remise et décisions du gérant (D-058). */
   adjustmentRequests: AdjustmentRequest[];
   adjustmentDecisions: AdjustmentDecision[];
+  /** Fiches clients de la vente à crédit (D-059). */
+  customers: Customer[];
 };
 
 /**
@@ -126,6 +130,7 @@ export function useDayData(): DayData | undefined {
       exchangeRate,
       adjustmentRequests,
       adjustmentDecisions,
+      customers,
     ] = await Promise.all([
       db.servicePoints.orderBy("sortOrder").toArray(),
       db.menuItems.toArray(),
@@ -140,6 +145,7 @@ export function useDayData(): DayData | undefined {
       // Peu nombreuses : toutes, pour qu'une demande ancienne en attente reste visible.
       db.adjustmentRequests.orderBy("requestedAt").toArray(),
       db.adjustmentDecisions.toArray(),
+      db.customers.toArray(),
     ]);
     return {
       servicePoints,
@@ -154,6 +160,7 @@ export function useDayData(): DayData | undefined {
       exchangeRate: exchangeRate ?? null,
       adjustmentRequests,
       adjustmentDecisions,
+      customers,
     };
   }, [db, status, dayStart, day]);
 
@@ -272,4 +279,55 @@ export function useClosingData(): ClosingData | undefined {
     );
     return { status: dayStatus, myDraft, stockDrafts, pendingOperations };
   }, [db, ctx, status, now]);
+}
+
+export type CustomersData = {
+  now: string;
+  customers: Customer[];
+  /** Dettes nées des ventes à crédit validées (D-059), réglées comprises. */
+  debts: CustomerDebt[];
+  orders: Map<string, Order>;
+  invoices: AdvanceInvoice[];
+  balances: Map<string, InvoiceBalance>;
+};
+
+/**
+ * Clients et dettes (EF-TRE-03) : les factures d'une dette peuvent dater de
+ * plusieurs semaines, elles sont donc lues hors de la journée en cours.
+ */
+export function useCustomersData(): CustomersData | undefined {
+  const { db, ctx, status } = useRestaurant();
+  const now = useNow();
+  const currency = ctx.settings.currency;
+  return useLiveQuery(async () => {
+    if (status !== "ready" || now === null) return undefined;
+    const [customers, requests, decisions] = await Promise.all([
+      db.customers.toArray(),
+      db.adjustmentRequests.toArray(),
+      db.adjustmentDecisions.toArray(),
+    ]);
+    const credits = requests.filter((request) => request.kind === "credit");
+    const orderIds = [...new Set(credits.map((request) => request.orderId))];
+    const [orders, invoices] = orderIds.length
+      ? await Promise.all([
+          db.orders.bulkGet(orderIds),
+          db.invoices.where("orderId").anyOf(orderIds).toArray(),
+        ])
+      : [[], []];
+    const since = invoices.map((invoice) => invoice.createdAt).sort()[0];
+    const payments = since
+      ? await db.payments.where("createdAt").aboveOrEqual(since).toArray()
+      : [];
+    const balances = invoiceBalances(invoices, payments);
+    return {
+      now,
+      customers: customers.sort((a, b) => a.name.localeCompare(b.name, "fr")),
+      debts: customerDebts({ requests: credits, decisions, invoices, balances, currency }),
+      orders: new Map(
+        orders.filter((order) => order !== undefined).map((order) => [order.id, order]),
+      ),
+      invoices,
+      balances,
+    };
+  }, [db, status, now, currency]);
 }

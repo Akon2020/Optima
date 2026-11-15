@@ -30,8 +30,11 @@ export function OrderAdjustments({
   const own = requests.filter((request) => request.orderId === orderId);
   if (own.length === 0) return null;
   return (
-    <section aria-label="Annulations et remises" className="rounded-lg border border-border p-4">
-      <h3 className="mb-2 text-sm font-semibold">Annulations et remises</h3>
+    <section
+      aria-label="Annulations, remises et crédit"
+      className="rounded-lg border border-border p-4"
+    >
+      <h3 className="mb-2 text-sm font-semibold">Annulations, remises et crédit</h3>
       <ul className="flex flex-col gap-2 text-sm">
         {own.map((request) => {
           const status = STATUS[adjustmentStatus(request, decisions)];

@@ -1,4 +1,4 @@
-import { moneyFromMinor, type Money } from "@/shared/lib/money";
+import { formatMoney, moneyFromMinor, type Money } from "@/shared/lib/money";
 
 import type { InvoiceBalance } from "./payment";
 import type {
@@ -91,6 +91,13 @@ export function adjustmentIssue(input: {
   balances: readonly Pick<InvoiceBalance, "paid" | "remaining" | "status">[];
   isDayValidated: boolean;
   hasPendingRequest: boolean;
+  /** Vente à crédit (D-059) : client choisi, son plafond et son encours. */
+  credit?: {
+    hasCustomer: boolean;
+    isAlreadyCredited: boolean;
+    creditLimit: Money | null;
+    outstanding: Money;
+  };
 }): AdjustmentIssue | null {
   if (input.reason.trim().length < MIN_REASON_LENGTH) {
     return {
@@ -126,6 +133,9 @@ export function adjustmentIssue(input: {
     return null;
   }
   const remaining = active.reduce((sum, balance) => sum + balance.remaining.amountMinor, 0);
+  if (input.kind === "credit") {
+    return creditIssue(remaining, input.credit);
+  }
   if (!input.discount || input.discount.amountMinor <= 0) {
     return { code: "AMOUNT_REQUIRED", message: "Saisissez le montant de la remise." };
   }
@@ -138,7 +148,50 @@ export function adjustmentIssue(input: {
   return null;
 }
 
+/**
+ * Vente à crédit (EF-ENC-03, D-037) : un reste à payer, un client, et le
+ * plafond du client respecté (encours + nouveau crédit).
+ */
+function creditIssue(
+  remaining: number,
+  credit:
+    | {
+        hasCustomer: boolean;
+        isAlreadyCredited: boolean;
+        creditLimit: Money | null;
+        outstanding: Money;
+      }
+    | undefined,
+): AdjustmentIssue | null {
+  if (remaining <= 0) {
+    return {
+      code: "NOTHING_DUE",
+      message: "Cette commande est déjà réglée : rien à mettre à crédit.",
+    };
+  }
+  if (!credit?.hasCustomer) {
+    return {
+      code: "CUSTOMER_REQUIRED",
+      message: "Choisissez le client ou créez sa fiche (nom et téléphone).",
+    };
+  }
+  if (credit.isAlreadyCredited) {
+    return { code: "ALREADY_CREDITED", message: "Cette commande est déjà vendue à crédit." };
+  }
+  if (
+    credit.creditLimit &&
+    credit.outstanding.amountMinor + remaining > credit.creditLimit.amountMinor
+  ) {
+    return {
+      code: "CREDIT_LIMIT",
+      message: `Le crédit dépasserait le plafond de ce client (${formatMoney(credit.outstanding)} déjà dus sur ${formatMoney(credit.creditLimit)} autorisés).`,
+    };
+  }
+  return null;
+}
+
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
   cancel: "Annulation",
   discount: "Remise",
+  credit: "Vente à crédit",
 };

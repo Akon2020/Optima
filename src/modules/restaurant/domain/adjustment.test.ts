@@ -16,6 +16,7 @@ const request = (id: string, requestedAt: string): AdjustmentRequest => ({
   invoiceIds: ["i"],
   reason: "Erreur de saisie",
   discount: null,
+  customerId: null,
   requestedBy: "w1",
   requestedByName: "Amani",
   requestedAt,
@@ -115,5 +116,33 @@ describe("contrôle d'une demande", () => {
       "MORE_THAN_DUE",
     );
     expect(adjustmentIssue({ ...base, kind: "discount", discount: fc(2_000) })).toBeNull();
+  });
+
+  it("EF-ENC-03, D-037 : un crédit exige un client et respecte son plafond", () => {
+    const credit = {
+      hasCustomer: true,
+      isAlreadyCredited: false,
+      creditLimit: null,
+      outstanding: fc(0),
+    };
+    expect(adjustmentIssue({ ...base, kind: "credit", credit })).toBeNull();
+    expect(
+      adjustmentIssue({ ...base, kind: "credit", credit: { ...credit, hasCustomer: false } })?.code,
+    ).toBe("CUSTOMER_REQUIRED");
+    expect(
+      adjustmentIssue({
+        ...base,
+        kind: "credit",
+        credit: { ...credit, creditLimit: fc(30_000), outstanding: fc(10_000) },
+      })?.code,
+    ).toBe("CREDIT_LIMIT");
+    expect(
+      adjustmentIssue({
+        ...base,
+        kind: "credit",
+        credit,
+        balances: [{ paid: fc(22_000), remaining: fc(0), status: "paid" }],
+      })?.code,
+    ).toBe("NOTHING_DUE");
   });
 });

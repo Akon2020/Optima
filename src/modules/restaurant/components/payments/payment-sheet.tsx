@@ -18,7 +18,12 @@ import { Button } from "@/shared/ui/button";
 import { Field, Input, Select } from "@/shared/ui/field";
 import { Sheet } from "@/shared/ui/sheet";
 
-import { minimumTendered, remainingDue, settlePayment } from "../../domain/payment";
+import {
+  minimumTendered,
+  remainingDue,
+  settlePayment,
+  type InvoiceBalance,
+} from "../../domain/payment";
 import type { AdvanceInvoice, MobileMoneyProvider, PaymentMethod } from "../../domain/types";
 import { useDayData } from "../../offline/hooks";
 import { recordPayment, releaseTable } from "../../offline/repository";
@@ -52,12 +57,15 @@ export function PaymentSheet({
   title,
   invoices,
   tableId = null,
+  balances: balancesOverride,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   invoices: readonly AdvanceInvoice[];
   tableId?: string | null;
+  /** Soldes calculés par l'écran appelant (dettes clients plus anciennes que la journée). */
+  balances?: ReadonlyMap<string, InvoiceBalance>;
 }) {
   const { db, ctx } = useRestaurant();
   const data = useDayData();
@@ -74,7 +82,7 @@ export function PaymentSheet({
   const [isSaving, setIsSaving] = useState(false);
 
   const active = invoices.filter((invoice) => invoice.paymentStatus !== "cancelled");
-  const balances = data?.balances;
+  const balances = balancesOverride ?? data?.balances;
   const due = balances
     ? remainingDue(
         active.map((invoice) => invoice.id),

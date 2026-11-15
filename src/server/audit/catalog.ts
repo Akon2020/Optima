@@ -74,6 +74,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "restaurant.invoice.cancelled": "Commande annulée",
   "restaurant.discount.granted": "Remise accordée",
   "restaurant.adjustment.rejected": "Demande refusée par le gérant",
+  "restaurant.credit.granted": "Vente à crédit accordée",
+  "restaurant.customer.created": "Fiche client créée",
+  "restaurant.customer.limit-set": "Plafond de crédit modifié",
 };
 
 /** Motifs techniques enregistrés par le serveur (refus de connexion), en français. */
@@ -136,6 +139,8 @@ const FIELD_LABELS: Record<string, string> = {
   counts: "Comptages",
   kind: "Demande",
   discount: "Remise",
+  customer: "Client",
+  creditLimit: "Plafond de crédit",
 };
 
 export type AuditChange = { field: string; before: string | null; after: string | null };

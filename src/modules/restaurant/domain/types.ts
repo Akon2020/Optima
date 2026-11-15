@@ -98,6 +98,13 @@ export type AdvanceInvoice = {
   discount?: Money;
   /** Motif de l'annulation validée par le gérant (RG-CMD-02). */
   cancelReason?: string | null;
+  /**
+   * Vente à crédit validée (EF-ENC-03, D-059) : la demande qui a fait de ce reste
+   * une dette client. La facture n'est plus un impayé du serveur (RG-ENC-02).
+   */
+  creditRequestId?: string | null;
+  /** Montant converti en dette à la validation. */
+  credited?: Money;
 };
 
 export type Order = {
@@ -259,7 +266,7 @@ export type DayClosing = {
 };
 
 /** Ajustement d'une commande soumis au gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01). */
-export type AdjustmentKind = "cancel" | "discount";
+export type AdjustmentKind = "cancel" | "discount" | "credit";
 
 /**
  * Demande d'annulation ou de remise : le serveur demande, le gérant valide
@@ -272,8 +279,10 @@ export type AdjustmentRequest = {
   orderId: string;
   invoiceIds: string[];
   reason: string;
-  /** Remise demandée, en devise de base ; `null` pour une annulation. */
+  /** Remise demandée, en devise de base ; `null` pour une annulation ou un crédit. */
   discount: Money | null;
+  /** Client débiteur d'une vente à crédit (D-059) ; `null` sinon. */
+  customerId: string | null;
   requestedBy: string;
   requestedByName: string;
   requestedAt: string;
@@ -291,6 +300,19 @@ export type AdjustmentDecision = {
   decidedBy: string;
   decidedByName: string;
   decidedAt: string;
+};
+
+/** Fiche client, tenue pour la vente à crédit (D-043, EF-ENC-03). */
+export type Customer = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  /** Numéro normalisé (chiffres, + initial), unique dans l'établissement. */
+  phone: string;
+  /** Plafond de crédit fixé par le gérant (D-037) ; `null` : pas de plafond. */
+  creditLimit: Money | null;
+  createdAt: string;
+  createdBy: string;
 };
 
 export type StaffMember = {

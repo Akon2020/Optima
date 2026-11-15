@@ -4,6 +4,7 @@ import type {
   AdjustmentRequest,
   AdvanceInvoice,
   CashClosing,
+  Customer,
   DayClosing,
   DiningTable,
   ExchangeRate,
@@ -23,6 +24,7 @@ import {
   adjustmentDecisionSnapshots,
   adjustmentRequestSnapshots,
   cashClosingSnapshots,
+  customerSnapshot,
   dayClosingSnapshots,
   diningTableSnapshot,
   exchangeRateSnapshots,
@@ -66,6 +68,8 @@ export type DeviceBootstrap = {
   /** Demandes d'annulation ou de remise récentes et leurs décisions (D-058). */
   adjustmentRequests: AdjustmentRequest[];
   adjustmentDecisions: AdjustmentDecision[];
+  /** Fiches clients, et commandes plus anciennes encore dues par un client (D-059). */
+  customers: Customer[];
   cursor: string;
 };
 
@@ -121,9 +125,52 @@ export async function buildBootstrap(
       adjustmentRequestSnapshots(tx, establishment.id, { requestedAt: { gte: since } }),
       tx.changeLog.findFirst({ where, orderBy: { seq: "desc" }, select: { seq: true } }),
     ]);
-    const adjustmentDecisions = await adjustmentDecisionSnapshots(tx, establishment.id, {
-      requestId: { in: adjustmentRequests.map((request) => request.id) },
+    // D-059 : une dette client peut dater de plusieurs semaines ; ses factures,
+    // paiements et demandes accompagnent l'état initial pour pouvoir l'encaisser.
+    const owed = await tx.advanceInvoice.findMany({
+      where: {
+        ...where,
+        creditRequestId: { not: null },
+        cancelledAt: null,
+        paymentStatus: { not: "paid" },
+      },
+      select: { orderId: true, creditRequestId: true },
     });
+    const knownOrders = new Set(activity.orders.map((order) => order.id));
+    const olderOrderIds = [...new Set(owed.map((row) => row.orderId))].filter(
+      (id) => !knownOrders.has(id),
+    );
+    const older = olderOrderIds.length
+      ? await orderSnapshots(tx, establishment.id, { id: { in: olderOrderIds } })
+      : { orders: [], invoices: [] };
+    const knownPayments = new Set(payments.map((payment) => payment.id));
+    const olderPaymentIds = older.invoices.length
+      ? (
+          await tx.paymentAllocation.findMany({
+            where: { ...where, invoiceId: { in: older.invoices.map((invoice) => invoice.id) } },
+            select: { paymentId: true },
+          })
+        )
+          .map((row) => row.paymentId)
+          .filter((id) => !knownPayments.has(id))
+      : [];
+    const olderPayments = olderPaymentIds.length
+      ? await paymentSnapshots(tx, establishment.id, { id: { in: [...new Set(olderPaymentIds)] } })
+      : [];
+    const knownRequests = new Set(adjustmentRequests.map((request) => request.id));
+    const olderRequestIds = [
+      ...new Set(owed.map((row) => row.creditRequestId).filter((id): id is string => id !== null)),
+    ].filter((id) => !knownRequests.has(id));
+    const olderRequests = olderRequestIds.length
+      ? await adjustmentRequestSnapshots(tx, establishment.id, { id: { in: olderRequestIds } })
+      : [];
+    const requests = [...adjustmentRequests, ...olderRequests];
+    const adjustmentDecisions = await adjustmentDecisionSnapshots(tx, establishment.id, {
+      requestId: { in: requests.map((request) => request.id) },
+    });
+    const customers = (await tx.customer.findMany({ where: { ...where, archivedAt: null } })).map(
+      (row) => customerSnapshot(row, establishment.baseCurrency),
+    );
     return {
       establishment: {
         id: establishment.id,
@@ -142,18 +189,19 @@ export async function buildBootstrap(
         name: member.user.displayName,
         role: member.role,
       })),
-      orders: activity.orders,
-      invoices: activity.invoices,
+      orders: [...activity.orders, ...older.orders],
+      invoices: [...activity.invoices, ...older.invoices],
       morningEntries,
       releases,
       modules: modules.map((entry) => entry.module).sort(),
-      payments,
+      payments: [...payments, ...olderPayments],
       exchangeRates,
       cashClosings,
       stockCounts,
       dayClosings,
-      adjustmentRequests,
+      adjustmentRequests: requests,
       adjustmentDecisions,
+      customers,
       cursor: last?.seq.toString() ?? "0",
     };
   });

@@ -188,10 +188,12 @@ export const dayValidatedSchema = z.object({
 export const adjustmentRequestedSchema = z.object({
   request: z.object({
     id: uuid,
-    kind: z.enum(["cancel", "discount"]),
+    kind: z.enum(["cancel", "discount", "credit"]),
     orderId: uuid,
     reason: z.string().trim().min(3).max(160),
     discountMinor: z.number().int().positive().max(1_000_000_000_000).nullable(),
+    /** Vente à crédit (D-059) : client débiteur ; absent des appareils plus anciens. */
+    customerId: uuid.nullable().default(null),
     requestedAt: isoDate,
   }),
 });
@@ -205,6 +207,22 @@ export const adjustmentDecidedSchema = z.object({
     comment,
     decidedAt: isoDate,
   }),
+});
+
+/** Fiche client créée pour une vente à crédit (EF-ENC-03, D-043). */
+export const customerCreatedSchema = z.object({
+  customer: z.object({
+    id: uuid,
+    name: z.string().trim().min(2).max(80),
+    phone: z.string().trim().min(6).max(30),
+    createdAt: isoDate,
+  }),
+});
+
+/** Plafond de crédit d'un client, fixé par le gérant (D-037) ; `null` : pas de plafond. */
+export const customerLimitSetSchema = z.object({
+  customerId: uuid,
+  creditLimitMinor: z.number().int().positive().max(1_000_000_000_000).nullable(),
 });
 
 export const RESTAURANT_OPERATION_TYPES = [
@@ -224,6 +242,8 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.day.validated",
   "restaurant.adjustment.requested",
   "restaurant.adjustment.decided",
+  "restaurant.customer.created",
+  "restaurant.customer.limit-set",
 ] as const;
 
 export type RestaurantOperationType = (typeof RESTAURANT_OPERATION_TYPES)[number];

@@ -128,6 +128,14 @@ describe("clôture de caisse d'une personne (EF-CLO-01, D-032)", () => {
       { id: "b", waiterId: "w1", total: fc(5_000), paymentStatus: "unpaid" as const },
       { id: "c", waiterId: "w2", total: fc(5_000), paymentStatus: "unpaid" as const },
       { id: "d", waiterId: "w1", total: fc(5_000), paymentStatus: "cancelled" as const },
+      // Convertie en dette client (D-059) : elle n'est plus au nom du serveur.
+      {
+        id: "e",
+        waiterId: "w1",
+        total: fc(5_000),
+        paymentStatus: "unpaid" as const,
+        creditRequestId: "r1",
+      },
     ];
     const balances = invoiceBalances(invoices, [
       { allocations: [{ invoiceId: "a", amount: fc(10_000) }] },

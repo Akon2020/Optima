@@ -30,6 +30,10 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.adjustment.request",
   /** Valider ou refuser ces demandes (matrice : gérant, « Validation »). */
   "restaurant.adjustment.approve",
+  /** Créer la fiche d'un client pour une vente à crédit (D-043, D-059). */
+  "restaurant.customer.create",
+  /** Fixer le plafond de crédit d'un client (D-037 ; gérant). */
+  "restaurant.customer.manage",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -48,6 +52,7 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.closing.read",
     "restaurant.closing.declare",
     "restaurant.adjustment.request",
+    "restaurant.customer.create",
   ],
   prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
   courier: [],
