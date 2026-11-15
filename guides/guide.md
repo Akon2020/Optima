@@ -295,7 +295,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 
 - [x] Playwright (`pnpm test:e2e`, D-061) : parcours P2 au téléphone (factures d'avance, options, formules, encaissement), hors connexion, CSP, thèmes, contrôle axe et captures dans les quatre combinaisons.
 - [x] Parcours avec la base (D-062) : connexion et mot de passe faux, appairage et code PIN, deux appareils synchronisés, propriétaire avec code TOTP, liste des appareils ; PostgreSQL jetable en CI.
-- [ ] Parcours P1 (stock du matin) et P5 (clôture validée par le gérant) de bout en bout.
+- [x] Parcours P1 (stock du matin) et P5 (caisse déclarée, stock compté, journée validée) de bout en bout (D-062).
 - [ ] Stylelint : interdire les couleurs littérales hors des tokens.
 - [x] GitHub Actions (D-047, D-061) sur `develop` et sur les pull requests vers `main` : typage, lint, format, tests, intégration, build, bout en bout, audit.
 - [ ] Passage des tests d'intégration contre un vrai PostgreSQL (D-021).

@@ -549,9 +549,13 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 - **Accessibilité** : au format téléphone, le bouton de synchronisation ne s'annonçait que « 0 » ; il dit maintenant l'état (« En ligne, tout est synchronisé »).
 - **Tests** : 25 tests de bout en bout, stables sur trois lancements ; 219 unitaires, 109 d'intégration.
 
+**Ajouté ensuite (même jour)**
+- **Une journée complète** sur les deux appareils : stock du matin saisi par la gérante (P1) et reçu par le téléphone (« 24 en stock »), commande et encaissement, puis déclaration de caisse, comptage du stock des deux postes sans écart et **validation de la journée** (P5).
+- **Erreur corrigée** : à chaque connexion, le serveur journalisait « Route "/compte" : Next.js encountered the unstable value `new Date()` while prerendering ». `getCurrentSession` appelle désormais `await connection()` avant de lire l'heure, comme les autres espaces.
+- **Contrôle ajouté** : un lancement de `pnpm test:e2e` échoue si le serveur journalise une erreur de rendu de Next.js (vérifié : il échoue avec l'ancien build, passe avec la correction).
+- **Tests** : 28 tests de bout en bout (7 avec le serveur), stables sur deux lancements en mode CI.
+
 **Bloque encore**
-- **P1 et P5 de bout en bout** (stock du matin, clôture validée par le gérant) : à ajouter sur la même base.
-- **Erreur dans le journal du serveur** à chaque connexion : « Route "/compte" : Next.js encountered the unstable value `new Date()` while prerendering ». La page fonctionne ; c'est la validation des rendus de Next 16 lors de la redirection après connexion. À corriger à part.
 - **À valider par vous** : D-062.
 
 ---
@@ -583,8 +587,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Erreur `new Date()` sur `/compte`** au rendu après connexion (journal du serveur), puis parcours P1 et P5 de bout en bout.
+1. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
 2. **D-Q14**, puis réquisitions et fiches recettes.
-3. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
-4. **D-Q20** (choix de l'offre), puis préproduction.
-5. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
+3. **D-Q20** (choix de l'offre), puis préproduction.
+4. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
