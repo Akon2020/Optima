@@ -4,3 +4,7 @@ allowBuilds:
   "@prisma/engines": true
   prisma: true
   esbuild: false
+
+# Correctif de sécurité (GHSA-mrhx-c7xc-m3w5) : zod 4.6.5 embarqué par @serwist/build.
+overrides:
+  "zod@<4.6.6": 4.6.7
