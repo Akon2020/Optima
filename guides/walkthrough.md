@@ -592,6 +592,25 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 27 : rapports et exports (15/11/2026)
+
+**Fait** (D-065)
+- **Écran « Rapports »** en ligne (`/e/<slug>/rapports`) pour le gérant, le lecteur et le propriétaire ; dates libres, 7 dernières journées par défaut.
+- **Ventes** : synthèse (ventes nettes, commandes, panier moyen, annulations), par point de service, par mode de paiement, 10 articles les plus et les moins vendus (y compris ceux qui ne se sont pas vendus), par serveur, par heure.
+- **Écarts** de caisse par personne et de stock sur les journées validées, corrections comprises, et historique des clôtures.
+- **Exports** audités : PDF avec l'en-tête de l'établissement, Excel (une feuille par tableau, montants additionnables), CSV des ventes ligne par ligne.
+- **Marge et bénéfice** annoncés « en attente » des prix de revient (EF-RAP-02).
+- **Droits** : nouvelle permission `reports.read` (gérant, lecteur) ; le serveur garde « ses ventes » sur son appareil.
+- **Au passage** : sur téléphone, les onglets de gestion (cinq désormais) défilent sans élargir la page.
+- **Tests** : 4 tests unitaires du rapport, 1 du document PDF en sections, 2 tests d'intégration (droits, module actif, chiffres, exports Excel et CSV audités), parcours de bout en bout (consultation, export Excel et PDF).
+- **Vérifié** : 360, 768 et 1280 px, clair et sombre, sans débordement ; mise en page du PDF contrôlée.
+
+**Bloque encore**
+- **Marge** : prix de revient (achats, D-Q14).
+- **À valider par vous** : D-065 (notamment : le serveur ne voit pas le rapport de l'établissement).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -604,7 +623,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-064 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-065 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -622,4 +641,4 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 1. **D-Q14**, puis réquisitions et fiches recettes.
 2. **D-Q20** (choix de l'offre), puis préproduction.
 3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
-4. **Rapports et exports** (EF-RAP) : export PDF ou Excel d'une période, ventes par article et par point de service, avec les briques d'export existantes (D-027).
+4. **Stylelint** (couleurs littérales interdites hors des tokens) et **landing page** dès que D-Q26 sera tranchée.
