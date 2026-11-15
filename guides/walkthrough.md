@@ -495,6 +495,26 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 22 : menus avec options et formules (15/11/2026)
+
+**Fait** (D-060)
+- **Options** : le gérant ajoute à un élément des groupes d'options (« Préparation : grillé ou frit », « Suppléments »), obligatoires ou non, à choix unique ou multiple, avec un supplément facultatif (écran Menus, détail de l'élément, « Gérer les options »).
+- **Prise de commande** : un appui sur un élément à options ouvre le choix des options ; le bouton affiche le prix, supplément compris. Le même plat avec des options différentes fait deux lignes du panier.
+- **Formules** : « Ajouter un élément », type « Formule » : nom, éléments (2 à 8), prix. Commandée, la formule part en une ligne par élément, à son poste, avec sa part du prix (au prorata, par centaines de francs) ; elle est limitée par son élément le plus rare.
+- **Factures d'avance** : les options et le nom de la formule sont imprimés sous chaque ligne ; l'addition regroupe les éléments d'une formule sur une ligne.
+- **Serveur** : migration `20261115000004_menu_options` (colonnes `kind`, `components`, `option_groups` des éléments ; options et formule des lignes de facture). Prix, suppléments et parts recalculés ; une vente hors connexion n'est pas refusée si les options ont changé entre-temps ; changements d'options audités.
+- **Démonstration** : tilapia grillé ou frit, avec suppléments ; « Formule porc » (porc, foufou, Primus) à 16 000 FC. Données fictives.
+- **Vérifié** dans le navigateur intégré : supplément de 500 FC ajouté à « Frit » ; commande tilapia frit + bananes plantains (17 500 FC) et formule porc (parts 11 000 + 1 800 + 3 200 FC) ; création d'une formule ; 375, 768 et 1280 px, clair et sombre, sans débordement.
+- **Tests** : 219 tests unitaires et 109 tests d'intégration (dont 6 sur les options et formules : droits, devise, suppléments, vente hors connexion, isolation des composants, répartition, état initial).
+
+**Bloque encore**
+- **D-Q33** : une option consomme-t-elle du stock ? Aujourd'hui, non (hypothèse).
+- **Vrai menu** : liste des plats à options et des formules à fournir par le restaurant (D-035).
+- **Base locale** : appliquer les migrations `20261115000002_adjustments`, `20261115000003_credit` et `20261115000004_menu_options` (`pnpm db:migrate`).
+- **À valider par vous** : D-060.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -502,11 +522,12 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q14 : magasin et réquisitions | Réquisitions, formule exacte du stock du matin | Le porteur du projet y reviendra |
 | D-Q20 : Vercel ou ifastnet, domaine | Préproduction, production ; PDF et tâches de fond en production | Points à vérifier dans D-045 |
 | D-Q13 : appareils et imprimantes | Impression thermique, tests sur le matériel réel | Wi-Fi Starlink confirmé (D-041), matériel à recenser |
-| D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Liste à fournir par le restaurant |
+| D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
+| D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-059 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-060 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -521,8 +542,8 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Menus avec options et formules** (D-035) : le modèle peut être construit ; la liste réelle des plats à options et des formules reste à fournir par le restaurant.
-2. **Tests de bout en bout Playwright** (parcours P1 à P6, hors connexion, deux appareils) et **intégration continue GitHub Actions** (D-047).
-3. **D-Q14**, puis réquisitions et fiches recettes.
-4. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
-5. **D-Q20** (choix de l'offre), puis préproduction.
+1. **Tests de bout en bout Playwright** (parcours P1 à P6, hors connexion, deux appareils) et **intégration continue GitHub Actions** (D-047).
+2. **D-Q14**, puis réquisitions et fiches recettes.
+3. **Dettes clients dans l'espace propriétaire** (EF-PRO-01).
+4. **D-Q20** (choix de l'offre), puis préproduction.
+5. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
