@@ -237,6 +237,36 @@ test("P5, EF-CLO-01 à 04 : caisse déclarée, stock compté, journée validée 
   await waitForSync(deviceB);
 });
 
+test("EF-ENC-03, D-059 : la gérante vend à crédit à une nouvelle cliente", async () => {
+  // Après la journée validée, la commande compte pour la journée suivante (D-039).
+  await deviceB.goto(`${restaurant()}/commandes/nouvelle`);
+  await deviceB.getByRole("radio", { name: "À emporter" }).click();
+  await deviceB.getByRole("button", { name: "Ajouter Eau minérale 50 cl", exact: true }).click();
+  await deviceB.getByRole("button", { name: /Voir la commande/ }).click();
+  await deviceB
+    .getByRole("dialog", { name: "Commande en cours" })
+    .getByRole("button", { name: "Valider la commande" })
+    .click();
+  await deviceB
+    .getByRole("dialog", { name: "Commande enregistrée" })
+    .getByRole("link", { name: "Commandes" })
+    .click();
+
+  await deviceB.getByRole("button", { name: /1× Eau minérale 50 cl/ }).click();
+  await deviceB.getByRole("button", { name: "Vendre à crédit" }).click();
+  const sheet = deviceB.getByRole("dialog", { name: /^Vente à crédit/ });
+  await sheet.getByRole("button", { name: "Nouveau client" }).click();
+  await sheet.getByLabel("Nom du client").fill("Maman Rose E2E");
+  await sheet.getByLabel("Téléphone").fill("+243 990 000 123");
+  await sheet.getByLabel("Motif").fill("Cliente habituelle, paiera vendredi");
+  await sheet.getByRole("button", { name: "Vendre à crédit" }).click();
+  await expect(sheet).toBeHidden();
+  await waitForSync(deviceB);
+
+  await deviceB.goto(`${restaurant()}/clients`);
+  await expect(deviceB.getByText("Maman Rose E2E").first()).toBeVisible();
+});
+
 test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établissement", async ({
   page,
 }) => {
@@ -250,6 +280,10 @@ test("EF-AUT-03, P6 : le propriétaire entre avec son code TOTP et voit l'établ
   await expect(page.getByText(establishmentName).first()).toBeVisible();
   // La vente encaissée sur l'appareil remonte au propriétaire.
   await expect(page.getByText("7 000 FC").first()).toBeVisible();
+  // EF-PRO-01, D-063 : la dette de la cliente apparaît, nommée.
+  const debts = page.getByRole("region", { name: "Dettes clients" });
+  await expect(debts.getByText("1 000 FC").first()).toBeVisible();
+  await expect(debts.getByText("Maman Rose E2E")).toBeVisible();
 });
 
 test("EF-CPT-04 : le gérant voit les deux appareils appairés", async ({ page }) => {

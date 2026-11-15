@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { withContext } from "@/server/db/context";
+import { getOwnerOverview } from "@/server/owner/overview";
 import { buildBootstrap } from "@/server/sync/bootstrap";
 import {
   authenticateDevice,
@@ -196,6 +197,22 @@ describe("vente à crédit (EF-ENC-03, EF-VTE-05, RG-ENC-02, D-059)", () => {
     expect(bootstrap.customers.map((customer) => customer.name)).toEqual(["Maman Rose"]);
     expect(bootstrap.invoices.some((invoice) => invoice.creditRequestId)).toBe(true);
     expect(bootstrap.adjustmentRequests.some((request) => request.kind === "credit")).toBe(true);
+  });
+
+  it("EF-PRO-01 : le propriétaire voit l'encours et les débiteurs (D-063)", async () => {
+    const overview = await getOwnerOverview(
+      db.prisma,
+      { userId: fx.owner.id, isOwner: true, isElevated: true },
+      { period: "jour" },
+    );
+    const a = overview.establishments.find((entry) => entry.id === fx.a.id);
+    const b = overview.establishments.find((entry) => entry.id === fx.b.id);
+    // 11 000 FC mis à crédit, 7 000 remboursés ; le second crédit attend le gérant.
+    expect(a?.debts.outstanding).toEqual({ amountMinor: 400_000, currency: "CDF" });
+    expect(a?.debts.openDebts).toBe(1);
+    expect(a?.debts.debtors.map((debtor) => debtor.name)).toEqual(["Maman Rose"]);
+    expect(b?.debts.outstanding.amountMinor).toBe(0);
+    expect(overview.debtors[0]).toMatchObject({ name: "Maman Rose", establishmentName: fx.a.name });
   });
 
   it("les fiches clients sont isolées par établissement (ENF-08)", async () => {

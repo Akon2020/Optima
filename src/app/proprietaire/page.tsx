@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarX,
   CloudOff,
+  CreditCard,
   HandCoins,
   Receipt,
   ShoppingBag,
@@ -94,6 +95,7 @@ async function Overview({
             <Alerts overview={overview} />
           </div>
           <Cash overview={overview} />
+          <Debts overview={overview} />
           <Establishments overview={overview} nowIso={nowIso} />
           <Upcoming />
         </div>
@@ -343,6 +345,20 @@ function Establishments({ overview, nowIso }: { overview: OwnerOverview; nowIso:
                       </p>
                     ))
                   )}
+                  <p className="mt-1">
+                    {entry.debts.outstanding.amountMinor > 0 ? (
+                      <>
+                        Dettes clients :{" "}
+                        <span className="tabular">{formatMoney(entry.debts.outstanding)}</span>{" "}
+                        <span className="text-text-muted">
+                          ({entry.debts.debtors.length} client
+                          {entry.debts.debtors.length > 1 ? "s" : ""})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-text-muted">Aucune dette client en cours.</span>
+                    )}
+                  </p>
                   <p className="mt-1 text-xs text-text-muted">
                     {entry.closings.lastValidatedDay
                       ? `Dernière journée validée : ${shortDay(entry.closings.lastValidatedDay)}`
@@ -463,11 +479,83 @@ function Cash({ overview }: { overview: OwnerOverview }) {
   );
 }
 
+/** « aujourd'hui », « depuis 1 jour », « depuis 12 jours ». */
+function debtAge(days: number): string {
+  if (days === 0) return "aujourd'hui";
+  return `depuis ${days} jour${days > 1 ? "s" : ""}`;
+}
+
+/**
+ * Dettes clients (EF-PRO-01, EF-TRE-03, D-063) : ventes à crédit validées
+ * par le gérant et pas encore remboursées, à l'instant présent ; les plus
+ * gros débiteurs sont nommés, tous établissements confondus.
+ */
+function Debts({ overview }: { overview: OwnerOverview }) {
+  if (!overview.establishments.some((entry) => entry.hasRestaurant)) return null;
+  return (
+    <Card aria-labelledby="debts-title">
+      <CardHeader
+        titleId="debts-title"
+        title="Dettes clients"
+        description="Ventes à crédit validées par le gérant et pas encore remboursées, à cet instant (quelle que soit la période)."
+      />
+      {overview.debts.length === 0 ? (
+        <EmptyState
+          icon={CreditCard}
+          title="Aucune dette en cours"
+          description="Une vente à crédit apparaît ici jusqu'à son remboursement complet."
+          className="py-6 sm:py-8"
+        />
+      ) : (
+        <div className="flex flex-col gap-4">
+          {overview.debts.map((debt) => (
+            <div key={debt.currency} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Kpi
+                icon={CreditCard}
+                tone="peach"
+                value={formatMoney(debt.outstanding)}
+                label={`Encours (${debt.currency})`}
+              />
+              <Kpi
+                icon={Users}
+                tone="grey"
+                value={String(debt.debtors)}
+                label={`Client${debt.debtors > 1 ? "s" : ""} débiteur${debt.debtors > 1 ? "s" : ""}`}
+              />
+            </div>
+          ))}
+          <section aria-labelledby="debtors-title">
+            <h3 id="debtors-title" className="mb-2 text-sm font-medium">
+              Plus gros débiteurs
+            </h3>
+            <ul className="flex flex-col divide-y divide-border">
+              {overview.debtors.map((debtor) => (
+                <li
+                  key={`${debtor.establishmentId}-${debtor.customerId}`}
+                  className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 py-2.5 text-sm"
+                >
+                  <span className="min-w-0">
+                    <span className="font-medium">{debtor.name || "Client sans nom"}</span>{" "}
+                    <span className="text-text-muted">
+                      · {debtor.establishmentName} · {debtAge(debtor.oldestDays)}
+                    </span>
+                  </span>
+                  <span className="font-semibold tabular">{formatMoney(debtor.remaining)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** EF-PRO-01 : indicateurs qui attendent des écrans pas encore construits (rien d'inventé). */
 function Upcoming() {
   const items = [
     { label: "Marge réalisée et bénéfice estimé", needs: "prix de revient (catalogue et achats)" },
-    { label: "Dépenses et dettes", needs: "trésorerie et fiches clients" },
+    { label: "Dépenses et dettes fournisseurs", needs: "trésorerie et achats" },
     { label: "Valeur du stock et ruptures", needs: "stock et achats (D-Q14)" },
   ];
   return (

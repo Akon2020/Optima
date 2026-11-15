@@ -2,15 +2,20 @@ import { formatMoney, type Currency } from "@/shared/lib/money";
 
 import {
   cashTotals,
+  debtTotals,
   periodDayKeys,
   periodRange,
   summarizeClosings,
+  summarizeDebts,
   summarizeEstablishment,
   totalsByCurrency,
   type CashClosingRow,
   type CashSummary,
   type ClosingLineRow,
+  type CreditInvoiceRow,
+  type Debtor,
   type EstablishmentClosings,
+  type EstablishmentDebts,
   type EstablishmentSales,
   type OverviewPeriod,
   type Shortage,
@@ -57,6 +62,8 @@ export type EstablishmentOverview = {
   sales: EstablishmentSales;
   /** Clôtures de la période (EF-CLO-04, D-056). */
   closings: EstablishmentClosings;
+  /** Dettes clients à l'instant présent (EF-PRO-01, D-059, D-063). */
+  debts: EstablishmentDebts;
   devices: { active: number; stale: number; lastSyncAt: string | null };
   staff: number;
 };
@@ -69,8 +76,15 @@ export type OwnerOverview = {
   cash: CashSummary[];
   /** Manquants nommés de la période (RG-CLO-01), du plus récent au plus ancien. */
   shortages: (Shortage & { establishmentName: string })[];
+  /** Encours des dettes clients, par devise (EF-PRO-01, D-063). */
+  debts: ReturnType<typeof debtTotals>;
+  /** Plus gros débiteurs, tous établissements confondus. */
+  debtors: (Debtor & { establishmentName: string })[];
   alerts: OwnerAlert[];
 };
+
+/** Débiteurs montrés dans la vue d'ensemble ; le détail est dans l'écran Clients. */
+const TOP_DEBTORS = 5;
 
 export async function getOwnerOverview(
   db: Db,
@@ -88,6 +102,8 @@ export async function getOwnerOverview(
       totals: [],
       cash: [],
       shortages: [],
+      debts: [],
+      debtors: [],
       alerts: [],
     };
   }
@@ -162,6 +178,7 @@ export async function getOwnerOverview(
       by: ["establishmentId"],
       _max: { day: true },
     }),
+    credits: await creditInvoices(tx),
   }));
   const closers = await db.user.findMany({
     where: { id: { in: [...new Set(data.cashClosings.map((row) => row.userId))] } },
@@ -214,6 +231,13 @@ export async function getOwnerOverview(
       .at(-1);
     const hasRestaurant = restaurantIds.has(establishment.id);
     const base = { establishmentId: establishment.id, establishmentName: establishment.name };
+    const debts = summarizeDebts({
+      establishmentId: establishment.id,
+      currency,
+      rows: data.credits.rows,
+      customerNames: data.credits.names,
+      nowIso,
+    });
     const closings = summarizeClosings({
       establishmentId: establishment.id,
       dayKeys: dayKeys[index] ?? [],
@@ -306,6 +330,7 @@ export async function getOwnerOverview(
       timeZone: establishment.timeZone,
       hasRestaurant,
       closings,
+      debts,
       sales: summarizeEstablishment({
         establishment: { id: establishment.id, timeZone: establishment.timeZone, currency },
         period: input.period,
@@ -331,8 +356,77 @@ export async function getOwnerOverview(
         establishmentName: names.get(shortage.establishmentId) ?? "",
       }))
       .sort((a, b) => b.day.localeCompare(a.day)),
+    debts: debtTotals(overviews.map((overview) => overview.debts)),
+    debtors: overviews
+      .flatMap((overview) => overview.debts.debtors)
+      .sort(
+        (a, b) => b.remaining.amountMinor - a.remaining.amountMinor || b.oldestDays - a.oldestDays,
+      )
+      .slice(0, TOP_DEBTORS)
+      .map((debtor) => ({ ...debtor, establishmentName: names.get(debtor.establishmentId) ?? "" })),
     alerts,
   };
+}
+
+/**
+ * Factures mises à crédit et encore liées à une demande validée (D-059) :
+ * total, remise et paiements reçus, avec le nom des clients. Lu sous le
+ * drapeau RLS du propriétaire, tous établissements confondus.
+ */
+async function creditInvoices(
+  tx: Parameters<Parameters<typeof withContext>[2]>[0],
+): Promise<{ rows: CreditInvoiceRow[]; names: Map<string, string> }> {
+  const requests = await tx.adjustmentRequest.findMany({
+    where: { kind: "credit", customerId: { not: null } },
+    select: { id: true, customerId: true },
+  });
+  if (requests.length === 0) return { rows: [], names: new Map() };
+  const decisions = await tx.adjustmentDecision.findMany({
+    where: { approved: true, requestId: { in: requests.map((request) => request.id) } },
+    select: { requestId: true, decidedAt: true },
+  });
+  const decidedAt = new Map(decisions.map((decision) => [decision.requestId, decision.decidedAt]));
+  const customerOf = new Map(requests.map((request) => [request.id, request.customerId]));
+  const invoices = await tx.advanceInvoice.findMany({
+    where: { creditRequestId: { in: [...decidedAt.keys()] }, cancelledAt: null },
+    select: {
+      id: true,
+      establishmentId: true,
+      creditRequestId: true,
+      totalMinor: true,
+      discountMinor: true,
+      currency: true,
+    },
+  });
+  const paid = await tx.paymentAllocation.groupBy({
+    by: ["invoiceId"],
+    where: { invoiceId: { in: invoices.map((invoice) => invoice.id) } },
+    _sum: { amountMinor: true },
+  });
+  const paidBy = new Map(paid.map((row) => [row.invoiceId, row._sum.amountMinor ?? 0n]));
+  const rows = invoices.flatMap((invoice): CreditInvoiceRow[] => {
+    const requestId = invoice.creditRequestId;
+    const customerId = requestId ? customerOf.get(requestId) : null;
+    const decided = requestId ? decidedAt.get(requestId) : undefined;
+    if (!requestId || !customerId || !decided) return [];
+    return [
+      {
+        establishmentId: invoice.establishmentId,
+        requestId,
+        customerId,
+        decidedAt: decided.toISOString(),
+        currency: invoice.currency as Currency,
+        totalMinor: toSafeNumber(invoice.totalMinor),
+        discountMinor: toSafeNumber(invoice.discountMinor),
+        paidMinor: toSafeNumber(paidBy.get(invoice.id) ?? 0n),
+      },
+    ];
+  });
+  const customers = await tx.customer.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.customerId))] } },
+    select: { id: true, name: true },
+  });
+  return { rows, names: new Map(customers.map((customer) => [customer.id, customer.name])) };
 }
 
 /** Lignes d'une clôture de caisse enregistrées en JSON (`cash_closings.lines`). */

@@ -3,5 +3,6 @@
  */
 export * from "./domain/overview";
 export * from "./domain/closings";
+export * from "./domain/debts";
 export * from "./domain/establishment";
 export * from "./schemas/establishment";

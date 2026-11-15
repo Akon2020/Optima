@@ -15,6 +15,11 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     // Service worker généré par `pnpm build` (scripts/build-sw.mts).
     "public/sw.js",
+    // Rapports et état des tests de bout en bout (générés, non versionnés).
+    "playwright-report/**",
+    "test-results/**",
+    "blob-report/**",
+    ".e2e/**",
   ]),
 ]);
 
