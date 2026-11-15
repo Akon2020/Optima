@@ -419,6 +419,29 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 18 : clôtures de service (15/11/2026)
+
+**Fait** (D-056)
+- **Écran Clôtures** (`/restaurant/clotures`, aussi le bouton « Clôturer mon service ») en trois onglets :
+  - **Ma caisse** : l'attendu par mode de paiement (espèces en francs, en dollars, Mobile Money), le compté, l'écart affiché en direct puis figé, un commentaire exigé s'il n'est pas nul ; la part de chaque point de service à reverser ; les factures encore impayées à son nom (RG-ENC-02) ;
+  - **Stock** (gérant) : pour chaque point de service, stock du matin, vendu, attendu, sorties déclarées avec un motif (casse, perte, repas du personnel, offert), compté, écart ; un recomptage remplace le précédent tant que la journée est ouverte ;
+  - **Journée** : ce qui manque encore, nommé (stock du matin, comptages, caisses non déclarées, opérations à envoyer), les caisses déclarées, la validation par le gérant, les journées validées et leur **rapport** imprimable ou en PDF.
+- **Serveur** : migration `20261115000001_closings` (tables `cash_closings`, `cash_closing_payments`, `stock_counts`, `day_closings`, en ajout seul et isolées par établissement). Le serveur recalcule l'attendu, la part des points de service, les impayés, le stock du matin et les ventes ; un paiement n'entre que dans une clôture ; une journée validée ne reçoit plus rien.
+- **RG-CLO-03** : chaque appareil signale à chaque réception le nombre d'opérations qu'il n'a pas encore envoyées ; la validation est refusée tant qu'un appareil en signale.
+- **Journée suivante** : ce qui suit une validation appartient au lendemain (D-039) ; le stock compté devient la proposition du stock du matin du lendemain (EF-REQ-04).
+- **Démonstration** : la veille est clôturée de bout en bout (une caisse avec un manquant expliqué, une casse déclarée), avec son rapport.
+- **Vérifié** dans Chrome : comptage enregistré, rapport de la veille, validation refusée avec son motif ; 360, 768 et 1280 px, clair et sombre, sans débordement ni erreur.
+- **Tests** : 184 tests unitaires et 92 tests d'intégration (dont 7 sur les clôtures : comptage réservé au gérant, attendu recalculé, commentaire exigé, paiement déjà clôturé, appareil en attente, journée figée, isolation).
+
+**Bloque encore**
+- **Espace propriétaire** : les clôtures n'y remontent pas encore (cash attendu, déclaré, manquants : EF-CLO-04, EF-PRO-01).
+- **Clôture de période** (EF-CLO-05) et **écritures d'ajustement** (RG-CLO-02).
+- **Réquisitions** (D-Q14) : le stock attendu les compte pour zéro.
+- **Base locale** : appliquer la migration (`pnpm db:migrate`).
+- **À valider par vous** : D-056.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -430,7 +453,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029, D-055 et D-056 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -445,7 +468,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Clôtures de service** (D-039) : montant attendu par mode de paiement, montant compté, écart, impayés (RG-ENC-02) ; puis crédit et remises.
+1. **Clôtures dans l'espace propriétaire** (cash attendu, déclaré, manquants), puis crédit, remises et annulations.
 2. **Menus avec options et formules** (D-035).
 3. **D-Q14**, puis réquisitions et fiches recettes.
 4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).
