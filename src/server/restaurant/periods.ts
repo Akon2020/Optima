@@ -565,3 +565,44 @@ export async function validatePeriod(
     return { id: created.id, summary };
   });
 }
+
+/**
+ * Écarts de caisse et de stock des journées validées d'un intervalle, comme
+ * pour une période (rapports, EF-RAP-03). Le contexte RLS est déjà posé.
+ */
+export async function closingSummaryForRange(
+  tx: Tx,
+  establishmentId: string,
+  range: { from: string; to: string },
+  now: Date,
+): Promise<{ summary: PeriodSummary; days: ValidatedDay[]; periods: PeriodClosingView[] }> {
+  const settings = await establishmentOf(tx, establishmentId);
+  const state = await closingState(tx, establishmentId);
+  const { summary } = await computeSummary(tx, establishmentId, range, state, settings, now);
+  const inRange = (day: string) => range.from <= day && day <= range.to;
+  const names = await namesOf(tx, [
+    ...state.days.map((day) => day.validatedBy),
+    ...state.periods.map((period) => period.validatedBy),
+  ]);
+  return {
+    summary,
+    days: state.days
+      .filter((day) => inRange(day.day))
+      .map((day) => ({
+        day: day.day,
+        validatedAt: day.validatedAt.toISOString(),
+        validatedByName: names.get(day.validatedBy) ?? "",
+      })),
+    periods: state.periods
+      .filter((period) => period.fromDay <= range.to && range.from <= period.toDay)
+      .map((period) => ({
+        id: period.id,
+        from: period.fromDay,
+        to: period.toDay,
+        validatedAt: period.validatedAt.toISOString(),
+        validatedByName: names.get(period.validatedBy) ?? "",
+        comment: period.comment,
+        summary: period.summary as unknown as PeriodSummary,
+      })),
+  };
+}

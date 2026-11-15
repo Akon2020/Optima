@@ -44,7 +44,15 @@ export const CORE_PERMISSIONS = [
 ] as const;
 
 export type CorePermission = (typeof CORE_PERMISSIONS)[number];
-export type Permission = CorePermission | RestaurantPermission;
+
+/**
+ * Permissions du module Rapports (EF-RAP, matrice des droits § 3, ligne
+ * « Rapports et tableaux de bord ») : lecture et exports, audités.
+ */
+export const REPORT_PERMISSIONS = ["reports.read"] as const;
+export type ReportPermission = (typeof REPORT_PERMISSIONS)[number];
+
+export type Permission = CorePermission | RestaurantPermission | ReportPermission;
 export type MemberRole = "manager" | "waiter" | "prep" | "courier" | "reader";
 
 const CORE_ROLE_PERMISSIONS: Record<MemberRole, readonly CorePermission[]> = {
@@ -55,10 +63,21 @@ const CORE_ROLE_PERMISSIONS: Record<MemberRole, readonly CorePermission[]> = {
   reader: [],
 };
 
+// Le serveur (« ses ventes ») les voit sur le tableau de bord de son appareil (EF-TDB-02) ;
+// le rapport de l'établissement est réservé au gérant et au lecteur.
+const REPORT_ROLE_PERMISSIONS: Record<MemberRole, readonly ReportPermission[]> = {
+  manager: REPORT_PERMISSIONS,
+  waiter: [],
+  prep: [],
+  courier: [],
+  reader: REPORT_PERMISSIONS,
+};
+
 export function isPermission(value: string): value is Permission {
   return (
     (CORE_PERMISSIONS as readonly string[]).includes(value) ||
-    (RESTAURANT_PERMISSIONS as readonly string[]).includes(value)
+    (RESTAURANT_PERMISSIONS as readonly string[]).includes(value) ||
+    (REPORT_PERMISSIONS as readonly string[]).includes(value)
   );
 }
 
@@ -72,6 +91,9 @@ export function roleHasPermission(role: MemberRole | "owner", permission: Permis
   if (role === "owner") return true;
   if (permission.startsWith("core.")) {
     return CORE_ROLE_PERMISSIONS[role].includes(permission as CorePermission);
+  }
+  if (permission.startsWith("reports.")) {
+    return REPORT_ROLE_PERMISSIONS[role].includes(permission as ReportPermission);
   }
   return restaurantHasPermission(role, permission as RestaurantPermission);
 }

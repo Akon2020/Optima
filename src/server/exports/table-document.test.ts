@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTableDocument, escapeHtml } from "./table-document";
+import { buildReportDocument, buildTableDocument, escapeHtml } from "./table-document";
 
 describe("document imprimable (EF-AUD-04)", () => {
   it("échappe tout le contenu", () => {
@@ -38,5 +38,29 @@ describe("document imprimable (EF-AUD-04)", () => {
       generatedAt: "—",
     });
     expect(html).toContain('<td colspan="2" class="empty">Aucune entrée.</td>');
+  });
+});
+
+describe("rapport en sections (EF-RAP-04)", () => {
+  it("porte l'en-tête de l'établissement et échappe chaque section", () => {
+    const html = buildReportDocument({
+      title: "Rapport des ventes",
+      establishment: ["Restaurant <i>Best</i>", "Avenue P.E. Lumumba"],
+      details: ["Du 10/11/2026 au 16/11/2026"],
+      sections: [
+        {
+          title: "Par article",
+          header: ["Article", "Quantité", "Montant"],
+          rows: [["Primus", 3, 12500]],
+        },
+        { title: "Par heure", header: ["Heure"], rows: [], emptyLabel: "Aucune vente." },
+      ],
+      generatedAt: "16/11/2026 à 21:00",
+    });
+    expect(html).toContain("Restaurant &lt;i&gt;Best&lt;/i&gt;");
+    expect(html).not.toContain("<i>");
+    expect(html).toContain("<h2>Par article</h2>");
+    expect(html).toMatch(/<td>Primus<\/td><td>3<\/td><td>12\s500<\/td>/);
+    expect(html).toContain('<td colspan="1" class="empty">Aucune vente.</td>');
   });
 });
