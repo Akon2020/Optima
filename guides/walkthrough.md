@@ -442,6 +442,20 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 19 : clôtures dans l'espace propriétaire (15/11/2026)
+
+**Fait** (D-057)
+- **Vue d'ensemble** (`/proprietaire`) : nouvelle carte « Caisse » avec, par devise et pour la période choisie, le cash attendu, le cash déclaré et les manquants ; la liste des **manquants nommés** (personne, établissement, journée, commentaire) ; sur chaque établissement, le cash déclaré face à l'attendu et la dernière journée validée.
+- **Alertes** : journée passée avec des ventes et non validée (sur 7 jours, même en vue « Aujourd'hui ») ; manquant de caisse.
+- **Tests** : règles de calcul (unitaires) ; vue d'ensemble avec une clôture réelle : attendu, déclaré, manquant nommé, alerte levée après validation (intégration). 189 tests unitaires et 93 tests d'intégration au total.
+- **Vérifié** dans Chrome, connecté comme propriétaire (double authentification) : 360, 768 et 1280 px, clair et sombre, sans débordement ni erreur. La base locale n'ayant pas encore de clôture, seuls les états vides y sont visibles ; les montants sont couverts par le test d'intégration.
+
+**Bloque encore**
+- **Clôture de période** (EF-CLO-05) et **écritures d'ajustement** (RG-CLO-02).
+- **À valider par vous** : D-057.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -453,7 +467,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029, D-055 et D-056 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-057 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -468,7 +482,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Clôtures dans l'espace propriétaire** (cash attendu, déclaré, manquants), puis crédit, remises et annulations.
+1. **Crédit, remises et annulations** (EF-ENC-03, RG-ENC-01, RG-CMD-02, RG-VTE-02) : validation du gérant, fiches clients (D-043).
 2. **Menus avec options et formules** (D-035).
 3. **D-Q14**, puis réquisitions et fiches recettes.
 4. **Tests Playwright de bout en bout** (hors connexion, deux appareils) et **GitHub Actions** (D-047).
