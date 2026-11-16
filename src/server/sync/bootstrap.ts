@@ -188,6 +188,7 @@ export async function buildBootstrap(
         establishmentId: establishment.id,
         name: member.user.displayName,
         role: member.role,
+        servicePointId: member.servicePointId,
       })),
       orders: [...activity.orders, ...older.orders],
       invoices: [...activity.invoices, ...older.invoices],

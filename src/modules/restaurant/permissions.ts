@@ -34,6 +34,8 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.customer.create",
   /** Fixer le plafond de crédit d'un client (D-037 ; gérant). */
   "restaurant.customer.manage",
+  /** Déclarer un élément épuisé pour la journée (EF-PRE-03 : le poste, ou le gérant). */
+  "restaurant.menu.sold-out",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -54,7 +56,12 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.adjustment.request",
     "restaurant.customer.create",
   ],
-  prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
+  prep: [
+    "restaurant.order.prep-status",
+    "restaurant.menu.read",
+    "restaurant.morning-stock.read",
+    "restaurant.menu.sold-out",
+  ],
   courier: [],
   reader: ["restaurant.menu.read", "restaurant.morning-stock.read", "restaurant.closing.read"],
 };

@@ -281,6 +281,8 @@ model MenuItem {
   components      Json      @default("[]")
   /// Groupes d'options et suppléments (D-035, D-060).
   optionGroups    Json      @default("[]") @map("option_groups")
+  /// EF-PRE-03, D-066 : journée pour laquelle le poste l'a déclaré épuisé.
+  soldOutDay      String?   @map("sold_out_day")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
 

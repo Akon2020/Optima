@@ -52,6 +52,8 @@ export type MenuItem = {
   optionGroups?: OptionGroup[];
   /** Formule : éléments qui la composent, un par unité (répéter pour en mettre deux). */
   components?: string[];
+  /** EF-PRE-03, D-066 : journée pour laquelle le poste l'a déclaré épuisé. */
+  soldOutDay?: string | null;
 };
 
 /** Table de la salle, créée et numérotée par le gérant (EF-RES-04). */
@@ -345,4 +347,6 @@ export type StaffMember = {
   establishmentId: string;
   name: string;
   role: "manager" | "waiter" | "prep" | "courier" | "reader";
+  /** Poste d'un préparateur (matrice des droits : « son poste », D-066). */
+  servicePointId?: string | null;
 };

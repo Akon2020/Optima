@@ -89,6 +89,7 @@ export function menuItemSnapshot(row: {
   kind: string;
   components: unknown;
   optionGroups: unknown;
+  soldOutDay?: string | null;
   createdAt: Date;
   archivedAt: Date | null;
 }): MenuItem {
@@ -109,6 +110,7 @@ export function menuItemSnapshot(row: {
       ? { kind: "formula" as const, components: jsonArray<string>(row.components) }
       : {}),
     ...(optionGroups.length > 0 ? { optionGroups } : {}),
+    ...(row.soldOutDay ? { soldOutDay: row.soldOutDay } : {}),
   };
 }
 

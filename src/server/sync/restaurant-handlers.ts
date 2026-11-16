@@ -31,6 +31,7 @@ import {
   formulaIssue,
   optionGroupsIssue,
 } from "@/modules/restaurant/domain/menu-options";
+import { canWorkStation } from "@/modules/restaurant/domain/preparation";
 import {
   currentEntries,
   isMorningStockComplete,
@@ -65,6 +66,7 @@ import {
   morningStockEnteredSchema,
   orderCreatedSchema,
   menuItemOptionsSetSchema,
+  menuItemSoldOutSetSchema,
   paymentRecordedSchema,
   prepStatusChangedSchema,
   stockCountedSchema,
@@ -256,6 +258,21 @@ const orderCreated = handler({
   },
 });
 
+/**
+ * Matrice des droits, « Postes de préparation » (D-066) : un préparateur ne
+ * travaille que pour le point de service de son poste.
+ */
+async function assertOwnStation(tx: Tx, ctx: HandlerContext, servicePointId: string) {
+  if (ctx.role !== "prep") return;
+  const membership = await tx.membership.findFirst({
+    where: { userId: ctx.userId, establishmentId: ctx.establishmentId },
+    select: { servicePointId: true },
+  });
+  if (!canWorkStation(ctx.role, membership?.servicePointId ?? null, servicePointId)) {
+    throw new DomainError("NOT_YOUR_STATION", "Cette action concerne un autre poste.");
+  }
+}
+
 const prepStatusChanged = handler({
   permission: "restaurant.order.prep-status",
   schema: prepStatusChangedSchema,
@@ -264,6 +281,7 @@ const prepStatusChanged = handler({
       where: { id: payload.invoiceId, establishmentId: ctx.establishmentId },
     });
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Facture inconnue du serveur.");
+    await assertOwnStation(tx, ctx, invoice.servicePointId);
     if (invoice.cancelledAt)
       throw new DomainError("INVOICE_CANCELLED", "Cette facture est annulée.");
     await tx.advanceInvoice.update({
@@ -349,6 +367,35 @@ function assertOptionGroups(groups: OptionGroup[], currency: Currency): void {
     );
   }
 }
+
+/** EF-PRE-03 : élément épuisé pour une journée, ou remis en vente (D-066). */
+const menuItemSoldOutSet = handler({
+  permission: "restaurant.menu.sold-out",
+  schema: menuItemSoldOutSetSchema,
+  async apply(tx, ctx, payload) {
+    const item = await tx.menuItem.findFirst({
+      where: { id: payload.itemId, establishmentId: ctx.establishmentId },
+    });
+    if (!item) throw new DomainError("ITEM_NOT_FOUND", "Élément de menu inconnu du serveur.");
+    await assertOwnStation(tx, ctx, item.servicePointId);
+    const soldOutDay = payload.isSoldOut ? payload.day : null;
+    // Remise en vente d'une autre journée : rien à défaire.
+    if (!payload.isSoldOut && item.soldOutDay !== payload.day) return;
+    const updated = await tx.menuItem.update({ where: { id: item.id }, data: { soldOutDay } });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.menu-item.sold-out-set",
+      entity: "menu_item",
+      entityId: item.id,
+      before: { soldOutDay: item.soldOutDay },
+      after: { soldOutDay, day: payload.day },
+    });
+    await recordChange(tx, ctx, "menu_item", item.id, menuItemSnapshot(updated));
+  },
+});
 
 const menuItemOptionsSet = handler({
   permission: "restaurant.menu.manage",
@@ -1483,6 +1530,7 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.invoice.prep-status-changed": prepStatusChanged,
   "restaurant.menu-item.created": menuItemCreated,
   "restaurant.menu-item.options-set": menuItemOptionsSet,
+  "restaurant.menu-item.sold-out-set": menuItemSoldOutSet,
   "restaurant.morning-stock.entered": morningStockEntered,
   "restaurant.table.created": tableCreated,
   "restaurant.table.renamed": tableRenamed,

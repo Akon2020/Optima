@@ -127,7 +127,14 @@ async function assertServicePoint(
 async function broadcast(
   tx: Tx,
   establishmentId: string,
-  member: { userId: string; name: string; role: MemberRole; status: "active" | "suspended" },
+  member: {
+    userId: string;
+    name: string;
+    role: MemberRole;
+    status: "active" | "suspended";
+    /** Poste d'un préparateur (D-066). */
+    servicePointId: string | null;
+  },
 ): Promise<void> {
   await tx.changeLog.create({
     data: {
@@ -140,6 +147,7 @@ async function broadcast(
         name: member.name,
         role: member.role,
         status: member.status,
+        servicePointId: member.servicePointId,
       }),
     },
   });
@@ -286,6 +294,7 @@ export async function createStaffMember(
       name,
       role: input.role,
       status: "active",
+      servicePointId,
     });
     await writeAudit(tx, {
       establishmentId: access.establishmentId,
@@ -342,6 +351,7 @@ export async function updateStaffMember(
       name,
       role: input.role,
       status: target.status,
+      servicePointId,
     });
     await writeAudit(tx, {
       establishmentId: access.establishmentId,
@@ -423,6 +433,7 @@ export async function suspendStaffMember(
       name: target.user.displayName,
       role: target.role,
       status: "suspended",
+      servicePointId: target.servicePointId,
     });
     await writeAudit(tx, {
       establishmentId: access.establishmentId,
@@ -456,6 +467,7 @@ export async function reactivateStaffMember(
       name: target.user.displayName,
       role: target.role,
       status: "active",
+      servicePointId: target.servicePointId,
     });
     await writeAudit(tx, {
       establishmentId: access.establishmentId,

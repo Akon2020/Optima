@@ -71,6 +71,13 @@ export const prepStatusChangedSchema = z.object({
   status: z.enum(["pending", "ready", "served"]),
 });
 
+/** EF-PRE-03, D-066 : élément déclaré épuisé (ou remis en vente) pour une journée. */
+export const menuItemSoldOutSetSchema = z.object({
+  itemId: uuid,
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  isSoldOut: z.boolean(),
+});
+
 export const menuItemCreatedSchema = z.object({
   item: z.object({
     id: uuid,
@@ -272,6 +279,7 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.order.created",
   "restaurant.invoice.prep-status-changed",
   "restaurant.menu-item.created",
+  "restaurant.menu-item.sold-out-set",
   "restaurant.morning-stock.entered",
   "restaurant.table.created",
   "restaurant.table.renamed",

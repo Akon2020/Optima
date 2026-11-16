@@ -32,6 +32,7 @@ import {
 } from "../domain/closing";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
 import { expandOrderLine, formulaIssue, optionGroupsIssue } from "../domain/menu-options";
+import { canWorkStation, isDeclaredSoldOut } from "../domain/preparation";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
@@ -81,6 +82,7 @@ import type {
   cashClosingDeclaredSchema,
   customerCreatedSchema,
   menuItemOptionsSetSchema,
+  menuItemSoldOutSetSchema,
   customerLimitSetSchema,
   dayValidatedSchema,
   orderCreatedSchema,
@@ -229,6 +231,12 @@ export async function createOrder(
       for (const [menuItemId, quantity] of wanted) {
         const item: MenuItem | undefined = itemById.get(menuItemId);
         if (!item) continue;
+        if (isDeclaredSoldOut(item, day)) {
+          throw new DomainError(
+            "ITEM_SOLD_OUT",
+            `« ${item.name} » est épuisé (déclaré par le poste).`,
+          );
+        }
         const availability = computeAvailability(
           item,
           morningStock.get(item.id)?.quantity ?? null,
@@ -340,9 +348,15 @@ export async function setInvoicePrepStatus(
   status: PrepStatus,
 ): Promise<void> {
   assertPermission(ctx, "restaurant.order.prep-status", "changer le statut d'une commande");
-  await db.transaction("rw", db.invoices, db.outbox, async () => {
+  await db.transaction("rw", db.invoices, db.staff, db.outbox, async () => {
     const invoice = await db.invoices.get(invoiceId);
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Cette facture est introuvable.");
+    if (ctx.role === "prep") {
+      const own = (await db.staff.get(ctx.userId))?.servicePointId ?? null;
+      if (!canWorkStation(ctx.role, own, invoice.servicePointId)) {
+        throw new DomainError("NOT_YOUR_STATION", "Cette commande est pour un autre poste.");
+      }
+    }
     if (invoice.paymentStatus === "cancelled") {
       throw new DomainError("INVOICE_CANCELLED", "Cette facture est annulée.");
     }
@@ -358,6 +372,47 @@ export async function setInvoicePrepStatus(
         createdAt: new Date().toISOString(),
       }),
     );
+  });
+}
+
+/**
+ * EF-PRE-03 : le poste déclare un élément épuisé pour la journée (il
+ * disparaît aussitôt de la prise de commande), ou le remet en vente. Un
+ * préparateur ne le fait que pour son poste ; le gérant pour tous.
+ */
+export async function setItemSoldOut(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  itemId: string,
+  isSoldOut: boolean,
+  at: string = new Date().toISOString(),
+): Promise<MenuItem> {
+  assertPermission(ctx, "restaurant.menu.sold-out", "déclarer un élément épuisé");
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const day = businessDayKey(at, businessDayStartHour, timeZone);
+  return db.transaction("rw", db.menuItems, db.staff, db.outbox, async () => {
+    const item = await db.menuItems.get(itemId);
+    if (!item || item.archivedAt !== null) {
+      throw new DomainError("ITEM_NOT_FOUND", "Cet élément n'existe plus au menu.");
+    }
+    const own = (await db.staff.get(ctx.userId))?.servicePointId ?? null;
+    if (!canWorkStation(ctx.role, own, item.servicePointId)) {
+      throw new DomainError("NOT_YOUR_STATION", "Cet élément dépend d'un autre poste.");
+    }
+    const updated: MenuItem = { ...item, soldOutDay: isSoldOut ? day : null };
+    await db.menuItems.put(updated);
+    await db.outbox.add(
+      createOperation({
+        id: uuidv7(),
+        type: "restaurant.menu-item.sold-out-set",
+        payload: { itemId, day, isSoldOut } satisfies z.infer<typeof menuItemSoldOutSetSchema>,
+        establishmentId: ctx.establishmentId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        createdAt: at,
+      }),
+    );
+    return updated;
   });
 }
 

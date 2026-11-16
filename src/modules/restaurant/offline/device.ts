@@ -102,6 +102,7 @@ export async function applyStaffMember(db: RestaurantDb, member: StaffMemberChan
       establishmentId: member.establishmentId,
       name: member.name,
       role: member.role,
+      servicePointId: member.servicePointId ?? null,
     });
     await db.deviceUsers.update(member.id, { name: member.name, role: member.role });
   });
