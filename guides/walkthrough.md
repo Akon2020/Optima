@@ -611,6 +611,25 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 28 : postes de préparation (16/11/2026)
+
+**Fait** (D-066)
+- **Écran du poste** (`/restaurant/preparation/cuisine`, `comptoir` ou `grillade`) : commandes à préparer, la plus ancienne d'abord, avec le temps écoulé, la table, le serveur, les éléments, options et formule, **sans aucun montant** ; bouton « Prête » ; liste « Prêtes, à servir » avec retour en préparation.
+- **Le serveur est averti** : bandeau « N commandes prêtes à servir » sur son appareil, et une courte vibration à chaque nouvelle commande prête.
+- **Épuisé** : le poste déclare un élément épuisé pour la journée ; il disparaît aussitôt de la prise de commande et revient le lendemain, ou par « Remettre en vente ».
+- **Son poste seulement** : un préparateur ne voit et ne traite que son poste (celui fixé sur l'écran Équipe) ; le gérant tous ; le serveur le revérifie.
+- **Réseau** : l'écran du poste se synchronise toutes les 5 s ; sans connexion, un bandeau rappelle que les factures imprimées font foi.
+- **Serveur** : migration `20261116000001_sold_out` (colonne `sold_out_day`), opération `restaurant.menu-item.sold-out-set` auditée, contrôle du poste sur « prête » et « épuisé ».
+- **Tests** : 5 unitaires, 2 sur l'appareil, 2 d'intégration (poste, épuisé, droits, audit, état initial), parcours de bout en bout (le poste marque prête, le téléphone du serveur affiche le bandeau, l'eau épuisée disparaît de la prise de commande puis revient), contrôle axe de l'écran en clair et en sombre.
+- **Au passage** : les parcours avec le serveur attendent 30 s par vérification (au lieu de 15), pour rester fiables quand la machine est chargée.
+
+**À faire de votre côté**
+- **Activer le module « Postes de préparation »** pour le restaurant (espace propriétaire, fiche de l'établissement) et fixer le poste de chaque préparateur (écran Équipe).
+- **Base locale** : appliquer les migrations `20261115000002` à `20261116000001` (`pnpm db:migrate`).
+- **À valider par vous** : D-066.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -623,7 +642,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-065 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-066 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
