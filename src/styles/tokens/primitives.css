@@ -76,4 +76,10 @@
   --status-amber: #c97412;
   --status-grey: #8f8f8f;
   --status-red: #c93f2c;
+
+  /* Documents imprimés : toujours en clair (§ 4.3, D-Q32), quel que soit le thème. */
+  --print-paper: #ffffff;
+  --print-ink: #000000;
+  --print-muted: #333333;
+  --print-border: #cccccc;
 }

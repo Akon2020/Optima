@@ -69,11 +69,11 @@
   :root,
   :root[data-theme="dark"],
   :root[data-theme="dark"] [data-module] {
-    --color-bg: #ffffff;
-    --color-surface: #ffffff;
-    --color-text: #000000;
-    --color-text-muted: #333333;
-    --color-border: #cccccc;
+    --color-bg: var(--print-paper);
+    --color-surface: var(--print-paper);
+    --color-text: var(--print-ink);
+    --color-text-muted: var(--print-muted);
+    --color-border: var(--print-border);
     color-scheme: light;
   }
 
