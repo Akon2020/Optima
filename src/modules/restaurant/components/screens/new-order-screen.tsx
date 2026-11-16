@@ -33,6 +33,7 @@ import {
 } from "../../domain/menu";
 import { cartLinePrice, isFormula } from "../../domain/menu-options";
 import { CART_ISSUE_MESSAGES, validateCart } from "../../domain/order";
+import { isDeclaredSoldOut } from "../../domain/preparation";
 import type {
   AdvanceInvoice,
   MenuItem,
@@ -185,8 +186,10 @@ export function NewOrderScreen() {
   }
 
   const visibleItems = sortByPopularity(
-    itemsForMenu(data.menuItems, data.servicePoints, menu).filter((item) =>
-      matchesSearch(`${item.name} ${item.category}`, query),
+    itemsForMenu(data.menuItems, data.servicePoints, menu).filter(
+      (item) =>
+        // EF-PRE-03 : un élément déclaré épuisé par son poste disparaît de la prise de commande.
+        !isDeclaredSoldOut(item, data.day) && matchesSearch(`${item.name} ${item.category}`, query),
     ),
     data.soldByItem,
   );

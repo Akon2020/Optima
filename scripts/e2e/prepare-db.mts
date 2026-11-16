@@ -126,11 +126,13 @@ try {
   });
   await withContext(prisma, { establishmentId: establishment.id, isOwner: false }, async (tx) => {
     await tx.establishmentModule.createMany({
-      data: ["catalog", "stock", "sales", "documents", "restaurant", "reports"].map((module) => ({
-        establishmentId: establishment.id,
-        module,
-        enabled: true,
-      })),
+      data: ["catalog", "stock", "sales", "documents", "restaurant", "reports", "preparation"].map(
+        (module) => ({
+          establishmentId: establishment.id,
+          module,
+          enabled: true,
+        }),
+      ),
     });
     const point = (kind: string, name: string, menu: string, sortOrder: number) =>
       tx.servicePoint.create({

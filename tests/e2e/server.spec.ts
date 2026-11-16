@@ -1,8 +1,12 @@
 import { createHmac } from "node:crypto";
 
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect as baseExpect, test, type Browser, type Page } from "@playwright/test";
 
 import { readE2eState, type E2eAccount } from "./server/env";
+
+// Ces parcours attendent le serveur (connexion, synchronisation) : 30 s par
+// vérification, pour rester fiables quand d'autres tests chargent la machine.
+const expect = baseExpect.configure({ timeout: 30_000 });
 
 /**
  * Parcours qui exigent le serveur et sa base (D-062), sur `optima_e2e`
@@ -200,6 +204,50 @@ test("EF-OFF-01 à 03 : une commande d'un appareil arrive sur l'autre, l'encaiss
     }),
   ).toBeVisible();
   await deviceA.keyboard.press("Escape");
+});
+
+test("EF-PRE-01 à 03 : le poste marque la commande prête, le serveur est averti ; « épuisé » retire l'élément", async () => {
+  // La tablette de la gérante sert d'écran au comptoir.
+  await deviceB.goto(`${restaurant()}/preparation/comptoir`);
+  await expect(deviceB.getByRole("heading", { name: "Comptoir", level: 1 })).toBeVisible();
+  const ticket = deviceB.getByRole("article", { name: /À emporter/ });
+  await expect(ticket.getByText("Primus 72 cl")).toBeVisible();
+  // RG-PRE-01 : aucun montant sur l'écran du poste.
+  await expect(ticket.getByText(/FC/)).toHaveCount(0);
+  await ticket.getByRole("button", { name: "Prête" }).click();
+  await expect(
+    deviceB.getByRole("region", { name: "Prêtes, à servir" }).getByText(/À emporter/),
+  ).toBeVisible();
+  await waitForSync(deviceB);
+
+  // EF-PRE-02 : le téléphone du serveur affiche la commande prête.
+  await syncNow(deviceA);
+  await expect(deviceA.getByText("1 commande prête à servir")).toBeVisible();
+
+  // EF-PRE-03 : l'eau, déclarée épuisée, disparaît de la prise de commande.
+  const soldOut = deviceB.getByRole("region", { name: "Éléments épuisés" });
+  await soldOut
+    .getByRole("listitem")
+    .filter({ hasText: "Eau minérale 50 cl" })
+    .getByRole("button", { name: "Déclarer épuisé" })
+    .click();
+  await waitForSync(deviceB);
+  await syncNow(deviceA);
+  await deviceA.goto(`${restaurant()}/commandes/nouvelle`);
+  await expect(
+    deviceA.getByRole("button", { name: "Ajouter Primus 72 cl", exact: true }),
+  ).toBeVisible();
+  await expect(
+    deviceA.getByRole("button", { name: "Ajouter Eau minérale 50 cl", exact: true }),
+  ).toHaveCount(0);
+
+  // Remise en vente, pour la suite de la journée.
+  await soldOut
+    .getByRole("listitem")
+    .filter({ hasText: "Eau minérale 50 cl" })
+    .getByRole("button", { name: "Remettre en vente" })
+    .click();
+  await waitForSync(deviceB);
 });
 
 test("P5, EF-CLO-01 à 04 : caisse déclarée, stock compté, journée validée par la gérante", async () => {

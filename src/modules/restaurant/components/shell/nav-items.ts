@@ -1,5 +1,6 @@
 import {
   ArrowRightLeft,
+  ChefHat,
   Armchair,
   Bike,
   Calculator,
@@ -55,6 +56,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     shortLabel: "Réquisitions",
     icon: ArrowRightLeft,
     isUpcoming: true,
+  },
+  {
+    segment: "preparation",
+    label: "Préparation",
+    shortLabel: "Préparation",
+    icon: ChefHat,
+    module: "preparation",
   },
   {
     segment: "clotures",

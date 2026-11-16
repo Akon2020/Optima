@@ -38,6 +38,7 @@ import {
   restaurantHref,
 } from "./nav-items";
 import { useOfflinePreparation } from "./offline-preparation";
+import { ReadyNotice } from "./ready-notice";
 import { SyncStatus } from "./sync-status";
 
 /**
@@ -124,6 +125,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh min-w-0 flex-col">
         <Topbar onOpenMenu={() => setIsDrawerOpen(true)} />
         <DemoBanner />
+        {status === "ready" ? <ReadyNotice /> : null}
         <main
           id="contenu"
           tabIndex={-1}
