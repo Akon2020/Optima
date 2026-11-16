@@ -11,7 +11,7 @@
 | # | Étape | État | Commits |
 |---|---|---|---|
 | 1 | Analyse, spécifications et décisions | Fait | `1703006`, `5b2c30e` |
-| 2 | Initialisation de l'outillage | Fait (Stylelint et Playwright restent à ajouter) | `2ca6d7e` |
+| 2 | Initialisation de l'outillage | Fait (Playwright le 15/11/2026, Stylelint le 16/11/2026) | `2ca6d7e` |
 | 3 | Design system et thèmes | Fait | `b809a7e` |
 | 4 | Module Restaurant, interface locale | Fait sur données de démonstration | `9c44090`, `9df9a5b`, `0b38c1b`, `6a41638` |
 | 5 | Stock du matin | Fait, proposition simplifiée (D-Q14) | `e15882e`, `4c18be0` |
@@ -64,9 +64,8 @@
   - `errors.ts` : erreurs métier typées.
 
 **Bloque encore**
-- **Stylelint** (interdiction des couleurs littérales hors des tokens) n'est pas installé.
-- **Playwright** (tests de bout en bout, captures, accessibilité axe) n'est pas installé.
-- Pas d'**intégration continue** (GitHub Actions), recommandée par D-Q22.
+- ~~**Stylelint**~~ : fait à l'étape 29 (D-067).
+- ~~**Playwright**~~ et ~~**intégration continue**~~ : faits le 15/11/2026 (D-061).
 
 ---
 
@@ -630,6 +629,19 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 29 : Stylelint et couleurs littérales (16/11/2026)
+
+**Fait** (D-067)
+- **Stylelint 17.9.1** (`stylelint.config.mjs`) : dans les fichiers CSS, une couleur écrite en dur (`#1F3864`, `white`, `rgb(...)`) est refusée, sauf dans les tokens (`src/styles/tokens/`) et les chartes de module (`src/styles/modules/`).
+- **Même règle pour le code** (ESLint) : une classe comme `bg-[#1F3864]` ou un style en ligne `color: "#fff"` est refusé dans les fichiers TypeScript.
+- **`pnpm lint`** lance ESLint puis Stylelint (`pnpm lint:css` pour Stylelint seul) ; l'intégration continue le contrôle donc déjà.
+- **Au passage** : les couleurs de l'impression passent par des tokens (`--print-paper`, `--print-ink`...) ; l'ancien `src/app/globals.css`, inutilisé, est supprimé.
+- **Vérifié** : typage, lint, format, 240 tests unitaires, build de production (les tokens d'impression sont bien dans la feuille de style produite).
+
+**À valider par vous** : D-067.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -642,7 +654,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-066 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-067 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -660,4 +672,4 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 1. **D-Q14**, puis réquisitions et fiches recettes.
 2. **D-Q20** (choix de l'offre), puis préproduction.
 3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
-4. **Stylelint** (couleurs littérales interdites hors des tokens) et **landing page** dès que D-Q26 sera tranchée.
+4. **Landing page** dès que D-Q26 sera tranchée.

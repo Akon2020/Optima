@@ -102,10 +102,10 @@ Tailwind lit les tokens sémantiques et ne contient aucune couleur en dur. **Éc
 - Le thème sombre et les chartes de module redéfinissent les mêmes variables dans la couche `tokens`, **placée après** la couche `theme` de Tailwind : elles l'emportent sans conflit de spécificité.
 - Les documents imprimés utilisent des tokens dédiés (`--color-ticket-*`) que les thèmes ne redéfinissent jamais (§ 9).
 
-Garde-fous **[PROPOSÉ]** :
+Garde-fous **[PROPOSÉ : D-067, en place]**, contrôlés par `pnpm lint` et l'intégration continue :
 
-- Stylelint interdit les couleurs littérales (`#...`, `rgb(...)`) hors de `src/styles/tokens/` et `src/styles/modules/`.
-- Une règle ESLint (ou un test) interdit les classes arbitraires de couleur (`bg-[#...]`, `text-[#...]`).
+- Stylelint (`stylelint.config.mjs`) interdit les couleurs littérales (`#...`, couleurs nommées, `rgb(...)`, `oklch(...)`...) hors de `src/styles/tokens/` et `src/styles/modules/`.
+- Une règle ESLint (`eslint.config.mjs`) interdit les couleurs littérales dans les chaînes TypeScript et TSX, donc les classes arbitraires de couleur (`bg-[#...]`, `text-[#...]`) et les styles en ligne, hors de `src/styles/tokens/`.
 - La variante `dark:` de Tailwind ne doit servir qu'en dernier recours. Si un composant a besoin de `dark:`, c'est généralement qu'il manque un token sémantique.
 
 ---
@@ -474,7 +474,7 @@ Les maquettes affichent des « Restaurants » (plusieurs adresses). Dans OPTIMA,
 
 ## 9. Documents imprimés
 
-Les tickets thermiques (58 et 80 mm), les factures A4, les bons de livraison et les PDF (EF-DOC-01 à 04) sont **toujours en clair**, en noir sur blanc pour les tickets. Ils utilisent l'en-tête et la couleur de l'établissement (EF-ETB-01, EF-ETB-02), jamais les tokens de thème. Une feuille `@media print` remet les tokens à leurs valeurs claires.
+Les tickets thermiques (58 et 80 mm), les factures A4, les bons de livraison et les PDF (EF-DOC-01 à 04) sont **toujours en clair**, en noir sur blanc pour les tickets. Ils utilisent l'en-tête et la couleur de l'établissement (EF-ETB-01, EF-ETB-02), jamais les tokens de thème. Une feuille `@media print` (`src/styles/globals.css`) remet les tokens à leurs valeurs claires, à partir des primitives `--print-paper`, `--print-ink`, `--print-muted` et `--print-border` (`primitives.css`). Les documents rendus côté serveur (PDF) prennent leurs couleurs dans `src/styles/tokens/print.ts`.
 
 ## 10. Vérification visuelle
 

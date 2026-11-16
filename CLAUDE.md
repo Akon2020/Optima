@@ -754,7 +754,7 @@ Scripts existants dans `package.json` :
 | `pnpm check:csp` | Vérifie la CSP sur un serveur de production lancé (`next start -p 3100`) : aucune violation, chaque script du HTML porte le nonce, le JavaScript s'exécute |
 | `pnpm exec tsx scripts/generate-icons.mts` | Régénère les icônes de l'application installable (provisoires, D-Q11) |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | ESLint (règles Next.js) |
+| `pnpm lint` / `pnpm lint:css` | ESLint (règles Next.js, couleurs littérales) puis Stylelint ; `lint:css` lance Stylelint seul (D-067) |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm test` / `pnpm test:watch` | Tests unitaires Vitest (`*.test.ts` à côté du code ; IndexedDB simulée par `fake-indexeddb`) |
 | `pnpm test:integration` | Tests d'intégration sur PostgreSQL 18 embarqué (PGlite), sans serveur ni mot de passe |
@@ -767,7 +767,9 @@ Scripts existants dans `package.json` :
 
 L'intégration continue (`.github/workflows/ci.yml`, D-047, D-061) enchaîne typage, lint, format, tests unitaires, d'intégration, build, tests de bout en bout et `pnpm audit --audit-level high` sur `develop` et sur les pull requests vers `main`.
 
-Prévus, pas encore créés **[PROPOSÉ]** : Stylelint, Dockerfile et `docker-compose` de production.
+`pnpm lint` enchaîne ESLint et Stylelint (`pnpm lint:css`) : les couleurs littérales sont refusées hors de `src/styles/tokens/` et `src/styles/modules/`, dans le CSS comme dans les chaînes TypeScript (D-067).
+
+Prévus, pas encore créés **[PROPOSÉ]** : Dockerfile et `docker-compose` de production.
 
 ---
 
@@ -776,7 +778,7 @@ Prévus, pas encore créés **[PROPOSÉ]** : Stylelint, Dockerfile et `docker-co
 | Étape | Contenu | Statut |
 |---|---|---|
 | 1 | Analyse, spécifications, `CLAUDE.md`, `docs/` | Fait le 07/11/2026 |
-| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Playwright et intégration continue faits le 15/11/2026 (D-061). Reste Stylelint |
+| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Playwright et intégration continue faits le 15/11/2026 (D-061). Stylelint fait le 16/11/2026 (D-067) |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
 | 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (fait le 15/11/2026, D-055), annulations et remises (faites le 15/11/2026, D-058), vente à crédit (faite le 15/11/2026, D-059), options et formules (faites le 15/11/2026, D-060), clôtures de service (faites le 15/11/2026, D-056, remontées dans l'espace propriétaire, D-057 ; clôture de période et ajustements faits le 15/11/2026, D-064), livraison (après les frais de D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
