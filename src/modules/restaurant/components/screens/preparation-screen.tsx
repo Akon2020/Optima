@@ -259,7 +259,8 @@ function Station({ data, point }: { data: DayData; point: ServicePoint }) {
                         setInvoicePrepStatus(db, ctx, invoice.id, "pending"),
                       )
                     }
-                    aria-label={`Remettre en préparation : ${orderPlaceLabel(invoice.mode, invoice.tableLabel)}`}
+                    // WCAG 2.5.3 : le nom accessible reprend le texte visible « Annuler ».
+                    aria-label={`Annuler : remettre en préparation, ${orderPlaceLabel(invoice.mode, invoice.tableLabel)}`}
                     className="max-sm:h-11"
                   >
                     <RotateCcw aria-hidden />

@@ -71,6 +71,13 @@ const SCREENS: { name: string; path: string; ready: (page: Page) => Promise<void
     path: "/preparation/cuisine",
     ready: async (page) => {
       await expect(page.getByRole("heading", { name: "Cuisine", level: 1 })).toBeVisible();
+      // La liste « Prêtes, à servir » dépend de l'heure dans la démo : une commande
+      // est marquée prête si possible, pour que le contrôle couvre aussi ses boutons.
+      const ready = page.getByRole("button", { name: "Prête", exact: true }).first();
+      if (await ready.isVisible()) {
+        await ready.click();
+        await expect(page.getByRole("button", { name: /^Annuler : / }).first()).toBeVisible();
+      }
     },
   },
   {
