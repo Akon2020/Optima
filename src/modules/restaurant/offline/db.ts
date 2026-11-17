@@ -1,20 +1,46 @@
 import Dexie, { type EntityTable } from "dexie";
 
 import type { OutboxOperation } from "@/offline/outbox";
+import type { PinVerifier } from "@/offline/pin";
 
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
+  CashClosing,
+  Customer,
+  DayClosing,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
+  StockCount,
   TableRelease,
 } from "../domain/types";
 
 export type Counter = { key: string; value: number };
 export type Meta = { key: string; value: string };
+
+/**
+ * Utilisateur ayant ouvert une session sur cet appareil avec son mot de passe
+ * (EF-AUT-05). Le PIN n'est conservé que sous forme de vérificateur.
+ */
+export type DeviceUserRecord = {
+  userId: string;
+  name: string;
+  role: StaffMember["role"];
+  pinVerifier: PinVerifier | null;
+  failedPinAttempts: number;
+  /** Verrouillé après 5 erreurs : le mot de passe est exigé à nouveau. */
+  lockedAt: string | null;
+  /** Dernière vérification du mot de passe (actions de gérant, CLAUDE.md § 5.1). */
+  passwordVerifiedAt: string;
+};
 
 /**
  * Base locale d'un établissement (CLAUDE.md § 3.5 et § 5.5) : une base par
@@ -28,7 +54,17 @@ export class RestaurantDb extends Dexie {
   orders!: EntityTable<Order, "id">;
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
+  requisitions!: EntityTable<Requisition, "id">;
   tableReleases!: EntityTable<TableRelease, "id">;
+  payments!: EntityTable<Payment, "id">;
+  exchangeRates!: EntityTable<ExchangeRate, "id">;
+  cashClosings!: EntityTable<CashClosing, "id">;
+  stockCounts!: EntityTable<StockCount, "id">;
+  dayClosings!: EntityTable<DayClosing, "id">;
+  adjustmentRequests!: EntityTable<AdjustmentRequest, "id">;
+  adjustmentDecisions!: EntityTable<AdjustmentDecision, "id">;
+  customers!: EntityTable<Customer, "id">;
+  deviceUsers!: EntityTable<DeviceUserRecord, "userId">;
   counters!: EntityTable<Counter, "key">;
   outbox!: EntityTable<OutboxOperation, "id">;
   meta!: EntityTable<Meta, "key">;
@@ -99,6 +135,28 @@ export class RestaurantDb extends Dexie {
             table.archivedAt ??= null;
           });
       });
+    // v5 : utilisateurs de l'appareil (connexion par mot de passe, puis PIN).
+    this.version(5).stores({ deviceUsers: "userId" });
+    // v6 : encaissement (EF-ENC-02) et taux du dollar (EF-PRX-05).
+    this.version(6).stores({
+      payments: "id, createdAt, collectedBy",
+      exchangeRates: "id, effectiveAt",
+    });
+    // v7 : clôtures de service (EF-CLO-01 à 04).
+    this.version(7).stores({
+      cashClosings: "id, day, userId",
+      stockCounts: "id, day, servicePointId",
+      dayClosings: "id, day, validatedAt",
+    });
+    // v8 : annulations et remises soumises au gérant (D-058).
+    this.version(8).stores({
+      adjustmentRequests: "id, orderId, requestedAt",
+      adjustmentDecisions: "id, requestId",
+    });
+    // v9 : fiches clients de la vente à crédit (D-059).
+    this.version(9).stores({ customers: "id, phone" });
+    // v10 : réquisitions du magasin vers les points de service (D-069).
+    this.version(10).stores({ requisitions: "id, day, servicePointId, createdAt" });
   }
 }
 

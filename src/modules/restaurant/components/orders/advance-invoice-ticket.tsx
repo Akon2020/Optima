@@ -4,7 +4,7 @@ import { formatMoney } from "@/shared/lib/money";
 import { formatQuantity } from "../../domain/menu";
 import { lineTotal } from "../../domain/order";
 import type { AdvanceInvoice } from "../../domain/types";
-import { orderPlaceLabel } from "../labels";
+import { orderLineDetail, orderPlaceLabel } from "../labels";
 
 /**
  * Facture d'avance au format ticket (EF-CMD-03, EF-DOC-03) : numéro, table,
@@ -45,10 +45,13 @@ export function AdvanceInvoiceTicket({
       </dl>
       <hr className="my-2 border-dashed border-ticket-border" />
       <ul>
-        {invoice.lines.map((line) => (
-          <li key={line.menuItemId} className="flex justify-between gap-3">
+        {invoice.lines.map((line, index) => (
+          <li key={`${line.menuItemId}-${index}`} className="flex justify-between gap-3">
             <span className="min-w-0">
               {line.quantity} × {line.name}
+              {orderLineDetail(line) ? (
+                <span className="block">{orderLineDetail(line)}</span>
+              ) : null}
               <span className="block opacity-70">
                 {formatQuantity(line.quantity, line.unit)} à {formatMoney(line.unitPrice)}
               </span>

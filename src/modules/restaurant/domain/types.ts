@@ -18,6 +18,21 @@ export type ServicePoint = {
   sortOrder: number;
 };
 
+/** Option d'un élément du menu (D-035) : supplément éventuel, jamais négatif. */
+export type MenuOption = { id: string; name: string; priceDelta: Money };
+
+/**
+ * Groupe d'options d'un élément (D-035, D-060) : « Accompagnement » au choix,
+ * par exemple. Choix unique ou multiple, obligatoire ou non.
+ */
+export type OptionGroup = {
+  id: string;
+  name: string;
+  isRequired: boolean;
+  isMultiple: boolean;
+  options: MenuOption[];
+};
+
 export type MenuItem = {
   id: string;
   establishmentId: string;
@@ -31,6 +46,14 @@ export type MenuItem = {
   createdAt: string;
   /** Un article ne se supprime pas, il s'archive (RG-CAT-01). */
   archivedAt: string | null;
+  /** Élément simple ou formule (D-035) ; absent des enregistrements anciens : simple. */
+  kind?: "simple" | "formula";
+  /** Options proposées à la commande (D-060). */
+  optionGroups?: OptionGroup[];
+  /** Formule : éléments qui la composent, un par unité (répéter pour en mettre deux). */
+  components?: string[];
+  /** EF-PRE-03, D-066 : journée pour laquelle le poste l'a déclaré épuisé. */
+  soldOutDay?: string | null;
 };
 
 /** Table de la salle, créée et numérotée par le gérant (EF-RES-04). */
@@ -67,10 +90,19 @@ export type OrderLine = {
   /** Prix figé au moment de la commande (RG-RES-02). */
   unitPrice: Money;
   quantity: number;
+  /** Options choisies, avec leur supplément inclus dans `unitPrice` (D-060). */
+  options?: { groupName: string; name: string; priceDelta: Money }[];
+  /** Ligne issue d'une formule : sa part du prix de la formule (D-060). */
+  formula?: { menuItemId: string; name: string; lineId: string };
 };
 
 export type PrepStatus = "pending" | "ready" | "served";
-export type PaymentStatus = "unpaid" | "paid" | "cancelled";
+/**
+ * Statut de paiement d'une facture. Sur l'appareil, « partiellement payée » et
+ * « payée » se déduisent des paiements (`domain/payment.ts`) ; seule
+ * l'annulation est portée par la facture elle-même.
+ */
+export type PaymentStatus = "unpaid" | "partial" | "paid" | "cancelled";
 
 /** Facture d'avance : une par point de service concerné (EF-CMD-02, EF-CMD-03). */
 export type AdvanceInvoice = {
@@ -89,6 +121,17 @@ export type AdvanceInvoice = {
   total: Money;
   prepStatus: PrepStatus;
   paymentStatus: PaymentStatus;
+  /** Remise accordée par le gérant (RG-ENC-01), absente des enregistrements anciens. */
+  discount?: Money;
+  /** Motif de l'annulation validée par le gérant (RG-CMD-02). */
+  cancelReason?: string | null;
+  /**
+   * Vente à crédit validée (EF-ENC-03, D-059) : la demande qui a fait de ce reste
+   * une dette client. La facture n'est plus un impayé du serveur (RG-ENC-02).
+   */
+  creditRequestId?: string | null;
+  /** Montant converti en dette à la validation. */
+  credited?: Money;
 };
 
 export type Order = {
@@ -105,6 +148,40 @@ export type Order = {
   lines: OrderLine[];
   total: Money;
   invoiceIds: string[];
+};
+
+/**
+ * Réquisition du magasin vers un point de service (EF-REQ-02, RG-REQ-01,
+ * D-069) :
+ * - `main` : faite avant le stock du matin du point de service, elle entre
+ *   dans la proposition du stock du matin (EF-REQ-04) ;
+ * - `complement` : faite après, elle s'ajoute au stock attendu à la clôture ;
+ * - `return` : retour au magasin (correction d'une erreur, surplus), qui
+ *   retire du stock attendu ; motif obligatoire.
+ * Une réquisition ne se modifie jamais. Quantités en unités de vente.
+ */
+export type RequisitionKind = "main" | "complement" | "return";
+
+export type RequisitionLine = {
+  menuItemId: string;
+  name: string;
+  unit: SaleUnit;
+  quantity: number;
+};
+
+export type Requisition = {
+  id: string;
+  establishmentId: string;
+  /** REQ-2026-D01-000001 (EF-DOC-01). */
+  number: string;
+  day: string;
+  servicePointId: string;
+  kind: RequisitionKind;
+  lines: RequisitionLine[];
+  comment: string | null;
+  createdAt: string;
+  createdBy: string;
+  createdByName: string;
 };
 
 /**
@@ -129,9 +206,186 @@ export type MorningStockEntry = {
   enteredByName: string;
 };
 
+/**
+ * Taux de change saisi par le gérant (EF-PRX-05, D-042) : « 1 USD = `rate`
+ * CDF ». Un taux ne se modifie jamais : on en ajoute un nouveau (RG-PRX-02).
+ */
+export type ExchangeRate = {
+  id: string;
+  establishmentId: string;
+  /** Nombre décimal en texte (6 décimales au plus), jamais un flottant. */
+  rate: string;
+  effectiveAt: string;
+  enteredBy: string;
+  enteredByName: string;
+};
+
+export type PaymentMethod = "cash" | "mobile-money";
+export type MobileMoneyProvider = "mpesa" | "orange-money" | "airtel-money";
+
+/** Part d'un paiement affectée à une facture d'avance, en devise de base. */
+export type PaymentAllocation = { invoiceId: string; amount: Money };
+
+/**
+ * Paiement reçu (EF-ENC-02, D-032). Fait en ajout seul : un paiement ne se
+ * modifie pas. `tendered` est ce que le client a donné, dans sa devise ;
+ * `baseAmount` sa contre-valeur au taux figé (RG-PRX-02) ; `change` la
+ * monnaie rendue en espèces, en devise de base. Les affectations totalisent
+ * `baseAmount − change` (à l'arrondi de conversion près, voir `payment.ts`).
+ */
+export type Payment = {
+  id: string;
+  establishmentId: string;
+  method: PaymentMethod;
+  provider: MobileMoneyProvider | null;
+  reference: string | null;
+  tendered: Money;
+  /** Taux appliqué, `null` si le client paie dans la devise de base. */
+  rate: { id: string; rate: string } | null;
+  baseAmount: Money;
+  change: Money;
+  allocations: PaymentAllocation[];
+  /** Personne qui a reçu l'argent (D-032) : le serveur, ou un gérant à sa place. */
+  collectedBy: string;
+  collectedByName: string;
+  deviceCode: string;
+  createdAt: string;
+};
+
+/** Mode de paiement détenu à la clôture : déclaré compté face à l'attendu (EF-CLO-01, 02). */
+export type CashClosingLine = {
+  key: string;
+  method: PaymentMethod;
+  provider: MobileMoneyProvider | null;
+  expected: Money;
+  counted: Money;
+};
+
+/**
+ * Clôture de caisse d'une personne qui a encaissé (D-032, EF-CLO-01, 02) :
+ * elle couvre ses paiements qui ne figurent dans aucune clôture précédente.
+ * Figée une fois déclarée (ajout seul).
+ */
+export type CashClosing = {
+  id: string;
+  establishmentId: string;
+  /** Journée d'exploitation de la déclaration (clé `AAAA-MM-JJ`). */
+  day: string;
+  userId: string;
+  userName: string;
+  deviceCode: string;
+  declaredAt: string;
+  paymentIds: string[];
+  lines: CashClosingLine[];
+  /** Part encaissée revenant à chaque point de service, en devise de base. */
+  byServicePoint: { servicePointId: string; amount: Money }[];
+  /** RG-ENC-02 : factures de la personne encore impayées au moment de la clôture. */
+  unpaidInvoiceIds: string[];
+  comment: string | null;
+};
+
+/** Ligne du comptage de fin de service d'un point de service (EF-CLO-03). */
+export type StockCountLine = {
+  menuItemId: string;
+  name: string;
+  unit: SaleUnit;
+  /** Stock du matin en vigueur, `null` s'il n'a pas été saisi. */
+  morning: number | null;
+  /**
+   * Compléments reçus après le stock du matin, moins les retours au magasin
+   * (D-069). Absent des comptages enregistrés avant les réquisitions : 0.
+   */
+  requisitioned?: number;
+  sold: number;
+  /** Pertes, casse, repas du personnel, offerts : déclarés à part, avec un motif (D-044). */
+  declaredOut: number;
+  outReason: string | null;
+  counted: number;
+};
+
+export type StockCount = {
+  id: string;
+  establishmentId: string;
+  day: string;
+  servicePointId: string;
+  countedAt: string;
+  countedBy: string;
+  countedByName: string;
+  lines: StockCountLine[];
+  comment: string | null;
+};
+
+/**
+ * Validation de la journée par le gérant (EF-CLO-04, D-039) : elle fige les
+ * clôtures de caisse et les comptages (RG-CLO-02).
+ */
+export type DayClosing = {
+  id: string;
+  establishmentId: string;
+  day: string;
+  validatedAt: string;
+  validatedBy: string;
+  validatedByName: string;
+  cashClosingIds: string[];
+  stockCountIds: string[];
+  comment: string | null;
+};
+
+/** Ajustement d'une commande soumis au gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01). */
+export type AdjustmentKind = "cancel" | "discount" | "credit";
+
+/**
+ * Demande d'annulation ou de remise : le serveur demande, le gérant valide
+ * (matrice des droits). Fait en ajout seul ; la décision est un fait séparé.
+ */
+export type AdjustmentRequest = {
+  id: string;
+  establishmentId: string;
+  kind: AdjustmentKind;
+  orderId: string;
+  invoiceIds: string[];
+  reason: string;
+  /** Remise demandée, en devise de base ; `null` pour une annulation ou un crédit. */
+  discount: Money | null;
+  /** Client débiteur d'une vente à crédit (D-059) ; `null` sinon. */
+  customerId: string | null;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  deviceCode: string;
+};
+
+export type AdjustmentDecision = {
+  id: string;
+  establishmentId: string;
+  requestId: string;
+  approved: boolean;
+  comment: string | null;
+  /** Remise répartie entre les factures, fixée à l'approbation. */
+  discounts: PaymentAllocation[];
+  decidedBy: string;
+  decidedByName: string;
+  decidedAt: string;
+};
+
+/** Fiche client, tenue pour la vente à crédit (D-043, EF-ENC-03). */
+export type Customer = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  /** Numéro normalisé (chiffres, + initial), unique dans l'établissement. */
+  phone: string;
+  /** Plafond de crédit fixé par le gérant (D-037) ; `null` : pas de plafond. */
+  creditLimit: Money | null;
+  createdAt: string;
+  createdBy: string;
+};
+
 export type StaffMember = {
   id: string;
   establishmentId: string;
   name: string;
-  role: "manager" | "waiter";
+  role: "manager" | "waiter" | "prep" | "courier" | "reader";
+  /** Poste d'un préparateur (matrice des droits : « son poste », D-066). */
+  servicePointId?: string | null;
 };

@@ -42,7 +42,7 @@
   --ink-800: #2f2f2f;
   --ink-700: #3a3a3a;
   --ink-600: #474747;
-  --ink-400: #6e6e6e;
+  --ink-400: #666666;
   --ink-300: #b5b5b5;
   --ink-200: #d9d9d9;
   --ink-150: #e3e3e3;
@@ -75,5 +75,11 @@
   --status-yellow: #e3b530;
   --status-amber: #c97412;
   --status-grey: #8f8f8f;
-  --status-red: #d64532;
+  --status-red: #c93f2c;
+
+  /* Documents imprimés : toujours en clair (§ 4.3, D-Q32), quel que soit le thème. */
+  --print-paper: #ffffff;
+  --print-ink: #000000;
+  --print-muted: #333333;
+  --print-border: #cccccc;
 }

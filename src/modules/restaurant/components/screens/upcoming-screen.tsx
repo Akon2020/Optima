@@ -16,8 +16,6 @@ const DESCRIPTIONS: Record<string, string> = {
     "Saisie du stock de chaque point de service, proposée à partir de la clôture de la veille et de la réquisition (EF-REQ-03, EF-REQ-04).",
   requisitions:
     "Sorties quotidiennes du magasin vers le comptoir, la cuisine et la grillade (EF-REQ-02).",
-  clotures:
-    "Montant attendu calculé à partir des souches, montant compté, écart figé et validation du gérant (EF-CLO-01 à 05).",
   livraisons: "Commandes livrées, livreurs et statuts (EF-LIV-01 à 04), après réponse à D-Q07.",
 };
 

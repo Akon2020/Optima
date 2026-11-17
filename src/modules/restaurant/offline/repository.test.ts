@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_RESTAURANT_SETTINGS } from "../settings";
 import { RestaurantDb } from "./db";
 import { ensureDemoData } from "./demo-data";
-import { createOrder, type DeviceContext } from "./repository";
+import { addMenuItem, createOrder, setMenuItemOptions, type DeviceContext } from "./repository";
 
 const ctx: DeviceContext = {
   establishmentId: "test",
@@ -103,6 +103,114 @@ describe("createOrder", () => {
         lines: [{ menuItemId: "item-water", quantity: 1 }],
       }),
     ).rejects.toMatchObject({ code: "INVALID_ORDER" });
+  });
+});
+
+describe("options et formules (D-035, D-060)", () => {
+  it("exige l'option obligatoire et fige le supplément sur la ligne", async () => {
+    await expect(
+      createOrder(db, ctx, {
+        mode: "takeaway",
+        tableId: null,
+        lines: [{ menuItemId: "item-tilapia", quantity: 1 }],
+      }),
+    ).rejects.toMatchObject({ code: "OPTION_REQUIRED" });
+    const { order } = await createOrder(db, ctx, {
+      mode: "takeaway",
+      tableId: null,
+      lines: [
+        {
+          menuItemId: "item-tilapia",
+          quantity: 2,
+          optionIds: ["opt-tilapia-1-2", "opt-tilapia-2-2"],
+        },
+      ],
+    });
+    expect(order.lines[0]).toMatchObject({
+      unitPrice: { amountMinor: 1_700_000 },
+      options: [
+        { groupName: "Préparation", name: "Frit" },
+        { groupName: "Suppléments", name: "Bananes plantains" },
+      ],
+    });
+    const operation = (await db.outbox.toArray()).find(
+      (entry) => entry.type === "restaurant.order.created",
+    );
+    expect(operation?.payload).toMatchObject({
+      lines: [{ menuItemId: "item-tilapia", optionIds: ["opt-tilapia-1-2", "opt-tilapia-2-2"] }],
+    });
+  });
+
+  it("répartit une formule entre les points de service, au prix de la formule", async () => {
+    const { order, invoices } = await createOrder(db, ctx, {
+      mode: "takeaway",
+      tableId: null,
+      lines: [{ menuItemId: "item-formula-pork", quantity: 1 }],
+    });
+    expect(invoices.map((invoice) => invoice.servicePointId).sort()).toEqual([
+      "sp-counter",
+      "sp-kitchen",
+    ]);
+    expect(order.total.amountMinor).toBe(1_600_000);
+    expect(order.lines.every((line) => line.formula?.name === "Formule porc")).toBe(true);
+  });
+
+  it("refuse une formule dont un composant est épuisé", async () => {
+    // Le stock du matin de la Primus est vendu en entier.
+    await expect(
+      createOrder(db, ctx, {
+        mode: "takeaway",
+        tableId: null,
+        lines: [
+          { menuItemId: "item-formula-pork", quantity: 1 },
+          { menuItemId: "item-primus", quantity: 500 },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "ITEM_SOLD_OUT" });
+  });
+
+  it("crée une formule et fixe les options d'un élément", async () => {
+    const formula = await addMenuItem(db, ctx, {
+      name: "Formule sambaza",
+      servicePointId: "sp-kitchen",
+      unit: "dish",
+      category: "Formules",
+      description: "",
+      priceMajor: 10_000,
+      kind: "formula",
+      components: ["item-sambaza", "item-coca"],
+    });
+    expect(formula).toMatchObject({ kind: "formula", components: ["item-sambaza", "item-coca"] });
+    await expect(
+      addMenuItem(db, ctx, {
+        name: "Formule vide",
+        servicePointId: "sp-kitchen",
+        unit: "dish",
+        category: "",
+        description: "",
+        priceMajor: 5_000,
+        kind: "formula",
+        components: ["item-sambaza"],
+      }),
+    ).rejects.toMatchObject({ code: "FORMULA_SIZE" });
+
+    const updated = await setMenuItemOptions(db, ctx, "item-goat", [
+      {
+        id: "g1",
+        name: "Cuisson",
+        isRequired: true,
+        isMultiple: false,
+        options: [{ id: "o1", name: "Bien cuit", priceDelta: { amountMinor: 0, currency: "CDF" } }],
+      },
+    ]);
+    expect(updated.optionGroups).toHaveLength(1);
+    const operations = await db.outbox.toArray();
+    expect(
+      operations.filter((operation) => operation.type === "restaurant.menu-item.options-set"),
+    ).toHaveLength(1);
+    await expect(
+      setMenuItemOptions(db, { ...ctx, role: "waiter" }, "item-goat", []),
+    ).rejects.toBeDefined();
   });
 });
 

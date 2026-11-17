@@ -25,7 +25,7 @@ export type DaySummary = {
 /**
  * Synthèse de la journée à partir des factures d'avance (souches). Les
  * factures annulées sont exclues des montants (RG-CMD-02). Il s'agit du
- * montant facturé : l'encaissement dépend encore de D-Q03 et D-Q04.
+ * montant facturé ; l'encaissé se lit dans les paiements (`payment.ts`).
  */
 export function summarizeDay(
   invoices: readonly AdvanceInvoice[],

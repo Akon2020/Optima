@@ -343,9 +343,9 @@ function PointPanel({
       <p className="flex items-start gap-2 rounded-md bg-bg-subtle px-3 py-2 text-xs text-text-muted">
         <Info aria-hidden className="mt-px size-4 shrink-0" />
         <span>
-          Proposition = reste théorique de la veille (stock du matin moins ventes). Les réquisitions
-          du jour s&apos;y ajouteront quand leur écran existera ; d&apos;ici là, justifiez les
-          apports par le motif « Réquisition du jour ».
+          Proposition = stock compté à la clôture de la veille (ou reste théorique) plus les
+          réquisitions du matin. Une réquisition faite après cette saisie est un complément : elle
+          s&apos;ajoute au stock de la journée sans changer le stock du matin.
         </span>
       </p>
 

@@ -10,12 +10,15 @@
  * grillade viennent de l'équipe du restaurant (D-007).
  */
 
-import { moneyFromMajor } from "@/shared/lib/money";
+import { moneyFromMajor, sumMoney, toMajor, type Currency } from "@/shared/lib/money";
 
 import { businessDayStart } from "../domain/business-day";
+import { businessDayKey } from "../domain/business-day";
+import { minimumTendered } from "../domain/payment";
 import type {
   DiningTable,
   MenuItem,
+  OptionGroup,
   PrepStatus,
   SaleUnit,
   ServicePoint,
@@ -23,10 +26,20 @@ import type {
 } from "../domain/types";
 import type { RestaurantDb } from "./db";
 import {
+  addExchangeRate,
+  cashClosingDraft,
+  createCustomer,
   createOrder,
+  declareCashClosing,
+  createRequisition,
   morningProposals,
+  recordPayment,
+  recordStockCount,
   releaseTable,
+  requestAdjustment,
   saveMorningStock,
+  stockCountDraft,
+  validateDay,
   type DeviceContext,
 } from "./repository";
 
@@ -306,6 +319,71 @@ const ITEMS: DemoItem[] = [
   },
 ];
 
+/**
+ * Options et formule de démonstration (D-060), à remplacer par le vrai menu :
+ * le tilapia se choisit grillé ou frit, avec des suppléments facultatifs.
+ */
+const DEMO_OPTIONS: Record<
+  string,
+  { name: string; isRequired: boolean; isMultiple: boolean; options: [string, number][] }[]
+> = {
+  tilapia: [
+    {
+      name: "Préparation",
+      isRequired: true,
+      isMultiple: false,
+      options: [
+        ["Grillé", 0],
+        ["Frit", 0],
+      ],
+    },
+    {
+      name: "Suppléments",
+      isRequired: false,
+      isMultiple: true,
+      options: [
+        ["Pili-pili", 0],
+        ["Bananes plantains", 2000],
+      ],
+    },
+  ],
+};
+
+const DEMO_FORMULA = {
+  id: "item-formula-pork",
+  point: "sp-kitchen",
+  name: "Formule porc",
+  category: "Formules",
+  description: "Viande de porc, foufou et une Primus.",
+  price: 16000,
+  components: ["item-pork", "item-foufou", "item-primus"],
+};
+
+function demoOptionGroups(key: string, currency: Currency): OptionGroup[] | undefined {
+  const groups = DEMO_OPTIONS[key];
+  if (!groups) return undefined;
+  return groups.map((group, groupIndex) => ({
+    id: `opt-${key}-${groupIndex + 1}`,
+    name: group.name,
+    isRequired: group.isRequired,
+    isMultiple: group.isMultiple,
+    options: group.options.map(([name, supplement], optionIndex) => ({
+      id: `opt-${key}-${groupIndex + 1}-${optionIndex + 1}`,
+      name,
+      priceDelta: moneyFromMajor(supplement, currency),
+    })),
+  }));
+}
+
+/** Premier choix de chaque groupe obligatoire : les commandes générées restent valides. */
+function demoDefaultOptions(key: string): string[] | undefined {
+  const groups = DEMO_OPTIONS[key];
+  if (!groups) return undefined;
+  return groups.flatMap((group, groupIndex) =>
+    group.isRequired ? [`opt-${key}-${groupIndex + 1}-1`] : [],
+  );
+}
+
 const TABLES: DiningTable[] = Array.from({ length: 12 }, (_, index) => ({
   id: `table-${index + 1}`,
   establishmentId: ESTABLISHMENT_ID,
@@ -371,14 +449,23 @@ const HOUR_MS = 3_600_000;
 /** Quantité de la veille pour les éléments sans stock du matin du jour (grillade). */
 const YESTERDAY_FALLBACK = 40;
 
+type SeededOrder = {
+  invoiceIds: string[];
+  createdAt: number;
+  waiter: { id: string; name: string };
+};
+
+/** Taux du dollar de la démonstration (D-042), saisi par le gérant le matin. */
+const DEMO_RATE = "2850";
+
 async function seedOrders(
   db: RestaurantDb,
   ctx: DeviceContext,
   random: () => number,
   window: { from: number; to: number; count: number },
-): Promise<{ invoiceIds: string[]; createdAt: number }[]> {
+): Promise<SeededOrder[]> {
   const sellable = ITEMS.filter((item) => item.price !== null && item.weight > 0);
-  const created: { invoiceIds: string[]; createdAt: number }[] = [];
+  const created: SeededOrder[] = [];
   const span = window.to - window.from;
 
   for (let index = 0; index < window.count; index += 1) {
@@ -409,16 +496,152 @@ async function seedOrders(
         {
           mode: isTakeaway ? "takeaway" : "dine-in",
           tableId: isTakeaway ? null : (TABLES[Math.floor(random() * TABLES.length)]?.id ?? null),
-          lines: [...lines].map(([menuItemId, quantity]) => ({ menuItemId, quantity })),
+          lines: [...lines].map(([menuItemId, quantity]) => {
+            const optionIds = demoDefaultOptions(menuItemId.replace(/^item-/, ""));
+            return optionIds ? { menuItemId, quantity, optionIds } : { menuItemId, quantity };
+          }),
         },
         { createdAt: createdAt.toISOString(), enqueue: false },
       );
-      created.push({ invoiceIds: invoices.map((i) => i.id), createdAt: createdAt.getTime() });
+      created.push({
+        invoiceIds: invoices.map((i) => i.id),
+        createdAt: createdAt.getTime(),
+        waiter,
+      });
     } catch {
       // Un élément épuisé dans la démo : la commande est simplement ignorée.
     }
   }
   return created;
+}
+
+/**
+ * La veille, clôturée de bout en bout (EF-CLO-01 à 04) : chaque commande est
+ * payée en francs, chaque serveur déclare sa caisse (l'un avec un manquant
+ * expliqué), le gérant compte le stock (une casse déclarée) puis valide.
+ */
+async function seedYesterdayClosing(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  manager: DeviceContext,
+  orders: readonly SeededOrder[],
+  yesterdayStart: number,
+): Promise<void> {
+  const at = (hours: number) => new Date(yesterdayStart + hours * HOUR_MS).toISOString();
+  const asWaiter = (waiter: { id: string; name: string }): DeviceContext => ({
+    ...ctx,
+    userId: waiter.id,
+    userName: waiter.name,
+    role: "waiter",
+  });
+  try {
+    // D-059 : deux fiches clients fictives ; la dernière commande de la veille
+    // part à crédit (validée par le gérant) au lieu d'être payée.
+    const rose = await createCustomer(
+      db,
+      manager,
+      { name: "Maman Rose", phone: "+243 990 000 001" },
+      { createdAt: at(10), enqueue: false },
+    );
+    await createCustomer(
+      db,
+      manager,
+      { name: "Papa Jean", phone: "+243 990 000 002" },
+      { createdAt: at(10), enqueue: false },
+    );
+    const credited = orders.at(-1);
+    const creditedInvoice = credited
+      ? await db.invoices.get(credited.invoiceIds[0] ?? "")
+      : undefined;
+    if (creditedInvoice) {
+      await requestAdjustment(
+        db,
+        manager,
+        {
+          kind: "credit",
+          orderId: creditedInvoice.orderId,
+          reason: "Cliente habituelle, paiera samedi",
+          customerId: rose.id,
+        },
+        { requestedAt: at(16), enqueue: false },
+      );
+    }
+    for (const order of orders) {
+      if (order === credited) continue;
+      const invoices = (await db.invoices.bulkGet(order.invoiceIds)).filter(
+        (invoice) => invoice !== undefined,
+      );
+      const due = sumMoney(
+        invoices.map((invoice) => invoice.total),
+        ctx.settings.currency,
+      );
+      await recordPayment(
+        db,
+        asWaiter(order.waiter),
+        {
+          invoiceIds: order.invoiceIds,
+          method: "cash",
+          provider: null,
+          reference: null,
+          currency: ctx.settings.currency,
+          amountMajor: Math.ceil(toMajor(due) / 5_000) * 5_000,
+        },
+        { createdAt: new Date(order.createdAt + 50 * 60_000).toISOString(), enqueue: false },
+      );
+    }
+    for (const [index, waiter] of WAITERS.entries()) {
+      const draft = await cashClosingDraft(db, asWaiter(waiter), at(17));
+      if (draft.lines.length === 0 && draft.unpaidInvoiceIds.length === 0) continue;
+      const isShort = index === 0;
+      await declareCashClosing(
+        db,
+        asWaiter(waiter),
+        {
+          counted: Object.fromEntries(
+            draft.lines.map((line) => [
+              line.key,
+              toMajor(line.expected) - (isShort && line.key.startsWith("cash") ? 2_000 : 0),
+            ]),
+          ),
+          comment: isShort ? "Monnaie rendue en trop à une table" : "",
+        },
+        { declaredAt: at(17), enqueue: false },
+      );
+    }
+    const day = businessDayKey(at(12), ctx.settings.businessDayStartHour, ctx.settings.timeZone);
+    for (const point of SERVICE_POINTS) {
+      const lines = await stockCountDraft(db, manager, point.id, day);
+      if (lines.length === 0) continue;
+      const brokenKey = point.id === "sp-counter" ? "item-primus" : null;
+      await recordStockCount(
+        db,
+        manager,
+        {
+          servicePointId: point.id,
+          lines: lines.map((line) => {
+            const expected = Math.max(0, (line.morning ?? 0) - line.sold);
+            const isBroken = line.menuItemId === brokenKey && expected >= 1;
+            return {
+              menuItemId: line.menuItemId,
+              counted: isBroken ? expected - 1 : expected,
+              declaredOut: isBroken ? 1 : 0,
+              outReason: isBroken ? "Casse" : "",
+            };
+          }),
+          comment: "",
+        },
+        { countedAt: at(17.5), enqueue: false },
+      );
+    }
+    await validateDay(
+      db,
+      manager,
+      { comment: "Journée calme.", isOnline: true, writeLocally: true },
+      { validatedAt: at(18) },
+    );
+  } catch {
+    // Démonstration : une clôture incomplète reste simplement à faire.
+  }
 }
 
 async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
@@ -446,7 +669,24 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
     price: item.price === null ? null : moneyFromMajor(item.price, ctx.settings.currency),
     createdAt: CREATED_AT,
     archivedAt: null,
+    ...(DEMO_OPTIONS[item.key]
+      ? { optionGroups: demoOptionGroups(item.key, ctx.settings.currency) ?? [] }
+      : {}),
   }));
+  menuItems.push({
+    id: DEMO_FORMULA.id,
+    establishmentId: ESTABLISHMENT_ID,
+    servicePointId: DEMO_FORMULA.point,
+    name: DEMO_FORMULA.name,
+    description: DEMO_FORMULA.description,
+    category: DEMO_FORMULA.category,
+    unit: "dish",
+    price: moneyFromMajor(DEMO_FORMULA.price, ctx.settings.currency),
+    createdAt: CREATED_AT,
+    archivedAt: null,
+    kind: "formula",
+    components: DEMO_FORMULA.components,
+  });
 
   await db.transaction(
     "rw",
@@ -487,12 +727,34 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
       order.invoiceIds.map((key) => ({ key, changes: { prepStatus: "served" as PrepStatus } })),
     );
   }
+  await seedYesterdayClosing(db, ctx, manager, yesterdayOrders, yesterdayStart.getTime());
 
-  // Aujourd'hui : comptoir et cuisine saisis ; les apports du jour sont des
-  // écarts justifiés (HYPOTHÈSE D-Q14 : pas encore de réquisitions).
+  // Aujourd'hui : réquisition du matin du comptoir et de la cuisine (D-069),
+  // qui complète le reste de la veille jusqu'au stock habituel, puis stock du
+  // matin saisi sur la proposition (deux bouteilles cassées au comptoir).
   const enteredAt = new Date(
     Math.min(dayStart.getTime() + HOUR_MS, now.getTime() - 60_000),
   ).toISOString();
+  const requisitionAt = new Date(
+    Math.max(dayStart.getTime() + 60_000, new Date(enteredAt).getTime() - 20 * 60_000),
+  ).toISOString();
+  const leftovers = await morningProposals(db, manager, dayStart.toISOString());
+  for (const pointId of ["sp-counter", "sp-kitchen"]) {
+    const lines = ITEMS.filter((item) => item.point === pointId && item.price !== null)
+      .map((item) => ({
+        menuItemId: `item-${item.key}`,
+        quantity: Math.max(0, (item.morning ?? 0) - (leftovers.get(`item-${item.key}`) ?? 0)),
+      }))
+      .filter((line) => line.quantity > 0);
+    if (lines.length > 0) {
+      await createRequisition(
+        db,
+        manager,
+        { servicePointId: pointId, isReturn: false, lines, comment: "" },
+        { createdAt: requisitionAt, enqueue: false },
+      );
+    }
+  }
   const proposals = await morningProposals(db, manager, dayStart.toISOString());
   for (const pointId of ["sp-counter", "sp-kitchen"]) {
     await saveMorningStock(
@@ -502,20 +764,29 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
         servicePointId: pointId,
         lines: ITEMS.filter((item) => item.point === pointId && item.price !== null).map((item) => {
           const proposed = proposals.get(`item-${item.key}`) ?? null;
-          const base = Math.max(item.morning ?? 0, proposed ?? 0);
+          const base = proposed ?? item.morning ?? 0;
           const isBroken = item.key === "primus";
-          const quantity = isBroken ? base - 2 : base;
-          const restocked = proposed !== null && base > proposed;
-          const reason =
-            proposed === null || proposed === quantity
-              ? ""
-              : [restocked ? "Réquisition du jour" : "", isBroken ? "2 bouteilles cassées" : ""]
-                  .filter(Boolean)
-                  .join(" ; ");
+          const quantity = isBroken ? Math.max(0, base - 2) : base;
+          const reason = proposed !== null && proposed !== quantity ? "2 bouteilles cassées" : "";
           return { menuItemId: `item-${item.key}`, quantity, reason };
         }),
       },
       { enteredAt, enqueue: false },
+    );
+  }
+  // Un complément de Primus en milieu de journée, s'il est déjà passé.
+  const complementAt = dayStart.getTime() + 7 * HOUR_MS;
+  if (complementAt < now.getTime() - 60_000) {
+    await createRequisition(
+      db,
+      manager,
+      {
+        servicePointId: "sp-counter",
+        isReturn: false,
+        lines: [{ menuItemId: "item-primus", quantity: 24 }],
+        comment: "Un casier de plus pour le soir",
+      },
+      { createdAt: new Date(complementAt).toISOString(), enqueue: false },
     );
   }
 
@@ -552,6 +823,48 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
       }
     }
 
+    // Encaissement (D-032, D-033) : les clients partis depuis une heure ont payé,
+    // le plus souvent en francs, parfois en dollars ou par M-Pesa.
+    await addExchangeRate(db, manager, DEMO_RATE, {
+      effectiveAt: new Date(dayStart.getTime() + 2 * HOUR_MS).toISOString(),
+      enqueue: false,
+    });
+    for (const [index, order] of created.entries()) {
+      if (now.getTime() - order.createdAt <= 60 * 60_000) continue;
+      const invoices = (await db.invoices.bulkGet(order.invoiceIds)).filter(
+        (invoice) => invoice !== undefined,
+      );
+      const due = sumMoney(
+        invoices.map((invoice) => invoice.total),
+        ctx.settings.currency,
+      );
+      const kind = index % 5;
+      const currency = kind === 4 ? "USD" : ctx.settings.currency;
+      const amountMajor =
+        kind === 3
+          ? toMajor(due)
+          : kind === 4
+            ? Math.ceil(toMajor(minimumTendered(due, "USD", DEMO_RATE)))
+            : Math.ceil(toMajor(due) / 5_000) * 5_000;
+      try {
+        await recordPayment(
+          db,
+          { ...ctx, userId: order.waiter.id, userName: order.waiter.name, role: "waiter" },
+          {
+            invoiceIds: order.invoiceIds,
+            method: kind === 3 ? "mobile-money" : "cash",
+            provider: kind === 3 ? "mpesa" : null,
+            reference: null,
+            currency,
+            amountMajor,
+          },
+          { createdAt: new Date(order.createdAt + 55 * 60_000).toISOString(), enqueue: false },
+        );
+      } catch {
+        // Paiement impossible dans la démo : la commande reste à encaisser.
+      }
+    }
+
     // Avancement de la préparation : les commandes anciennes sont servies.
     for (const order of created) {
       const ageMinutes = (now.getTime() - order.createdAt) / 60_000;
@@ -560,6 +873,26 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
         await db.invoices.bulkUpdate(
           order.invoiceIds.map((key) => ({ key, changes: { prepStatus: status } })),
         );
+      }
+    }
+
+    // D-058 : une demande d'annulation d'un serveur attend la décision du gérant.
+    const latest = created.at(-1);
+    const latestInvoice = latest ? await db.invoices.get(latest.invoiceIds[0] ?? "") : undefined;
+    if (latest && latestInvoice) {
+      try {
+        await requestAdjustment(
+          db,
+          { ...ctx, userId: latest.waiter.id, userName: latest.waiter.name, role: "waiter" },
+          {
+            kind: "cancel",
+            orderId: latestInvoice.orderId,
+            reason: "Le client a changé d'avis avant la préparation",
+          },
+          { requestedAt: new Date(latest.createdAt + 2 * 60_000).toISOString(), enqueue: false },
+        );
+      } catch {
+        // Commande déjà payée dans la démo : pas de demande.
       }
     }
   }

@@ -1,0 +1,476 @@
+# Guide OPTIMA : de l'installation à la mise en production
+
+Ce guide explique **tout ce qu'il y a à faire** dans le système, du poste de développement jusqu'à l'exploitation au restaurant.
+
+Légende :
+- ✅ : existe dans le dépôt ;
+- ⬜ : reste à faire ;
+- 🔒 : bloqué par une décision ouverte (voir `docs/DECISIONS.md`).
+
+L'état détaillé, étape par étape, est dans [`walkthrough.md`](./walkthrough.md). Les règles de développement sont dans [`CLAUDE.md`](../CLAUDE.md).
+
+---
+
+## 1. Prérequis
+
+| Outil | Version | Remarque |
+|---|---|---|
+| Node.js | **24 LTS** recommandé | Node.js 26 fonctionne en local avec un avertissement de Prisma ; la production utilise 24 (D-020) |
+| pnpm | 12 | `corepack enable` active la version déclarée dans `package.json` |
+| PostgreSQL | 18 (16 au minimum) | Installé nativement sous Windows (D-016) |
+| Git | récent | Dépôt `github.com/Akon2020/Optima`, branche `develop` |
+| Téléphone | Android avec Chrome | Pour tester l'interface Restaurant et la double authentification |
+| Application d'authentification | Google Authenticator, Aegis, 2FAS… | Obligatoire pour le compte propriétaire (EF-AUT-03) |
+
+---
+
+## 2. Installer le projet en local ✅
+
+```bash
+git clone https://github.com/Akon2020/Optima.git
+```
+
+```bash
+cd Optima
+```
+
+```bash
+git switch develop
+```
+
+```bash
+pnpm install
+```
+
+`pnpm install` génère aussi le client Prisma (`src/generated/prisma`, non versionné).
+
+Créez ensuite **`.env.local`** à partir de `.env.example`. Ce fichier n'est jamais committé.
+
+```bash
+cp .env.example .env.local
+```
+
+Générez la clé de chiffrement des secrets de double authentification et collez-la dans `AUTH_ENCRYPTION_KEY` :
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+> Sans base de données, l'interface Restaurant de démonstration (`/e/demo/restaurant`) fonctionne déjà : elle n'utilise que le navigateur.
+
+---
+
+## 3. Créer la base de données locale ✅ (faite sur le poste de développement le 07/11/2026)
+
+Le script crée la base `optima` et deux rôles :
+- **`optima_migrator`** : migrations, propriétaire du schéma ;
+- **`optima_app`** : l'application, sans BYPASSRLS ni droits de super-utilisateur.
+
+**1. Préparez deux mots de passe longs et aléatoires**, un par rôle (sans caractère spécial à encoder dans une URL) :
+
+```bash
+node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
+```
+
+**2. Lancez le script** avec le super-utilisateur PostgreSQL. Il vous demande votre mot de passe `postgres`, puis les deux mots de passe à créer :
+
+```bash
+psql -U postgres -h localhost -f scripts/db/setup-local.sql
+```
+
+Sans questions (script, poste neuf), passez les deux mots de passe en variables ; le mot de passe `postgres` se donne alors par la variable d'environnement `PGPASSWORD`, jamais dans un fichier :
+
+```bash
+psql -U postgres -h localhost -v migrator_password=<mot de passe optima_migrator> -v app_password=<mot de passe optima_app> -f scripts/db/setup-local.sql
+```
+
+**3. Complétez `.env.local`** :
+
+```
+DATABASE_URL=postgresql://optima_app:<mot de passe optima_app>@localhost:5432/optima
+MIGRATION_DATABASE_URL=postgresql://optima_migrator:<mot de passe optima_migrator>@localhost:5432/optima
+```
+
+**4. Appliquez les migrations** (schéma, RLS, triggers, droits) :
+
+```bash
+pnpm db:migrate
+```
+
+**5. Créez les données de développement.** Les mots de passe provisoires s'affichent **une seule fois** : notez-les (sur le poste de développement, ils sont gardés dans `.env.accounts.local`, non versionné).
+
+```bash
+pnpm db:seed
+```
+
+Le seed crée :
+- un propriétaire (`proprietaire@optima.local`, ou la valeur de `SEED_OWNER_EMAIL`) ;
+- un gérant et un serveur ;
+- l'établissement « Restaurant (développement) », avec ses trois points de service, 12 tables et un menu aux prix fictifs.
+
+Il refuse de tourner en production.
+
+**6. Base des tests de bout en bout** (facultative, une seule fois) : `optima_e2e`, distincte de `optima`. `pnpm test:e2e` la migre, la **vide** et y crée des comptes de test aux mots de passe générés à chaque lancement (D-062) ; n'y mettez rien d'utile. Sans elle, les parcours avec le serveur sont sautés.
+
+```bash
+psql -U postgres -h localhost -f scripts/db/setup-e2e.sql
+```
+
+**Vérifier l'état des migrations :**
+
+```bash
+pnpm db:status
+```
+
+---
+
+## 4. Lancer et se connecter ✅
+
+```bash
+pnpm dev
+```
+
+Ouvrez `http://localhost:3000/connexion`.
+
+**Propriétaire** :
+1. Identifiant et mot de passe provisoire du seed.
+2. Choix d'un mot de passe personnel (10 caractères au moins).
+3. Activation de la double authentification : ajoutez la clé dans l'application du téléphone, puis saisissez le code affiché.
+4. **Notez les 8 codes de secours** : ils ne s'affichent qu'une fois.
+5. Vous arrivez sur `/proprietaire`. Aux connexions suivantes, le code du téléphone sera demandé.
+
+**Gérant ou serveur** : mot de passe provisoire, puis nouveau mot de passe, puis `/compte`.
+
+**Espace propriétaire** : `/proprietaire` montre la vue d'ensemble (aujourd'hui, 7 jours ou 30 jours, comparés à la période précédente) et les alertes. « Établissements » permet de créer un établissement (son adresse OPTIMA et sa devise ne changent plus ensuite), d'en modifier l'identité, d'activer ou de désactiver ses modules et de le suspendre avec un motif. Une suspension n'efface rien : les appareils gardent leurs données et reprennent à la réactivation.
+
+**Restaurant sur les vraies données** :
+1. Sur `/compte`, le gérant ouvre l'établissement (`/e/restaurant-dev/restaurant`).
+2. **Appairage** (une fois par appareil) : il nomme l'appareil (« Téléphone salle 1 ») et l'enregistre. L'appareil reçoit son code (D01, D02…) et charge les points de service, le menu, les tables, le personnel et les commandes du jour.
+3. **« Qui travaille ? »** : chaque utilisateur s'ajoute une fois avec son identifiant et son mot de passe (réseau nécessaire), puis choisit un **code PIN à 4 chiffres** (ni chiffres répétés, ni suite).
+4. Ensuite, on change d'utilisateur en deux gestes : bouton « Changer d'utilisateur », puis le PIN. Après 5 erreurs, le PIN est verrouillé et le mot de passe est redemandé.
+5. Un gérant entré par PIN agit comme serveur. Pour le stock du matin, les menus ou les tables, il confirme son mot de passe (« Actions de gérant ») : ses droits valent 15 minutes (D-024).
+6. Les opérations partent au serveur toutes les 30 secondes, 3 secondes après chaque saisie et au retour du réseau. Le bouton d'état ouvre le détail : opérations en attente, dernière synchronisation, refus avec leur motif.
+7. Après l'appairage, la session web du gérant se ferme sur cet appareil : un serveur qui l'utilise ne peut pas ouvrir les écrans de gestion.
+
+**Équipe** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/equipe`. « Ajouter un membre » crée le compte et affiche **une seule fois** son mot de passe provisoire, à remettre en main propre. « Gérer » permet de modifier le nom, le rôle et le poste (un changement de rôle ferme ses sessions), de réinitialiser le mot de passe, de déconnecter partout, de suspendre avec un motif (accès fermé tout de suite, PIN refusé sur les appareils dès leur synchronisation) ou de réactiver. Le gérant ne gère ni les autres gérants ni son propre compte : c'est le rôle du propriétaire.
+
+**Appareils** (gérant ou propriétaire, depuis `/compte` ou `/proprietaire`) : `/e/restaurant-dev/appareils` liste les appareils, leur dernière synchronisation et leurs opérations refusées. Un appareil perdu, volé ou remplacé se révoque avec un motif : il ne peut plus rien envoyer ni recevoir, et il efface ses données locales à sa prochaine connexion. Ce qui y a été saisi après sa dernière synchronisation est perdu : l'écran le rappelle avant de confirmer.
+
+**Installer l'application sur un téléphone ou une tablette** (production, en HTTPS) : ouvrir l'adresse d'OPTIMA dans Chrome, puis menu « Ajouter à l'écran d'accueil » (ou « Installer l'application »). Ouvrir une première fois le restaurant **avec le réseau** : l'appareil garde alors les pages du menu. Ensuite, l'application s'ouvre et se recharge même sans Internet ; les écrans qui exigent le réseau (espace propriétaire, équipe, journal) affichent « Pas de connexion ». En développement (`pnpm dev`), le service worker est désactivé : pour l'essayer, `pnpm build`, puis `pnpm exec next start -p 3100`, puis `pnpm check:offline`.
+
+**Aperçu Restaurant (local, données fictives)** : `http://localhost:3000/e/demo/restaurant`. Rien n'y est envoyé au serveur.
+
+---
+
+## 5. Vérifier le code ✅
+
+| Commande | Quand |
+|---|---|
+| `pnpm typecheck` | À chaque modification |
+| `pnpm lint` | À chaque modification |
+| `pnpm test` | Logique métier, utilitaires, base locale, PIN (98 tests) |
+| `pnpm test:integration` | Sécurité, authentification, droits, synchronisation, sur PostgreSQL 18 embarqué, sans serveur ni mot de passe (41 tests) |
+| `pnpm build` | Quand les routes ou la configuration changent |
+| `pnpm format` | Avant de committer |
+
+Pour toute interface : contrôle visuel à **360, 768 et 1280 px**, en **clair et en sombre**.
+
+---
+
+## 6. Règles de travail ✅
+
+- Tout le développement se fait sur **`develop`**. Jamais de commit direct sur `main`.
+- Commits petits et vérifiés, en anglais, au format Conventional Commits (`feat:`, `fix:`, `docs:`…), **sans mention d'outil d'IA**.
+- Push après chaque commit cohérent.
+- Toute décision structurante va dans `docs/DECISIONS.md`. Toute exigence réalisée est notée dans `docs/SPECIFICATIONS.md`. `CLAUDE.md` et `guides/walkthrough.md` sont mis à jour dans le même commit que le changement.
+- Les questions ouvertes ne se tranchent pas seules : le code isole l'hypothèse (`// HYPOTHÈSE D-Qxx`).
+
+---
+
+## 7. Tout ce qui reste à faire
+
+### 7.1 Décisions à obtenir du porteur du projet 🔒
+
+Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030 à D-054). Restent, par ordre d'urgence :
+
+1. ~~**D-Q14**~~ : tranchée (D-069).
+2. **D-Q20** : choisir entre Vercel et ifastnet (points à vérifier dans D-045), puis le domaine.
+3. **D-Q13** : appareils et imprimantes à recenser au restaurant (le réseau est un Wi-Fi Starlink, D-041).
+4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
+5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
+6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-069**.
+8. Faire signer le cahier des charges (D-013).
+9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
+
+### 7.2 Relier le Restaurant au serveur (en grande partie fait)
+
+- [x] Écran « Appareils » (gérant et propriétaire, `/e/<slug>/appareils`) : liste, révocation avec motif, dernière synchronisation, refus, signalement après 24 heures sans nouvelles (EF-CPT-04).
+- [x] Première connexion d'un appareil avec mot de passe (RG-OFF-02), stockage local du jeton d'appareil.
+- [x] **Code PIN** à 4 chiffres par utilisateur et par appareil, vérificateur local, 5 essais (EF-AUT-01, EF-AUT-05, D-024).
+- [x] Client de synchronisation :
+  - envoi de la file toutes les 30 secondes et après chaque opération ;
+  - affichage des refus (EF-OFF-01 à 04) ;
+  - réception par curseur ;
+  - application locale des changements.
+- [x] Chargement initial des menus, tables et points de service depuis le serveur (`/api/sync/bootstrap`) ; numérotation avec le vrai code appareil.
+- [ ] Contrôle serveur dans le layout `/e/[etablissement]/restaurant`. Aujourd'hui la page est une coquille statique sans donnée : tout passe par le jeton d'appareil, revérifié à chaque requête. Le contrôle restera nécessaire pour les écrans en ligne (rapports).
+- [x] Effacement des données locales d'un appareil révoqué (ENF-09).
+- [ ] Opérations d'un utilisateur suspendu : marquées pour revue au lieu d'être refusées (`CLAUDE.md` § 5.1).
+- [ ] Confirmation du mot de passe d'un gérant hors connexion : impossible aujourd'hui (réseau nécessaire).
+- [ ] Thème par utilisateur, rattaché au profil (D-053).
+
+### 7.3 Espace propriétaire et administration ⬜
+
+- [x] Vue d'ensemble (`/proprietaire`) : montant facturé, commandes, panier moyen, comparaison avec la période précédente, graphique, alertes, appareils (EF-PRO-01, 02, 04, 05, en partie).
+- [ ] Vue d'ensemble, suite : marge, cash attendu et déclaré, manquants, stock (avec l'encaissement, les clôtures et le stock) ; période personnalisée ; comparaison de deux établissements ; chiffres cliquables (EF-PRO-03).
+- [x] Établissements : création avec aperçu de l'en-tête (EF-ETB-01, 02), identité, suspension et réactivation (03).
+- [ ] Logo et couleur de l'en-tête (stockage des fichiers, D-048) ; suppression en deux temps (EF-ETB-04, RG-ETB-02) et exports (EF-ETB-05), avec pg-boss.
+- [x] Modules par établissement, avec contrôle des dépendances (EF-MOD-01, RG-MOD-01, 02).
+- [x] Menus de l'interface adaptés aux modules actifs (EF-MOD-02) : les appareils masquent aussitôt les écrans d'un module désactivé ; ses opérations en attente sont conservées jusqu'à la réactivation (D-026).
+- [x] Comptes (écran « Équipe », `/e/<slug>/equipe`) :
+  - gérants créés et gérés par le propriétaire, personnel par le gérant (EF-CPT-01, 02, 05) ;
+  - réinitialisation des mots de passe par le gérant ou le propriétaire (EF-AUT-04) ;
+  - déconnexion forcée ;
+  - suspension avec motif, réactivation ; un membre suspendu perd aussi son PIN sur les appareils.
+- [ ] Droits ajustables par le gérant : remise maximale, accès aux rapports (EF-CPT-03).
+- [ ] Changement d'identifiant (e-mail ou téléphone) d'un membre.
+- [ ] Gestion des propriétaires ; le dernier propriétaire ne peut pas se retirer son rôle (RG-CPT-01).
+- [x] Journal d'audit consultable et filtrable, export CSV (EF-AUD-02, 03, 04 en partie) : `/e/<slug>/journal` et `/proprietaire/audit`.
+- [x] Exports du journal en Excel et en PDF (EF-AUD-04), avec ExcelJS et `playwright-core` (D-027).
+- [ ] Paramètres d'établissement validés par Zod (`establishment_settings`).
+
+### 7.4 Module Restaurant ⬜
+
+- [x] Réquisitions (EF-REQ-02, EF-REQ-04, RG-REQ-01, D-069) : du matin, compléments, retours au magasin ; proposition du stock du matin et stock attendu à jour.
+- [ ] Solde du magasin et réception des achats en casiers (EF-REQ-01, EF-ACH) ; impression d'un bon de réquisition (D-Q13).
+- [x] Encaissement (EF-ENC-01, 02, 04) : espèces CDF et USD au taux figé (RG-PRX-02), Mobile Money, paiement partiel, monnaie rendue, écran Caisse (D-032, D-033, D-042, D-055).
+- [x] Vente à crédit validée par le gérant, fiches clients, plafond, dettes et remboursements (EF-ENC-03, EF-VTE-05, EF-TRE-03, D-037, D-043, D-059).
+- [x] Dettes clients dans l'espace propriétaire : encours, débiteurs, ancienneté (EF-PRO-01, D-063).
+- [ ] Échéancier du crédit par tranches (D-052, phase 2) ; délai de paiement et alerte de retard (à décider).
+- [x] Impayés au nom du serveur relevés à la clôture et au rapport (RG-ENC-02).
+- [ ] Annulation d'un paiement, reçu imprimé.
+- [x] Libération de la table proposée au paiement qui solde l'addition (D-033, D-055).
+- [x] Annulations et remises demandées par le serveur, validées par le gérant (RG-CMD-02, RG-VTE-02, RG-ENC-01, D-058).
+- [ ] Plafond de remise par rôle (RG-VTE-01, EF-CPT-03) ; transfert d'une commande entre serveurs (RG-CMD-03).
+- [x] Clôtures de service (EF-CLO-01 à 04, RG-CLO-01 à 03, D-039, D-056) : caisse par personne, comptage du stock, validation, rapport imprimable.
+- [x] Clôtures dans l'espace propriétaire : cash attendu, déclaré, manquants nommés, journées non validées (EF-CLO-04, EF-PRO-01, D-057).
+- [x] Clôture de période (EF-CLO-05) et écritures d'ajustement (RG-CLO-02) : écran « Clôtures » en ligne (D-064).
+- [x] Export d'une période : écran Rapports, PDF, Excel et CSV (D-065).
+- [ ] Bénéfice et dépenses quand achats et trésorerie existeront.
+- [x] Postes de préparation : écrans comptoir, cuisine et grillade, « prête » et « épuisé », bandeau chez le serveur (EF-PRE-01 à 03, D-066). Pour l'utiliser, le propriétaire active le module « Postes de préparation » de l'établissement.
+- [ ] Notification système du téléphone pour une commande prête ; écran plein poste sans navigation.
+- [x] Menus avec éléments à options et formules (D-035, D-060).
+- [ ] Effet des options sur le stock (D-Q33) ; modification et archivage d'une formule depuis l'écran Menus.
+- [ ] Fiches recettes (EF-RCT-01 à 04), après les menus à options.
+- [ ] Livraison (EF-LIV-01 à 04), livreurs du personnel (D-036) 🔒 zones et frais D-Q07.
+- [x] Rapports et exports PDF, Excel, CSV (EF-RAP-01, 03, 04, D-065).
+- [ ] Marge et bénéfice (EF-RAP-02), après les prix de revient ; rapport « ses ventes » du serveur.
+- [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02) 🔒 D-Q13.
+- [ ] QR de vérification et page `/verification/[code]` (EF-DOC-03, 04).
+
+### 7.5 Socle commerce (fonctions d'AkivioFlow) ⬜
+
+- [ ] Catalogue : fiche article, catégories, marques, unités, code-barres, recherche sans accents (EF-CAT-01 à 05).
+- [ ] Prix de revient pondéré, assistant de prix et règles de marge, historique, taux de change (EF-PRX-01 à 05).
+- [ ] Achats : fournisseurs, bons de commande, réceptions, conversions casier → bouteilles, dettes fournisseurs (EF-ACH-01 à 04).
+- [ ] Stock : emplacements, opérations numérotées, inventaires, lots et péremption (EF-STK-01 à 04, RG-STK-01 à 03).
+- [ ] Caisse : panier, paiements multiples, devis et pro forma, crédit (EF-VTE-01 à 05).
+- [ ] Trésorerie, dépenses avec justificatifs, dettes clients, solde prévisionnel (EF-TRE-01 à 04).
+- [ ] Fichiers : contrôle par signature, réencodage par sharp, stockage hors du dossier public (`CLAUDE.md` § 3.11) : volume ou stockage objet selon l'hébergement (D-048).
+- [ ] Tâches de fond pg-boss : exports, rapports, alertes.
+
+### 7.6 Hors connexion et application installable (en grande partie fait)
+
+- [x] Service worker (Serwist), manifeste, icônes provisoires, installation sur l'écran d'accueil (EF-OFF-05, D-028).
+- [x] Ouverture de l'application sans réseau, y compris après un rechargement (`pnpm check:offline`).
+- [ ] Logo définitif (logotype textuel provisoire confirmé, D-040), puis `pnpm exec tsx scripts/generate-icons.mts`.
+- [x] Test Playwright hors connexion (`tests/e2e/offline.spec.ts`, D-061).
+- [x] Deux appareils synchronisés : commande sur l'un, encaissement sur l'autre, retour au premier (`tests/e2e/server.spec.ts`, D-062).
+
+### 7.7 Sécurité restante ⬜
+
+- [ ] Double authentification proposée aux gérants, jamais obligatoire (D-049).
+- [x] CSP stricte avec nonce, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (`CLAUDE.md` § 5.4, D-029, `pnpm check:csp`). En production, `APP_ORIGIN` en `https://` active HSTS et `upgrade-insecure-requests`.
+- [ ] Contrôle de l'en-tête `Origin` sur les route handlers modifiants qui utiliseraient un cookie.
+- [ ] Limitation de débit partagée si plusieurs instances (aujourd'hui en mémoire).
+- [x] `pnpm audit --audit-level high` en intégration continue (D-061).
+- [ ] Purge régulière des sessions expirées et des anciennes tentatives de connexion.
+
+### 7.8 Qualité ⬜
+
+- [x] Playwright (`pnpm test:e2e`, D-061) : parcours P2 au téléphone (factures d'avance, options, formules, encaissement), hors connexion, CSP, thèmes, contrôle axe et captures dans les quatre combinaisons.
+- [x] Parcours avec la base (D-062) : connexion et mot de passe faux, appairage et code PIN, deux appareils synchronisés, propriétaire avec code TOTP, liste des appareils ; PostgreSQL jetable en CI.
+- [x] Parcours P1 (stock du matin) et P5 (caisse déclarée, stock compté, journée validée) de bout en bout (D-062).
+- [x] Stylelint et règle ESLint : couleurs littérales interdites hors des tokens, contrôlées par `pnpm lint` et la CI (D-067).
+- [x] GitHub Actions (D-047, D-061) sur `develop` et sur les pull requests vers `main` : typage, lint, format, tests, intégration, build, bout en bout, audit.
+- [ ] Passage des tests d'intégration contre un vrai PostgreSQL (D-021).
+
+### 7.9 Landing page ✅ (D-068)
+
+- [x] Sections de `docs/LANDING_PAGE.md`, en charte générale, avec les deux thèmes et des animations sobres.
+- [x] `noindex` (D-030), français seulement, établissements non nommés (D-051).
+- [x] Aucun chiffre, client ni témoignage inventé (D-012).
+- [x] Bouton « Voir la démo » vers l'aperçu local du Restaurant ; mentions légales ; image de partage.
+- [ ] Nommer l'hébergeur dans les mentions légales (avec D-Q20) ; passer `NEXT_PUBLIC_SITE_INDEXABLE` à `true` si l'ouverture au public est décidée.
+
+### 7.10 Phase 2 : boutique de gold detectors ⬜ 🔒 D-Q27 à D-Q30
+
+- [ ] Suivi par numéro de série.
+- [ ] Expéditions vers d'autres villes (les emplacements peuvent représenter des villes).
+- [ ] Ventes à crédit par tranches.
+- [ ] Charte de module éventuelle.
+
+---
+
+## 8. Mise en production
+
+> Rien de cette section n'est encore en place. Elle décrit la cible ; les fichiers à créer sont marqués ⬜.
+
+### 8.1 Choix préalables 🔒 D-Q20 (en partie tranchée : D-045)
+
+- **Hébergeur** (D-045) : **Vercel** (offre Pro, l'offre gratuite étant réservée à un usage non commercial) ou **hébergement mutualisé ifastnet**, en Europe (D-050). Avant de choisir, vérifier pour chaque offre : PostgreSQL 16 ou plus avec un rôle sans `BYPASSRLS`, Node.js 24, tâches de fond (pg-boss), Chromium pour les PDF, stockage des fichiers, HTTPS et sauvegardes.
+- **Attention** : les sections 8.2 à 8.8 décrivent la cible d'origine (Docker sur un VPS, Caddy). Elles seront réécrites pour l'offre retenue.
+- **Nom de domaine**, par exemple `optima.exemple.cd`, plus un sous-domaine de préproduction.
+- **Qui administre le serveur** : le porteur du projet (D-045).
+- **Préproduction séparée** (D-045) : branche `develop`, données fictives.
+
+### 8.2 Préparer le serveur
+
+1. Ubuntu Server 24.04 LTS, à jour.
+2. Un utilisateur non-root, connexion SSH **par clé uniquement**, connexion root désactivée.
+3. Pare-feu `ufw` : seuls les ports 22, 80 et 443 sont ouverts. Ajoutez `fail2ban` sur SSH et les mises à jour de sécurité automatiques.
+4. Docker Engine et le plugin Compose.
+5. Une entrée DNS de type A du domaine vers l'adresse IP du serveur.
+
+### 8.3 Fichiers à ajouter au dépôt ⬜
+
+| Fichier | Contenu attendu |
+|---|---|
+| `Dockerfile` | Construction en plusieurs étapes sur `node:24-bookworm-slim` : `pnpm install --frozen-lockfile`, `pnpm build` avec `output: "standalone"` dans `next.config.ts`, image finale sans outils de build, utilisateur non-root. Pour les exports PDF : `apt-get install chromium fonts-dejavu-core` dans l'image finale, et `PDF_BROWSER_PATH=/usr/bin/chromium` (D-027) |
+| `docker-compose.prod.yml` | Services `db` (postgres:18, volume persistant, aucun port exposé), `app` (image OPTIMA, variables d'environnement, dépend de `db`), `caddy` (ports 80 et 443, certificats automatiques) |
+| `Caddyfile` | `optima.exemple.cd { reverse_proxy app:3000 }`, sans en-têtes de sécurité : la CSP et les autres en-têtes sont posés par l'application (D-029), Caddy ne doit pas les doubler |
+| `scripts/db/setup-production.sql` | Même rôle que `setup-local.sql`, sans saisie interactive (mots de passe passés par des secrets) |
+| `scripts/create-owner.ts` | Création du **premier propriétaire en production** (le seed y est interdit), mot de passe provisoire affiché une fois |
+| `scripts/backup.sh` | Sauvegarde chiffrée et copie externe (voir § 8.7) |
+
+L'application doit rester **derrière Caddy** : elle se fie à l'en-tête `X-Forwarded-For` pour l'adresse IP (blocage des tentatives, audit).
+
+### 8.4 Variables d'environnement de production
+
+| Variable | Valeur |
+|---|---|
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | Connexion du rôle `optima_app` (mot de passe propre à la production) |
+| `MIGRATION_DATABASE_URL` | Connexion du rôle `optima_migrator`, utilisée seulement pendant le déploiement |
+| `AUTH_ENCRYPTION_KEY` | **Nouvelle** clé de 32 octets en base64, jamais celle du développement. La perdre rend les doubles authentifications illisibles : conservez-la dans un coffre |
+| `APP_ORIGIN` | `https://optima.exemple.cd` (obligatoire : l'application refuse de démarrer sans) |
+| `NEXT_PUBLIC_SITE_INDEXABLE` | `false` (D-030) |
+| `PDF_BROWSER_PATH` | `/usr/bin/chromium` (Chromium installé dans l'image), pour les exports PDF |
+
+Les secrets sont fournis par un fichier `.env` sur le serveur (droits `600`, hors du dépôt) ou par les secrets Docker. Ils ne sont jamais dans l'image ni dans Git.
+
+### 8.5 Premier déploiement
+
+1. **Fusion validée** de `develop` vers `main` par pull request, après la recette (cahier, chapitre 10), puis une étiquette de version (`v1.0.0`).
+2. Sur le serveur, récupérez la version étiquetée et construisez l'image.
+3. Démarrez la base, créez les rôles (`setup-production.sql`), puis appliquez les migrations :
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm app pnpm db:migrate
+```
+
+4. Créez le premier propriétaire avec `scripts/create-owner.ts` ⬜.
+5. Démarrez l'application et Caddy :
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+6. **Contrôles après déploiement** :
+   - HTTPS valide ;
+   - `/connexion` s'affiche ;
+   - connexion du propriétaire avec activation de la double authentification ;
+   - `/proprietaire` protégé ;
+   - `/api/sync/pull` sans jeton répond 401 ;
+   - les journaux ne montrent aucune erreur de configuration.
+
+### 8.6 Mises à jour et retour arrière
+
+- Chaque mise en production part d'une étiquette sur `main`.
+- Les migrations sont **appliquées avant** le démarrage de la nouvelle version. Elles sont écrites pour être compatibles avec la version précédente (ajout de colonnes, jamais de suppression dans la même livraison).
+- Retour arrière : redémarrer l'image précédente. Une migration n'est jamais « annulée » à la main : on écrit une migration corrective.
+- Maintenances annoncées et réalisées **hors des heures de service** du restaurant (ENF-11). Les appareils continuent hors connexion pendant ce temps (ENF-13).
+
+### 8.7 Sauvegardes (ENF-12)
+
+- [ ] Chaque nuit, `pg_dump -Fc` de la base `optima`.
+- [ ] Chiffrement (par exemple `age` ou `gpg`), avec une clé gardée hors du serveur.
+- [ ] Copie sur un **stockage externe** distinct du serveur (autre fournisseur, stockage objet compatible S3).
+- [ ] Conservation de 30 jours, rotation automatique.
+- [ ] **Restauration de test chaque mois** sur une machine séparée, consignée (date, durée, résultat).
+- [ ] Sauvegarde aussi des fichiers téléversés (D-048) et de la clé `AUTH_ENCRYPTION_KEY`, séparément.
+
+### 8.8 Supervision
+
+- [ ] Surveillance de disponibilité externe sur `/connexion` (alerte par e-mail ou SMS au responsable).
+- [ ] Journaux de l'application (pino, JSON) conservés et consultables. Ils masquent déjà mots de passe, jetons et cookies.
+- [ ] Alertes sur l'espace disque, la mémoire, l'expiration du certificat et l'échec d'une sauvegarde.
+- [ ] Dans l'espace propriétaire : appareils non synchronisés depuis plus de 24 heures (EF-PRO-05) ⬜.
+
+### 8.9 Mise en service au restaurant
+
+1. **Recenser le matériel** (D-Q13) : téléphones, version d'Android, imprimantes, coupures d'électricité. Le réseau est un Wi-Fi Starlink (D-041) : prévoir ses coupures, l'application travaille hors connexion.
+2. Le propriétaire crée l'établissement, active les modules et crée le compte du gérant.
+3. Le gérant :
+   - crée le personnel ;
+   - vérifie les points de service, les tables, le menu et **tous les prix** (un élément sans prix ne se vend pas) ;
+   - saisit le premier stock du matin.
+4. **Enregistrer chaque téléphone** comme appareil (code D01, D02…), installer l'application sur l'écran d'accueil, et faire une première connexion par mot de passe pour chaque serveur, puis choisir son PIN.
+5. **Formation courte** par rôle : serveurs (commande, factures d'avance, tables), gérant (stock du matin, menus, validation), propriétaire (tableau de bord).
+6. **Fonctionnement en parallèle** avec les souches papier pendant une à deux semaines, puis comparaison des clôtures.
+7. **Recette** formelle selon le chapitre 10 du cahier, puis bascule définitive.
+
+---
+
+## 9. Exploitation courante
+
+| Besoin | Qui | Où | État |
+|---|---|---|---|
+| Se connecter, changer de mot de passe | Tous | `/connexion` | ✅ |
+| Double authentification, codes de secours | Propriétaire | `/connexion/activer-2fa` | ✅ |
+| Appairer un appareil, ajouter un utilisateur, choisir son PIN | Gérant, puis chacun | Restaurant, au premier lancement | ✅ |
+| Prendre une commande, imprimer les factures d'avance | Serveur | Restaurant, « Commander » | ✅ synchronisé |
+| Stock du matin | Gérant | Restaurant, « Stock du matin » | ✅ synchronisé |
+| Tables, addition | Serveur, gérant | Restaurant, « Tables » | ✅ synchronisé |
+| Menus et prix | Gérant | Restaurant, « Menus » | ✅ ajout, options et formules ; modification des prix ⬜ |
+| Créer un compte, réinitialiser un mot de passe, suspendre | Gérant (personnel), propriétaire (gérants compris) | `/compte` ou `/proprietaire`, puis « Équipe » | ✅ |
+| Révoquer un appareil, voir sa dernière synchronisation | Gérant, propriétaire | `/compte` ou `/proprietaire`, puis « Appareils » | ✅ |
+| Encaisser, clôturer | Serveur, gérant | Restaurant | ⬜ 🔒 |
+| Créer un établissement, modifier son identité, activer des modules, suspendre | Propriétaire | `/proprietaire/etablissements` | ✅ |
+| Exporter ou supprimer un établissement | Propriétaire | Espace propriétaire | ⬜ |
+| Suivre les ventes et les alertes de tous les établissements | Propriétaire | `/proprietaire` | ✅ (ventes ; marge et cash à venir) |
+| Consulter et exporter le journal d'audit | Gérant (son établissement), propriétaire (tous) | « Journal » de l'établissement, ou `/proprietaire/audit` | ✅ (Excel, PDF, CSV) |
+
+---
+
+## 10. Dépannage
+
+| Symptôme | Cause probable | Solution |
+|---|---|---|
+| « Configuration invalide : DATABASE_URL… » | `.env.local` absent ou incomplet | Compléter `.env.local` (§ 2 et 3) |
+| « Une erreur inattendue est survenue… code xxxxxxxx » à la connexion | Base non joignable ou non migrée | Chercher le code dans la console du serveur ; vérifier PostgreSQL, puis `pnpm db:status` |
+| `password authentication failed for user "optima_app"` | Mot de passe différent entre `.env.local` et le rôle | Corriger `.env.local`, ou `ALTER ROLE optima_app PASSWORD '…'` en `postgres` |
+| `permission denied for table …` | Migrations appliquées avec le mauvais rôle | Lancer `pnpm db:migrate` avec `MIGRATION_DATABASE_URL` défini |
+| `Cannot find module '@/generated/prisma/client'` | Client Prisma non généré | `pnpm db:generate` |
+| `ERR_PNPM_IGNORED_BUILDS` | Nouveau paquet avec un script d'installation | L'autoriser ou le refuser dans `pnpm-workspace.yaml` (`allowBuilds`) |
+| « Another next dev server is already running » | Un serveur tourne déjà | Utiliser l'onglet existant (port 3000) ou l'arrêter |
+| « Trop de tentatives » | 5 échecs en 15 minutes (RG-AUT-02) | Attendre 15 minutes |
+| Téléphone de double authentification perdu | — | Utiliser un code de secours ; puis réactiver la double authentification (écran de réinitialisation ⬜) |
+| L'aperçu Restaurant montre d'anciennes données | Base locale du navigateur | « Réinitialiser » dans le bandeau de démonstration |
+| « Changez d'abord votre mot de passe provisoire… » en ajoutant un utilisateur | Compte jamais utilisé | Se connecter une fois sur `/connexion` pour choisir son mot de passe |
+| « PIN verrouillé » | 5 erreurs de PIN | « Ajouter un utilisateur » avec le mot de passe : le PIN redevient utilisable |
+| L'appareil revient à l'écran d'appairage avec un message de révocation | Appareil révoqué (ENF-09) | Ses données locales ont été effacées ; un gérant l'appaire de nouveau |
+| « Connectez-vous d'abord avec un compte de gérant » juste après avoir appairé un autre appareil | La session web se ferme après chaque appairage | Se reconnecter sur `/connexion`, puis appairer |
+| Un appareil est marqué « Sans nouvelles » | Aucune synchronisation depuis plus de 24 heures | Vérifier qu'il est allumé, connecté, et que l'application est ouverte |
+| Le bouton d'état affiche « N opérations refusées » | Le serveur a refusé une opération (droit, prix, établissement) | Ouvrir le détail : chaque refus a son motif ; le gérant le revoit |

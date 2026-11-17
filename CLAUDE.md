@@ -16,6 +16,8 @@ Document de référence pour développer OPTIMA avec Claude Code. **À lire en e
 | `docs/DECISIONS.md` | Le registre des décisions prises (D-xxx) et des questions ouvertes (D-Qxx) | Avant toute décision structurante ; à mettre à jour après chaque décision |
 | `docs/LANDING_PAGE.md` | Le contenu et la structure de la landing page | Avant de travailler sur les pages publiques |
 | `docs/reference/` | Cahier des charges d'origine (Word) | En cas de doute sur la formulation exacte |
+| `guides/walkthrough.md` | Ce qui est fait, étape par étape, et ce qui bloque encore | Pour reprendre le travail ou faire le point |
+| `guides/guide.md` | Tout ce qu'il reste à faire, de l'installation locale à la mise en production | Avant d'installer, de déployer ou de planifier |
 
 ### 0.2 Statut des informations
 
@@ -33,10 +35,34 @@ Chaque affirmation de la documentation porte l'un de ces statuts. **Ne traite ja
 ### 0.3 État du dépôt au 7 novembre 2026
 
 - Le projet est initialisé (Next.js 16.4, React 19.3, TypeScript strict, Tailwind CSS v4, pnpm, Vitest). **[CONFIRMÉ : D-014]**
-- Existent : le design system (deux chartes, clair et sombre), une page d'accueil provisoire, et le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018). Il n'y a encore **ni base PostgreSQL, ni authentification, ni synchronisation serveur**.
-- Aperçu : `/e/demo/restaurant`. Seul l'établissement de démonstration est servi ; ses routes ne lisent aucune donnée serveur. Le contrôle d'accès côté serveur sera posé dans le layout du module avec le socle serveur.
-- La pile technique décrite au § 3 est celle **proposée par le cahier des charges** (chapitre 6). Elle est **[PROPOSÉ]** tant que D-Q18 n'est pas tranchée. Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
-- Prochaine étape **[CONFIRMÉ]** : initialiser le projet, poser le design system et le mécanisme des thèmes, puis implémenter la landing page (voir § 10).
+- Existent :
+  - le design system (deux chartes, clair et sombre) ;
+  - la **landing page** (D-068) : `src/app/(public)/` (page, composants, textes dans `_content/landing.ts`), mentions légales, image de partage, bouton « Voir la démo » vers l'aperçu local du Restaurant ;
+  - le **module Restaurant en interface locale** (tableau de bord, commandes, prise de commande, menus, stock du matin, tables) sur une base IndexedDB alimentée par des **données de démonstration** (D-018) ;
+  - le **socle serveur** : schéma Prisma et migrations (RLS, tables en ajout seul), authentification maison (Argon2id, sessions, TOTP du propriétaire), `authorize`, journal d'audit, appareils et synchronisation `/api/sync/push`, `/api/sync/pull` et `/api/sync/bootstrap`, écrans de connexion ;
+  - la **liaison de l'interface Restaurant au serveur** : appairage d'un appareil par un gérant connecté, ajout des utilisateurs par mot de passe puis **code PIN** local (D-024), client de synchronisation (envoi de la file, réception par curseur, refus visibles), effacement d'un appareil révoqué ;
+  - l'écran **« Appareils »** (`/e/<slug>/appareils`, session web du gérant ou du propriétaire) : liste, dernière synchronisation, révocation avec motif. Après un appairage, la session web du gérant est fermée sur l'appareil partagé ;
+  - l'écran **« Équipe »** (`/e/<slug>/equipe`) : création des comptes (mot de passe provisoire), rôle et poste, réinitialisation, déconnexion forcée, suspension avec motif et réactivation, diffusées aux appareils. Règles dans `src/server/staff/rules.ts`, services dans `src/server/staff/staff.ts` ;
+  - l'**espace propriétaire** (`/proprietaire`) : vue d'ensemble des ventes, de la caisse (attendu, déclaré, manquants nommés, D-057), des dettes clients (encours, plus gros débiteurs, D-063) et des alertes, établissements (création avec aperçu de l'en-tête, identité, modules avec dépendances, suspension et réactivation). Logique pure dans `src/modules/owner/`, services dans `src/server/owner/` ;
+  - le **journal d'audit consultable** : `/e/<slug>/journal` (gérant) et `/proprietaire/audit` (propriétaire), filtres, détail des changements, export CSV audité. Catalogue des actions dans `src/server/audit/catalog.ts`, requêtes dans `src/server/audit/journal.ts` ;
+  - les **menus selon les modules actifs** : les appareils reçoivent la liste des modules et masquent les écrans des modules désactivés ; leurs opérations restent en attente jusqu'à la réactivation (D-026) ;
+  - les **exports Excel et PDF** du journal (ExcelJS, `playwright-core`, D-027) : briques réutilisables dans `src/server/exports/` (document tabulaire, classeur, rendu PDF) pour les rapports à venir ;
+  - la **PWA hors connexion** (Serwist, D-028) : application installable, pages du Restaurant disponibles sans réseau après une première visite, page « Pas de connexion » pour les écrans en ligne. Règles de cache dans `src/offline/cache-rules.ts`, service worker dans `src/offline/sw/sw.ts`, construit par `scripts/build-sw.mts`.
+  - la **politique de contenu (CSP) avec nonce** et les en-têtes de sécurité (D-029) : nonce neuf à chaque page posé par `src/proxy.ts`, politique et en-têtes dans `src/server/security/headers.ts`, toutes les pages rendues à chaque requête (`instant = false` dans le layout racine), Zod sans `eval` (`src/shared/lib/zod-config.ts`, à importer en tête de chaque fichier de schémas).
+  - l'**encaissement** du restaurant (D-055) : espèces en francs ou en dollars, Mobile Money, paiement partiel, monnaie rendue, taux du dollar saisi par le gérant, écran « Caisse » (`/restaurant/caisse`). Règles dans `src/modules/restaurant/domain/payment.ts`, tables `payments`, `payment_allocations` et `exchange_rates` en ajout seul.
+  - les **clôtures de service** (D-056) : déclaration de caisse par personne, comptage du stock par point de service, validation de la journée par le gérant, rapport imprimable (`/restaurant/clotures`). Règles dans `src/modules/restaurant/domain/closing.ts`, tables `cash_closings`, `cash_closing_payments`, `stock_counts` et `day_closings` en ajout seul.
+  - les **annulations et remises** (D-058) : demandées par le serveur, validées par le gérant (carte « Demandes à valider » de l'écran Commandes). Règles dans `src/modules/restaurant/domain/adjustment.ts`, tables `adjustment_requests` et `adjustment_decisions` en ajout seul.
+  - la **vente à crédit** (D-059) : fiches clients, crédit validé par le gérant, dettes et remboursements sur l'écran « Clients » (`/restaurant/clients`). Règles dans `src/modules/restaurant/domain/customers.ts`, table `customers`.
+  - les **réquisitions** (D-069) : écran `/restaurant/requisitions`, réquisition du matin (dans la proposition du stock du matin), compléments (ajoutés au stock de la journée et au stock attendu) et retours au magasin avec motif. Règles dans `src/modules/restaurant/domain/requisition.ts`, table `requisitions` en ajout seul.
+  - les **postes de préparation** (D-066) : écran `/restaurant/preparation/<poste>` (commandes du poste sans montant, « Prête », éléments épuisés pour la journée), bandeau « commandes prêtes » chez le serveur, préparateur limité à son poste. Logique dans `src/modules/restaurant/domain/preparation.ts`, colonne `sold_out_day` de `menu_items`.
+  - les **rapports** (D-065) : écran de gestion en ligne « Rapports » (`/e/<slug>/rapports`, permission `reports.read`) : ventes par point de service, serveur, article, heure et mode de paiement, écarts des journées validées, exports PDF, Excel et CSV audités. Logique dans `src/modules/restaurant/domain/report.ts`, service dans `src/server/reports/restaurant-report.ts`.
+  - la **clôture de période** et les **écritures d'ajustement** (D-064) : écran de gestion en ligne « Clôtures » (`/e/<slug>/clotures`), période aux dates libres validée par le gérant, résumé figé, corrections de caisse et de stock datées et motivées. Règles dans `src/modules/restaurant/domain/period.ts`, services dans `src/server/restaurant/periods.ts`, tables `period_closings` et `closing_adjustments` en ajout seul.
+  - les **options et formules** du menu (D-060) : groupes d'options avec suppléments fixés par le gérant, formules réparties entre les points de service. Règles dans `src/modules/restaurant/domain/menu-options.ts`, colonnes `option_groups` et `components` de `menu_items`.
+  - les **tests de bout en bout** Playwright (`tests/e2e/`, `pnpm test:e2e`) et l'**intégration continue** GitHub Actions (D-047, D-061). Les parcours avec le serveur tournent sur une base dédiée `optima_e2e`, vidée et remplie de comptes de test à chaque lancement (D-062).
+- `/e/<slug>/restaurant` travaille sur les vraies données du serveur ; l'aperçu `/e/demo/restaurant` reste local, sur données de démonstration.
+- La base locale se prépare avec `scripts/db/setup-local.sql` (voir `guides/guide.md`). Les tests d'intégration n'en ont pas besoin (PGlite, D-021).
+- Si un code existant contredit ce document, c'est le code qui décrit la réalité : il faut alors le signaler et mettre ce fichier à jour, pas réécrire le code pour suivre le document.
+- L'état détaillé et les blocages sont tenus dans `guides/walkthrough.md`.
 
 ---
 
@@ -215,7 +241,7 @@ Les règles détaillées sont dans `docs/SPECIFICATIONS.md`. Les invariants suiv
 10. **Toute action du propriétaire dans un établissement est auditée** et visible du gérant. RG-PRO-01.
 11. **Aucune donnée d'un établissement n'est accessible depuis un autre.** ENF-08.
 
-Les hypothèses encore non confirmées (qui encaisse, fréquence de clôture, tables, crédit, emballages) sont listées en tête de `docs/SPECIFICATIONS.md` et dans `docs/DECISIONS.md` (D-Q03 à D-Q10). **Le code doit les isoler dans des paramètres ou des fonctions faciles à modifier.**
+Les hypothèses de la section 1.5 du cahier (qui encaisse, moment du paiement, journée d'exploitation, tables, crédit, emballages) ont été **tranchées le 14/11/2026** (D-032 à D-039) ; les questions encore ouvertes sont dans `docs/DECISIONS.md`. **Le code isole les règles susceptibles d'évoluer dans des paramètres ou des fonctions faciles à modifier.**
 
 ### 2.5 Paramètres et configuration [PROPOSÉ]
 
@@ -251,15 +277,17 @@ Toute valeur métier susceptible de changer (par exemple les seuils de marge de 
 | Composants de base | **Radix UI** (primitives accessibles), stylées par nos tokens | Accessibilité clavier et lecteurs d'écran |
 | Thèmes | **next-themes** (`attribute="data-theme"`) | Script anti-flash, mode système, persistance |
 | Hors connexion | **Service Worker** (via Serwist) et **IndexedDB** (via Dexie) | PWA installable, file d'attente d'opérations |
-| PDF | **Playwright / Chromium** côté serveur | Rendu A4 identique à l'aperçu |
+| PDF | **Playwright / Chromium** côté serveur (`playwright-core` et navigateur installé, D-027) | Rendu A4 identique à l'aperçu |
 | Tâches de fond | **pg-boss** (file adossée à PostgreSQL) | Exports, rapports, alertes, sans serveur supplémentaire |
 | Excel et CSV | **ExcelJS** | Imports et exports |
 | Images | **sharp** | Réencodage et redimensionnement des photos |
 | Journalisation | **pino** avec masquage des champs sensibles | Logs structurés |
 | Tests | **Vitest**, Testing Library, **Playwright** (e2e, accessibilité, captures) | Voir § 6 |
 | Gestionnaire de paquets | **pnpm** | Rapide, verrouillage strict |
-| Hébergement | **Docker** sur VPS Linux (Hetzner, Contabo ou équivalent), **Caddy** pour HTTPS | Cahier, § 6.3 |
-| Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id, sessions en base, TOTP, PIN | Voir § 5.1 |
+| Hébergement | **Vercel** (offre Pro) ou **hébergement mutualisé ifastnet**, au choix du porteur du projet **[CONFIRMÉ : D-045, offre à choisir]** | Remplace « Docker sur VPS et Caddy » (cahier, § 6.3) ; les points à régler (PostgreSQL, tâches de fond, PDF, fichiers) sont listés dans D-045 |
+| Authentification | **Implémentation maison [CONFIRMÉ : D-015]** : Argon2id (`@node-rs/argon2`), sessions en base, TOTP (RFC 6238, sans dépendance), PIN | Voir § 5.1 |
+
+Précisions de mise en œuvre : Prisma **7.10.1** épinglé avec `@prisma/adapter-pg` (D-019) ; Node.js **24 LTS** en production (D-020) ; tests d'intégration sur **PGlite** (D-021).
 
 Règle : **ne remplace aucune de ces briques** une fois le projet initialisé sans exposer la raison, les conséquences et l'alternative, puis consigner la décision dans `docs/DECISIONS.md`.
 
@@ -331,7 +359,7 @@ Les URL sont en **français** (elles sont visibles par les utilisateurs). Le cod
 | `/proprietaire/etablissements`, `/proprietaire/etablissements/[id]` | Propriétaire | Gestion des établissements et des modules |
 | `/proprietaire/gerants`, `/proprietaire/audit` | Propriétaire | Gérants, journal global |
 | `/e/[etablissement]` | Membres de l'établissement | Tableau de bord d'établissement |
-| `/e/[etablissement]/catalogue`, `/stock`, `/achats`, `/caisse`, `/tresorerie`, `/rapports`, `/parametres`, `/equipe` | Selon la matrice des droits | Socle |
+| `/e/[etablissement]/catalogue`, `/stock`, `/achats`, `/caisse`, `/tresorerie`, `/rapports`, `/parametres`, `/equipe`, `/appareils`, `/journal` | Selon la matrice des droits | Socle |
 | `/e/[etablissement]/restaurant/commandes`, `/tables`, `/menus`, `/requisitions`, `/stock-du-matin`, `/preparation/[poste]`, `/livraisons`, `/clotures`, `/fiches-recettes` | Selon la matrice des droits | Module Restaurant, sous `<ModuleScope module="restaurant">` |
 
 Chaque layout protégé vérifie **côté serveur** la session, l'appartenance à l'établissement, l'activation du module et la permission. Masquer un lien dans le menu ne protège rien.
@@ -392,10 +420,10 @@ Le moteur de synchronisation applique le **patron outbox** :
 - **Rôles PostgreSQL** :
   - l'application se connecte avec un rôle **sans** `BYPASSRLS` ni droits de superutilisateur ;
   - les migrations utilisent un rôle distinct ;
-  - les lectures consolidées du propriétaire passent par des fonctions dédiées qui vérifient le rôle propriétaire.
+  - les lectures consolidées du propriétaire passent par le drapeau RLS `app.is_owner`, posé seulement après `authorize` (D-022, à valider).
 - **Identifiants** : UUIDv7, générables hors connexion et triables par date.
-- **Montants** : entiers en **unité minimale** (`BIGINT`) avec un code devise (`CDF`, `USD`), jamais de flottants. Les taux de change sont en `NUMERIC(18,6)`. Le prix de revient moyen pondéré est en `NUMERIC`, arrondi seulement à l'affichage et à la facturation. La règle d'arrondi des prix en CDF est **[À DÉCIDER : D-Q15]**.
-- **Dates** : stockées en `timestamptz` (UTC). L'affichage se fait dans le fuseau de l'établissement, **Africa/Lubumbashi** (UTC+2) pour Bukavu. Une « journée d'exploitation » est délimitée par la clôture, pas par minuit **[À DÉCIDER : D-Q10]**.
+- **Montants** : entiers en **unité minimale** (`BIGINT`) avec un code devise (`CDF`, `USD`), jamais de flottants. Les taux de change sont en `NUMERIC(18,6)`. Le prix de revient moyen pondéré est en `NUMERIC`, arrondi seulement à l'affichage et à la facturation. Les prix en CDF sont arrondis à **100 CDF** ; le dollar est accepté au taux du jour saisi par le gérant **[CONFIRMÉ : D-042]**.
+- **Dates** : stockées en `timestamptz` (UTC). L'affichage se fait dans le fuseau de l'établissement, **Africa/Lubumbashi** (UTC+2) pour Bukavu. Une « journée d'exploitation » va de la saisie du stock du matin à la clôture validée, pas de minuit à minuit **[CONFIRMÉ : D-039]**.
 - **Tables en ajout seul** (`stock_movements`, `payments`, `audit_log`, `closings` validées, `exchange_rates`, `price_history`) : un trigger refuse `UPDATE` et `DELETE`.
 - **Suppression** : `archived_at` ou `cancelled_at` avec un motif, jamais de `DELETE` sur les données métier. Seule exception : la suppression définitive d'un établissement (EF-ETB-04), par une tâche dédiée, auditée, après export.
 - **Entités principales** (cahier, § 6.4) :
@@ -427,7 +455,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 - Aucune trace d'appel, requête SQL, chemin de fichier ou secret n'est envoyé au navigateur.
 - Côté client : un `error.tsx` par segment de route, des états vides et d'erreur conçus (pas d'écran blanc), et des réessais automatiques pour la synchronisation.
 
-### 3.11 Fichiers et médias [PROPOSÉ ; stockage : D-Q23]
+### 3.11 Fichiers et médias [PROPOSÉ ; stockage : D-048]
 
 - Fichiers concernés : logos d'établissement, photos d'articles et de plats, justificatifs de dépenses (EF-TRE-02), exports et PDF générés.
 - Contrôles :
@@ -442,7 +470,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 
 - Tickets thermiques de 58 et 80 mm en ESC/POS, par **Web Bluetooth** ou **WebUSB** depuis Chrome sur Android, ou par un **relais d'impression local** sur le poste du restaurant. L'impression navigateur reste le recours.
 - Facture A4 et rapports en PDF, générés par le serveur. Hors connexion, une version HTML imprimable est produite localement.
-- Le matériel exact est **[À DÉCIDER : D-Q13]**.
+- Le restaurant est relié par **Wi-Fi Starlink** (D-041) ; le matériel exact est **[À DÉCIDER : D-Q13]**.
 
 ### 3.13 Dépendances
 
@@ -518,12 +546,12 @@ La sécurité fait partie de la conception. Aucune fonctionnalité n'est livrée
 
 - Identifiant : adresse e-mail ou numéro de téléphone. Mot de passe d'au moins 10 caractères, haché en **Argon2id** (ENF-07). Jamais stocké en clair, jamais envoyé par e-mail (RG-AUT-01).
 - Mot de passe provisoire à la création, **changement obligatoire** à la première connexion (EF-AUT-02).
-- **Double authentification TOTP obligatoire pour le propriétaire** (EF-AUT-03). Codes de secours générés une seule fois et stockés hachés.
+- **Double authentification TOTP obligatoire pour le propriétaire** (EF-AUT-03). Codes de secours générés une seule fois et stockés hachés. Pour les gérants, elle est **proposée mais jamais obligatoire** (D-049).
 - **Code PIN à 4 chiffres** pour reprendre la main sur un appareil partagé du restaurant (EF-AUT-01, EF-AUT-05) :
   - il n'est valable que sur un **appareil enregistré** de l'établissement, et seulement pour un utilisateur qui s'y est déjà connecté avec son mot de passe ;
-  - il est stocké haché (Argon2id) ;
+  - il ne quitte jamais l'appareil : son vérificateur est un PBKDF2-SHA256 local (WebCrypto), Argon2id n'existant pas dans le navigateur sans dépendance **[PROPOSÉ : D-024]** ;
   - 5 essais au maximum, puis verrouillage et mot de passe exigé ;
-  - le PIN ne remplace jamais le mot de passe pour les actions de gérant ou de propriétaire.
+  - le PIN ne remplace jamais le mot de passe pour les actions de gérant ou de propriétaire : un gérant entré par PIN agit comme serveur, sauf dans les 15 minutes qui suivent une saisie de son mot de passe (D-024).
 - **Blocage temporaire** après plusieurs échecs (RG-AUT-02) : 5 échecs en 15 minutes par compte et par adresse IP.
 - **Hors connexion** :
   - seuls les utilisateurs déjà connectés sur l'appareil peuvent travailler ;
@@ -723,13 +751,27 @@ Scripts existants dans `package.json` :
 | Commande | Rôle |
 |---|---|
 | `pnpm dev` | Serveur de développement |
-| `pnpm build` / `pnpm start` | Build et démarrage de production |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | ESLint (règles Next.js) |
+| `pnpm build` / `pnpm start` | Build et démarrage de production ; `pnpm build` génère d'abord le client Prisma (un cache de dépendances, comme celui de Vercel, peut sauter le `postinstall`) et produit aussi le service worker `public/sw.js` (D-028) |
+| `pnpm check:offline` | Vérifie la PWA hors connexion sur un serveur de production lancé (`next start -p 3100`), avec le Chrome installé |
+| `pnpm check:csp` | Vérifie la CSP sur un serveur de production lancé (`next start -p 3100`) : aucune violation, chaque script du HTML porte le nonce, le JavaScript s'exécute |
+| `pnpm exec tsx scripts/generate-icons.mts` | Régénère les icônes de l'application installable (provisoires, D-Q11) |
+| `pnpm typecheck` | `next typegen` (types des routes, `PageProps` et `LayoutProps`, sans build) puis `tsc --noEmit` ; indispensable sur une machine sans dossier `.next`, comme la CI |
+| `pnpm lint` / `pnpm lint:css` | ESLint (règles Next.js, couleurs littérales) puis Stylelint ; `lint:css` lance Stylelint seul (D-067) |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm test` / `pnpm test:watch` | Tests unitaires Vitest (`*.test.ts` à côté du code ; IndexedDB simulée par `fake-indexeddb`) |
+| `pnpm test:integration` | Tests d'intégration sur PostgreSQL 18 embarqué (PGlite), sans serveur ni mot de passe |
+| `pnpm test:e2e` | Tests de bout en bout Playwright (`tests/e2e/*.spec.ts`) avec le Chrome installé, sur le build de production (`pnpm build` d'abord ; `next start -p 3100` est lancé s'il ne tourne pas) : parcours de commande, hors connexion, CSP, thèmes, accessibilité axe (D-061) |
+| `pnpm db:generate` | Génère le client Prisma (aussi lancé après `pnpm install`) |
+| `pnpm db:migrate` / `pnpm db:status` | Applique / liste les migrations (`MIGRATION_DATABASE_URL`) |
+| `pnpm db:seed` | Données de développement, mots de passe provisoires affichés une fois (refusé en production) |
+| `psql -U postgres -h localhost -f scripts/db/setup-local.sql` | Crée la base `optima` et les rôles `optima_migrator` / `optima_app` (une seule fois) |
+| `psql -U postgres -h localhost -f scripts/db/setup-e2e.sql` | Crée la base `optima_e2e` des tests de bout en bout (une seule fois) ; `pnpm test:e2e` la migre, la **vide** et y crée des comptes de test à chaque lancement (D-062). Sans elle, les parcours avec le serveur sont sautés |
 
-Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:integration` (PostgreSQL natif, D-016), `pnpm test:e2e` (Playwright), `pnpm db:migrate` / `pnpm db:seed` (Prisma), Stylelint.
+L'intégration continue (`.github/workflows/ci.yml`, D-047, D-061) enchaîne typage, lint, format, tests unitaires, d'intégration, build, tests de bout en bout et `pnpm audit --audit-level high` sur `develop` et sur les pull requests vers `main`.
+
+`pnpm lint` enchaîne ESLint et Stylelint (`pnpm lint:css`) : les couleurs littérales sont refusées hors de `src/styles/tokens/` et `src/styles/modules/`, dans le CSS comme dans les chaînes TypeScript (D-067).
+
+Prévus, pas encore créés **[PROPOSÉ]** : Dockerfile et `docker-compose` de production.
 
 ---
 
@@ -738,11 +780,11 @@ Prévus, pas encore créés **[PROPOSÉ]** : `pnpm test:integration` (PostgreSQL
 | Étape | Contenu | Statut |
 |---|---|---|
 | 1 | Analyse, spécifications, `CLAUDE.md`, `docs/` | Fait le 07/11/2026 |
-| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Restent Stylelint et Playwright |
+| 2 | Initialisation : Next.js, TypeScript strict, pnpm, ESLint, Prettier, Vitest | Fait le 07/11/2026. Playwright et intégration continue faits le 15/11/2026 (D-061). Stylelint fait le 16/11/2026 (D-067) |
 | 3 | Design system : tokens (deux chartes, clair et sombre), `ThemeProvider`, `ThemeSwitcher`, `ModuleScope`, composants de base | Fait le 07/11/2026 |
 | 4 | Module Restaurant, interface locale : coquille responsive, tableau de bord, commandes, prise de commande avec factures d'avance, menus | Fait le 07/11/2026, sur données de démonstration (D-018) |
-| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (après D-Q14), encaissement (après D-Q03 et D-Q04), clôtures (après D-Q10), livraison (après D-Q07), PWA hors connexion (Serwist) | En cours |
-| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync` | À faire ; D-Q20 (hébergement) reste ouverte |
-| 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | À faire ; contenu bloqué par D-Q26 |
+| 5 | Module Restaurant, suite : stock du matin et tables (faits le 07/11/2026), réquisitions (faites le 17/11/2026, D-069), encaissement (fait le 15/11/2026, D-055), annulations et remises (faites le 15/11/2026, D-058), vente à crédit (faite le 15/11/2026, D-059), options et formules (faites le 15/11/2026, D-060), clôtures de service (faites le 15/11/2026, D-056, remontées dans l'espace propriétaire, D-057 ; clôture de période et ajustements faits le 15/11/2026, D-064), livraison (après les frais de D-Q07), PWA hors connexion (Serwist, faite le 13/11/2026) | En cours |
+| 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. PWA hors connexion faite le 13/11/2026. CSP avec nonce et en-têtes de sécurité faits le 14/11/2026. Restent l'export complet et la suppression d'établissement ; D-Q20 (hébergement) reste ouverte |
+| 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | Faite le 17/11/2026 (D-068) ; l'hébergeur des mentions légales attend D-Q20 |
 
-L'ordre a été revu le 07/11/2026 (D-018). Les décisions encore ouvertes sont listées dans **`docs/DECISIONS.md`**. Les plus bloquantes pour la suite du Restaurant sont **D-Q03** et **D-Q04** (encaissement), **D-Q10** (clôtures), **D-Q14** (magasin et réquisitions) et **D-Q06** (accompagnements).
+L'ordre a été revu le 07/11/2026 (D-018). Le 14/11/2026, le porteur du projet a tranché la plupart des questions ouvertes (D-030 à D-054). Restent bloquantes : **D-Q20** (choix entre Vercel et ifastnet, puis domaine), **D-Q13** (matériel d'impression), et **D-Q07** (zones et frais de livraison). D-Q26 et D-Q14 sont tranchées (D-068, D-069). Voir **`docs/DECISIONS.md`**.

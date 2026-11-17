@@ -14,6 +14,30 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.morning-stock.enter",
   "restaurant.table.manage",
   "restaurant.table.release",
+  /** Encaisser (EF-ENC-02). Un serveur n'encaisse que ses propres ventes (matrice des droits). */
+  "restaurant.payment.collect",
+  /** Saisir le taux du dollar (EF-PRX-05, D-042). */
+  "restaurant.exchange-rate.manage",
+  /** Consulter les clôtures (matrice : lecture pour le lecteur). */
+  "restaurant.closing.read",
+  /** Déclarer sa propre caisse (EF-CLO-02 : « la sienne »). */
+  "restaurant.closing.declare",
+  /** Compter le stock d'un point de service en fin de service (EF-CLO-03). */
+  "restaurant.closing.count-stock",
+  /** Valider la journée (EF-CLO-04 : le gérant). */
+  "restaurant.closing.validate",
+  /** Demander une annulation ou une remise sur ses commandes (matrice : « Demande »). */
+  "restaurant.adjustment.request",
+  /** Valider ou refuser ces demandes (matrice : gérant, « Validation »). */
+  "restaurant.adjustment.approve",
+  /** Créer la fiche d'un client pour une vente à crédit (D-043, D-059). */
+  "restaurant.customer.create",
+  /** Fixer le plafond de crédit d'un client (D-037 ; gérant). */
+  "restaurant.customer.manage",
+  /** Déclarer un élément épuisé pour la journée (EF-PRE-03 : le poste, ou le gérant). */
+  "restaurant.menu.sold-out",
+  /** Faire sortir du magasin vers un point de service (EF-REQ-02 : le gérant, D-069). */
+  "restaurant.requisition.create",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -28,10 +52,20 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.order.prep-status",
     "restaurant.menu.read",
     "restaurant.table.release",
+    "restaurant.payment.collect",
+    "restaurant.closing.read",
+    "restaurant.closing.declare",
+    "restaurant.adjustment.request",
+    "restaurant.customer.create",
   ],
-  prep: ["restaurant.order.prep-status", "restaurant.menu.read", "restaurant.morning-stock.read"],
+  prep: [
+    "restaurant.order.prep-status",
+    "restaurant.menu.read",
+    "restaurant.morning-stock.read",
+    "restaurant.menu.sold-out",
+  ],
   courier: [],
-  reader: ["restaurant.menu.read", "restaurant.morning-stock.read"],
+  reader: ["restaurant.menu.read", "restaurant.morning-stock.read", "restaurant.closing.read"],
 };
 
 export function hasPermission(role: RestaurantRole, permission: RestaurantPermission): boolean {

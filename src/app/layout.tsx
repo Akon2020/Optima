@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 
+import { ServiceWorkerRegistration } from "@/offline/service-worker-registration";
 import { ThemeProvider } from "@/shared/theme/theme-provider";
 import "@/styles/globals.css";
+import { BRAND_TOKENS } from "@/styles/tokens/brand";
 
 // Charte générale : Inter (D-Q11, recommandation appliquée par défaut).
 const generalFont = Inter({
@@ -18,9 +21,33 @@ const restaurantFont = Plus_Jakarta_Sans({
   display: "swap",
 });
 
+/**
+ * CSP avec nonce (CLAUDE.md § 5.4, D-029) : le nonce change à chaque requête,
+ * donc chaque page est rendue à la demande, sans enveloppe prérendue (un
+ * prérendu n'a pas de requête, donc pas de nonce). `instant = false` sur le
+ * layout racine l'autorise pour toute l'application.
+ */
+export const instant = false;
+
 const isIndexable = process.env.NEXT_PUBLIC_SITE_INDEXABLE === "true";
 
+/**
+ * Origine publique (`APP_ORIGIN`, validée par `src/server/env.ts`) : sert aux
+ * URL canoniques et à l'image de partage. Le domaine dépend de D-Q20 ; en son
+ * absence, Next.js retombe sur l'adresse locale.
+ */
+function siteOrigin(): URL | undefined {
+  try {
+    return process.env.APP_ORIGIN ? new URL(process.env.APP_ORIGIN) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const origin = siteOrigin();
+
 export const metadata: Metadata = {
+  ...(origin ? { metadataBase: origin } : {}),
   title: {
     default: "OPTIMA · Gestion commerciale multi-établissements",
     template: "%s · OPTIMA",
@@ -28,6 +55,9 @@ export const metadata: Metadata = {
   description:
     "Caisse, stock, commandes et clôtures, même sans connexion. Chaque établissement garde ses données, le propriétaire voit l'ensemble.",
   applicationName: "OPTIMA",
+  appleWebApp: { capable: true, title: "OPTIMA", statusBarStyle: "default" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+  openGraph: { type: "website", locale: "fr_FR", siteName: "OPTIMA" },
   // Indexation désactivée tant que D-Q01 n'est pas tranchée.
   robots: isIndexable ? { index: true, follow: true } : { index: false, follow: false },
 };
@@ -37,12 +67,13 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b1220" },
+    { media: "(prefers-color-scheme: light)", color: BRAND_TOKENS.white },
+    { media: "(prefers-color-scheme: dark)", color: BRAND_TOKENS.darkBackground },
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="fr"
@@ -50,7 +81,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${generalFont.variable} ${restaurantFont.variable} antialiased`}
     >
       <body className="min-h-dvh">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider nonce={nonce}>{children}</ThemeProvider>
+        <ServiceWorkerRegistration />
       </body>
     </html>
   );

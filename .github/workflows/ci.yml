@@ -1,0 +1,109 @@
+# Intégration continue (D-047) : sur `develop` et sur les pull requests vers `main`.
+# Typage, lint, format, tests unitaires et d'intégration (PGlite, sans base),
+# build de production, tests de bout en bout (Chrome du runner) et audit.
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Vérifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # PostgreSQL jetable pour les parcours de bout en bout avec la base (D-062).
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: "true"
+      # Valeurs factices ou générées à chaque exécution : jamais de secret réel ici.
+      # Les tests d'intégration tournent sur PGlite ; les tests de bout en bout sur
+      # la base optima_e2e du service PostgreSQL ci-dessus.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      APP_ORIGIN: http://localhost:3100
+      NEXT_PUBLIC_SITE_INDEXABLE: "false"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Clé de chiffrement et mots de passe éphémères
+        run: |
+          for name in AUTH_ENCRYPTION_KEY MIGRATOR_PASSWORD APP_PASSWORD; do
+            if [ "$name" = AUTH_ENCRYPTION_KEY ]; then value=$(openssl rand -base64 32); else value=$(openssl rand -hex 24); fi
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Installation
+        run: pnpm install --frozen-lockfile
+
+      - name: Typage
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Tests unitaires
+        run: pnpm test
+
+      - name: Tests d'intégration
+        run: pnpm test:integration
+
+      - name: Build
+        run: pnpm build
+
+      - name: Base des tests de bout en bout
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -v migrator_password="$MIGRATOR_PASSWORD" -v app_password="$APP_PASSWORD" -f scripts/db/setup-local.sql
+          psql -h localhost -U postgres -f scripts/db/setup-e2e.sql
+          echo "E2E_DATABASE_URL=postgresql://optima_app:${APP_PASSWORD}@localhost:5432/optima_e2e" >> "$GITHUB_ENV"
+          echo "E2E_MIGRATION_DATABASE_URL=postgresql://optima_migrator:${MIGRATOR_PASSWORD}@localhost:5432/optima_e2e" >> "$GITHUB_ENV"
+
+      - name: Tests de bout en bout
+        run: pnpm test:e2e
+
+      - name: Rapport Playwright
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Audit des dépendances
+        run: pnpm audit --audit-level high

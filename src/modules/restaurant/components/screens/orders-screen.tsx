@@ -24,6 +24,7 @@ import { summarizeDay } from "../../domain/dashboard";
 import { matchesSearch } from "../../domain/menu";
 import type { PrepStatus } from "../../domain/types";
 import { useDayData } from "../../offline/hooks";
+import { PendingApprovals } from "../adjustments/pending-approvals";
 import { orderPlaceLabel } from "../labels";
 import { OrderDetailSheet } from "../orders/order-detail-sheet";
 import { buildOrderRows } from "../orders/order-rows";
@@ -96,6 +97,8 @@ export function OrdersScreen() {
           Nouvelle commande
         </Link>
       </div>
+
+      <PendingApprovals data={data} />
 
       <Card as="div" className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Kpi icon={Hourglass} tone="yellow" value={counts.pending} label="En préparation" />

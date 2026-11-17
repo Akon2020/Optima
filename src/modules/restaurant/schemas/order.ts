@@ -1,3 +1,5 @@
+import "@/shared/lib/zod-config";
+
 import { z } from "zod";
 
 /**
@@ -14,6 +16,8 @@ export const orderInputSchema = z
         z.object({
           menuItemId: z.string().min(1),
           quantity: z.number().int().min(1).max(999),
+          /** Options choisies (D-060). */
+          optionIds: z.array(z.string().min(1)).max(12).optional(),
         }),
       )
       .min(1, "Ajoutez au moins un élément à la commande."),

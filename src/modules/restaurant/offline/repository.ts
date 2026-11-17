@@ -1,32 +1,115 @@
+import type { z } from "zod";
+
 import { localYear } from "@/shared/lib/dates";
 import { DomainError } from "@/shared/lib/errors";
 import { uuidv7 } from "@/shared/lib/ids";
-import { moneyFromMajor } from "@/shared/lib/money";
+import { addMoney, moneyFromMajor, zero as zeroMoney, type Money } from "@/shared/lib/money";
 import { createOperation } from "@/offline/outbox";
 
-import { businessDayKey, businessDayStart } from "../domain/business-day";
+import { customerDebts, customerIssue, normalizePhone, outstandingOf } from "../domain/customers";
+import {
+  MIN_REASON_LENGTH as MIN_ADJUSTMENT_REASON,
+  adjustmentIssue,
+  pendingRequests,
+  splitDiscount,
+} from "../domain/adjustment";
+import {
+  businessDayKey,
+  businessDayStart,
+  businessDayStartOf,
+  currentDayKey,
+} from "../domain/business-day";
+import {
+  collectedByServicePoint,
+  collectorsWithUnclosedPayments,
+  dayClosingIssues,
+  expectedCashLines,
+  latestStockCounts,
+  unclosedPayments,
+  unpaidInvoiceIds,
+  validateCashClosing,
+  validateStockCount,
+} from "../domain/closing";
 import { computeAvailability, maxOrderableQuantity } from "../domain/menu";
+import { expandOrderLine, formulaIssue, optionGroupsIssue } from "../domain/menu-options";
+import { canWorkStation, isDeclaredSoldOut } from "../domain/preparation";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
+  firstMorningEntryAt,
+  laterRequisitioned,
+  morningRequisitioned,
+  requisitionKind,
+  stockInOfDay,
+  validateRequisition,
+} from "../domain/requisition";
+import {
+  allocatePayment,
+  invoiceBalances,
+  parseRate,
+  remainingDue,
+  settlePayment,
+} from "../domain/payment";
+import {
   currentEntries,
+  isMorningStockComplete,
   itemsRequiringMorningStock,
   proposeMorningQuantity,
   validateMorningLines,
 } from "../domain/morning-stock";
 import type {
+  AdjustmentDecision,
+  AdjustmentKind,
+  AdjustmentRequest,
   AdvanceInvoice,
+  CashClosing,
+  CashClosingLine,
+  Customer,
   MenuItem,
   DiningTable,
+  ExchangeRate,
   MorningStockEntry,
+  OptionGroup,
   Order,
   OrderLine,
+  Payment,
+  PaymentAllocation,
   PrepStatus,
+  Requisition,
+  ServicePoint,
+  StockCount,
+  StockCountLine,
   TableRelease,
 } from "../domain/types";
 import { nextTableLabel, validateTableLabel } from "../domain/tables";
 import { menuItemInputSchema, type MenuItemInput } from "../schemas/menu-item";
 import { orderInputSchema, type OrderInput } from "../schemas/order";
+import { paymentInputSchema, type PaymentInput } from "../schemas/payment";
+import type {
+  adjustmentDecidedSchema,
+  adjustmentRequestedSchema,
+  cashClosingDeclaredSchema,
+  customerCreatedSchema,
+  menuItemOptionsSetSchema,
+  menuItemSoldOutSetSchema,
+  customerLimitSetSchema,
+  dayValidatedSchema,
+  orderCreatedSchema,
+  paymentRecordedSchema,
+  requisitionCreatedSchema,
+  stockCountedSchema,
+} from "../schemas/sync";
+
+type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
+type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
+type CashClosingDeclaredPayload = z.infer<typeof cashClosingDeclaredSchema>;
+type StockCountedPayload = z.infer<typeof stockCountedSchema>;
+type RequisitionCreatedPayload = z.infer<typeof requisitionCreatedSchema>;
+type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
+type AdjustmentRequestedPayload = z.infer<typeof adjustmentRequestedSchema>;
+type AdjustmentDecidedPayload = z.infer<typeof adjustmentDecidedSchema>;
+type CustomerCreatedPayload = z.infer<typeof customerCreatedSchema>;
+type CustomerLimitSetPayload = z.infer<typeof customerLimitSetSchema>;
 import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../permissions";
 import type { RestaurantSettings } from "../settings";
 import type { RestaurantDb } from "./db";
@@ -133,40 +216,52 @@ export async function createOrder(
       db.invoices,
       db.counters,
       db.morningStockEntries,
+      db.requisitions,
       db.outbox,
     ],
     async () => {
       const servicePoints = await db.servicePoints.toArray();
-      const items = await db.menuItems.bulkGet(input.lines.map((line) => line.menuItemId));
+      const itemById = new Map((await db.menuItems.toArray()).map((item) => [item.id, item]));
       const dayStart = businessDayStart(createdAt, businessDayStartHour, timeZone);
       const day = businessDayKey(createdAt, businessDayStartHour, timeZone);
       const sold = await soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart));
       const morningStock = await currentMorningStock(db, day);
+      // Un complément reçu pendant le service remet du stock en vente (D-069).
+      const later = laterRequisitioned(
+        await db.requisitions.where("day").equals(day).toArray(),
+        day,
+      );
+      const orderId = uuidv7(new Date(createdAt).getTime());
 
+      // D-060 : options et formules ; une formule se déplie en ses composants.
       const lines: OrderLine[] = [];
       for (const [index, requested] of input.lines.entries()) {
-        const item: MenuItem | undefined = items[index];
-        if (!item || item.archivedAt !== null) {
+        const expanded = expandOrderLine(requested, itemById, `${orderId}:${index}`);
+        if (!expanded.ok) throw new DomainError(expanded.code, expanded.message);
+        lines.push(...expanded.lines);
+      }
+      // RG-RES-01 : stock du jour contrôlé élément par élément, toutes lignes confondues.
+      const wanted = new Map<string, number>();
+      for (const line of lines) {
+        wanted.set(line.menuItemId, (wanted.get(line.menuItemId) ?? 0) + line.quantity);
+      }
+      for (const [menuItemId, quantity] of wanted) {
+        const item: MenuItem | undefined = itemById.get(menuItemId);
+        if (!item) continue;
+        if (isDeclaredSoldOut(item, day)) {
           throw new DomainError(
-            "ITEM_NOT_FOUND",
-            "Un élément de la commande n'existe plus au menu.",
+            "ITEM_SOLD_OUT",
+            `« ${item.name} » est épuisé (déclaré par le poste).`,
           );
         }
-        if (item.price === null) {
-          throw new DomainError(
-            "PRICE_NOT_SET",
-            `« ${item.name} » n'a pas de prix : demandez au gérant de le fixer.`,
-          );
-        }
-        const morning = morningStock.get(item.id);
         const availability = computeAvailability(
           item,
-          morning?.quantity ?? null,
+          stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
           sold.get(item.id) ?? 0,
           lowStockThreshold,
         );
         const max = maxOrderableQuantity(availability);
-        if (max !== null && requested.quantity > max) {
+        if (max !== null && quantity > max) {
           throw new DomainError(
             "ITEM_SOLD_OUT",
             max <= 0
@@ -174,14 +269,6 @@ export async function createOrder(
               : `Il ne reste que ${max} « ${item.name} » aujourd'hui.`,
           );
         }
-        lines.push({
-          menuItemId: item.id,
-          name: item.name,
-          servicePointId: item.servicePointId,
-          unit: item.unit,
-          unitPrice: item.price,
-          quantity: requested.quantity,
-        });
       }
 
       const table = input.tableId ? await db.diningTables.get(input.tableId) : undefined;
@@ -197,7 +284,6 @@ export async function createOrder(
       const tableLabel = table?.label ?? null;
 
       const split = splitOrderByServicePoint(lines, servicePoints, currency);
-      const orderId = uuidv7(new Date(createdAt).getTime());
       const orderNumber = await nextNumber(db, "CMD", createdAt, ctx);
 
       const invoices: AdvanceInvoice[] = [];
@@ -244,7 +330,21 @@ export async function createOrder(
           createOperation({
             id: uuidv7(),
             type: "restaurant.order.created",
-            payload: { orderId, numbers: [orderNumber, ...invoices.map((i) => i.number)], input },
+            // Forme validée par orderCreatedSchema (schemas/sync.ts) : le serveur
+            // recalcule les prix et revérifie la répartition par point de service.
+            payload: {
+              orderId,
+              number: orderNumber,
+              createdAt,
+              mode: input.mode,
+              tableId: input.tableId,
+              lines: input.lines,
+              invoices: invoices.map((invoice) => ({
+                id: invoice.id,
+                number: invoice.number,
+                servicePointId: invoice.servicePointId,
+              })),
+            } satisfies OrderCreatedPayload,
             establishmentId: ctx.establishmentId,
             userId: ctx.userId,
             deviceId: ctx.deviceId,
@@ -265,9 +365,15 @@ export async function setInvoicePrepStatus(
   status: PrepStatus,
 ): Promise<void> {
   assertPermission(ctx, "restaurant.order.prep-status", "changer le statut d'une commande");
-  await db.transaction("rw", db.invoices, db.outbox, async () => {
+  await db.transaction("rw", db.invoices, db.staff, db.outbox, async () => {
     const invoice = await db.invoices.get(invoiceId);
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Cette facture est introuvable.");
+    if (ctx.role === "prep") {
+      const own = (await db.staff.get(ctx.userId))?.servicePointId ?? null;
+      if (!canWorkStation(ctx.role, own, invoice.servicePointId)) {
+        throw new DomainError("NOT_YOUR_STATION", "Cette commande est pour un autre poste.");
+      }
+    }
     if (invoice.paymentStatus === "cancelled") {
       throw new DomainError("INVOICE_CANCELLED", "Cette facture est annulée.");
     }
@@ -286,6 +392,47 @@ export async function setInvoicePrepStatus(
   });
 }
 
+/**
+ * EF-PRE-03 : le poste déclare un élément épuisé pour la journée (il
+ * disparaît aussitôt de la prise de commande), ou le remet en vente. Un
+ * préparateur ne le fait que pour son poste ; le gérant pour tous.
+ */
+export async function setItemSoldOut(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  itemId: string,
+  isSoldOut: boolean,
+  at: string = new Date().toISOString(),
+): Promise<MenuItem> {
+  assertPermission(ctx, "restaurant.menu.sold-out", "déclarer un élément épuisé");
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const day = businessDayKey(at, businessDayStartHour, timeZone);
+  return db.transaction("rw", db.menuItems, db.staff, db.outbox, async () => {
+    const item = await db.menuItems.get(itemId);
+    if (!item || item.archivedAt !== null) {
+      throw new DomainError("ITEM_NOT_FOUND", "Cet élément n'existe plus au menu.");
+    }
+    const own = (await db.staff.get(ctx.userId))?.servicePointId ?? null;
+    if (!canWorkStation(ctx.role, own, item.servicePointId)) {
+      throw new DomainError("NOT_YOUR_STATION", "Cet élément dépend d'un autre poste.");
+    }
+    const updated: MenuItem = { ...item, soldOutDay: isSoldOut ? day : null };
+    await db.menuItems.put(updated);
+    await db.outbox.add(
+      createOperation({
+        id: uuidv7(),
+        type: "restaurant.menu-item.sold-out-set",
+        payload: { itemId, day, isSoldOut } satisfies z.infer<typeof menuItemSoldOutSetSchema>,
+        establishmentId: ctx.establishmentId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        createdAt: at,
+      }),
+    );
+    return updated;
+  });
+}
+
 /** Ajoute un élément au menu (EF-RES-03 ; réservé au gérant, RG-RES-02). */
 export async function addMenuItem(
   db: RestaurantDb,
@@ -299,6 +446,16 @@ export async function addMenuItem(
     const point = await db.servicePoints.get(input.servicePointId);
     if (!point)
       throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+    const isFormulaItem = input.kind === "formula";
+    if (isFormulaItem) {
+      // D-060 : une formule a son prix et au moins deux éléments du menu.
+      if (input.priceMajor === null) {
+        throw new DomainError("PRICE_NOT_SET", "Fixez le prix de la formule.");
+      }
+      const itemById = new Map((await db.menuItems.toArray()).map((entry) => [entry.id, entry]));
+      const issue = formulaIssue(input.components ?? [], itemById);
+      if (issue) throw new DomainError(issue.code, issue.message);
+    }
     const item: MenuItem = {
       id: uuidv7(),
       establishmentId: ctx.establishmentId,
@@ -311,6 +468,7 @@ export async function addMenuItem(
         input.priceMajor === null ? null : moneyFromMajor(input.priceMajor, ctx.settings.currency),
       createdAt,
       archivedAt: null,
+      ...(isFormulaItem ? { kind: "formula" as const, components: input.components ?? [] } : {}),
     };
     await db.menuItems.add(item);
     await db.outbox.add(
@@ -328,6 +486,52 @@ export async function addMenuItem(
   });
 }
 
+/**
+ * Fixe les groupes d'options d'un élément (D-035, D-060) : ils remplacent les
+ * précédents ; les commandes passées gardent les options figées sur leurs lignes.
+ */
+export async function setMenuItemOptions(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  itemId: string,
+  optionGroups: OptionGroup[],
+): Promise<MenuItem> {
+  assertPermission(ctx, "restaurant.menu.manage", "modifier le menu");
+  const groups = optionGroups.map((group) => ({
+    ...group,
+    name: group.name.trim(),
+    options: group.options.map((option) => ({ ...option, name: option.name.trim() })),
+  }));
+  const issue = optionGroupsIssue(groups);
+  if (issue) throw new DomainError(issue.code, issue.message);
+  const createdAt = new Date().toISOString();
+  return db.transaction("rw", db.menuItems, db.outbox, async () => {
+    const item = await db.menuItems.get(itemId);
+    if (!item || item.archivedAt !== null) {
+      throw new DomainError("ITEM_NOT_FOUND", "Cet élément n'existe plus au menu.");
+    }
+    if (item.kind === "formula") {
+      throw new DomainError("FORMULA_OPTIONS", "Une formule ne porte pas d'options.");
+    }
+    const updated: MenuItem = { ...item, optionGroups: groups };
+    await db.menuItems.put(updated);
+    await db.outbox.add(
+      createOperation({
+        id: uuidv7(),
+        type: "restaurant.menu-item.options-set",
+        payload: { itemId, optionGroups: groups } satisfies z.infer<
+          typeof menuItemOptionsSetSchema
+        >,
+        establishmentId: ctx.establishmentId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        createdAt,
+      }),
+    );
+    return updated;
+  });
+}
+
 /** Propositions du stock du matin d'une journée, par élément (EF-REQ-04). */
 export async function morningProposals(
   db: RestaurantDb,
@@ -337,19 +541,28 @@ export async function morningProposals(
   const { businessDayStartHour, timeZone } = ctx.settings;
   const previousStart = new Date(new Date(dayStartIso).getTime() - DAY_MS).toISOString();
   const previousDay = businessDayKey(previousStart, businessDayStartHour, timeZone);
-  const [previousMorning, previousSold, items] = await Promise.all([
+  const day = businessDayKey(dayStartIso, businessDayStartHour, timeZone);
+  const [previousMorning, previousSold, items, previousCounts, requisitions] = await Promise.all([
     currentMorningStock(db, previousDay),
     soldQuantitiesBetween(db, previousStart, dayStartIso),
     db.menuItems.toArray(),
+    db.stockCounts.where("day").equals(previousDay).toArray(),
+    db.requisitions.where("day").equals(day).toArray(),
   ]);
+  const requisitioned = morningRequisitioned(requisitions, day);
+  const counted = new Map<string, number>();
+  for (const count of latestStockCounts(previousCounts, previousDay).values()) {
+    for (const line of count.lines) counted.set(line.menuItemId, line.counted);
+  }
   return new Map(
     items.map((item) => [
       item.id,
       proposeMorningQuantity({
         previousMorning: previousMorning.get(item.id)?.quantity ?? null,
         previousSold: previousSold.get(item.id) ?? 0,
-        // HYPOTHÈSE D-Q14 : les réquisitions ne sont pas encore gérées.
-        requisitioned: null,
+        previousCounted: counted.get(item.id) ?? null,
+        // EF-REQ-04 : réquisitions principales du jour (D-069).
+        requisitioned: requisitioned.get(item.id) ?? null,
       }),
     ]),
   );
@@ -377,7 +590,17 @@ export async function saveMorningStock(
 
   return db.transaction(
     "rw",
-    [db.servicePoints, db.menuItems, db.invoices, db.morningStockEntries, db.outbox],
+    // stockCounts : la proposition part du stock compté à la clôture de la veille ;
+    // requisitions : elle y ajoute les réquisitions principales du jour.
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.invoices,
+      db.morningStockEntries,
+      db.stockCounts,
+      db.requisitions,
+      db.outbox,
+    ],
     async () => {
       const point = await db.servicePoints.get(input.servicePointId);
       if (!point) {
@@ -442,6 +665,117 @@ export async function saveMorningStock(
         );
       }
       return entries;
+    },
+  );
+}
+
+export type RequisitionInput = {
+  servicePointId: string;
+  /** Retour au magasin (correction, surplus) plutôt que sortie. */
+  isReturn: boolean;
+  lines: readonly { menuItemId: string; quantity: number }[];
+  comment: string;
+};
+
+/**
+ * Établit et valide une réquisition (EF-REQ-02, RG-REQ-01, D-069 ; gérant) :
+ * sortie du magasin vers un point de service, ou retour au magasin. Les
+ * lignes à zéro sont ignorées ; noms et unités sont relus depuis le menu.
+ * Principale ou complément selon que le stock du matin du point est déjà
+ * saisi. Une réquisition ne se modifie plus : une erreur se corrige par un
+ * retour au magasin.
+ */
+export async function createRequisition(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: RequisitionInput,
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Requisition> {
+  assertPermission(ctx, "restaurant.requisition.create", "faire une réquisition");
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.morningStockEntries,
+      db.dayClosings,
+      db.requisitions,
+      db.counters,
+      db.outbox,
+    ],
+    async () => {
+      const point = await db.servicePoints.get(input.servicePointId);
+      if (!point) {
+        throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+      }
+      const items = itemsRequiringMorningStock(await db.menuItems.toArray(), point.id);
+      const itemsById = new Map(items.map((item) => [item.id, item]));
+      const lines = input.lines.filter((line) => line.quantity !== 0);
+      const comment = input.comment.trim() === "" ? null : input.comment.trim();
+      const issue = validateRequisition({
+        isReturn: input.isReturn,
+        lines,
+        comment,
+        allowedItems: itemsById,
+      })[0];
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const { businessDayStartHour, timeZone } = ctx.settings;
+      const day = currentDayKey(createdAt, await validatedDays(db), businessDayStartHour, timeZone);
+      const entries = await db.morningStockEntries.where("day").equals(day).toArray();
+      const kind = requisitionKind({
+        isReturn: input.isReturn,
+        createdAt,
+        morningEnteredAt: firstMorningEntryAt(entries, point.id, day),
+      });
+      const requisition: Requisition = {
+        id: uuidv7(new Date(createdAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        number: await nextNumber(db, "REQ", createdAt, ctx),
+        day,
+        servicePointId: point.id,
+        kind,
+        lines: lines.map((line) => {
+          const item = itemsById.get(line.menuItemId);
+          return {
+            menuItemId: line.menuItemId,
+            name: item?.name ?? "",
+            unit: item?.unit ?? "bottle",
+            quantity: line.quantity,
+          };
+        }),
+        comment,
+        createdAt,
+        createdBy: ctx.userId,
+        createdByName: ctx.userName,
+      };
+      await db.requisitions.add(requisition);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.requisition.created",
+            {
+              requisition: {
+                id: requisition.id,
+                number: requisition.number,
+                day,
+                servicePointId: point.id,
+                kind,
+                lines: lines.map((line) => ({
+                  menuItemId: line.menuItemId,
+                  quantity: line.quantity,
+                })),
+                comment,
+                createdAt,
+              },
+            } satisfies RequisitionCreatedPayload,
+            createdAt,
+          ),
+        );
+      }
+      return requisition;
     },
   );
 }
@@ -554,7 +888,7 @@ export async function setTableArchived(
   });
 }
 
-/** Libère une table (HYPOTHÈSE D-Q04 : à la main tant que l'encaissement n'existe pas). */
+/** Libère une table : à la main, ou à l'encaissement qui solde l'addition (D-033, D-055). */
 export async function releaseTable(
   db: RestaurantDb,
   ctx: DeviceContext,
@@ -581,5 +915,927 @@ export async function releaseTable(
       );
     }
     return release;
+  });
+}
+
+/** Taux du dollar en vigueur : le dernier saisi (RG-PRX-02 : un taux ne se modifie pas). */
+export async function currentExchangeRate(db: RestaurantDb): Promise<ExchangeRate | null> {
+  return (await db.exchangeRates.orderBy("effectiveAt").last()) ?? null;
+}
+
+/** Ajoute le taux du jour « 1 USD = X CDF » (EF-PRX-05, D-042 ; gérant). */
+export async function addExchangeRate(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: string,
+  options: { effectiveAt?: string; enqueue?: boolean } = {},
+): Promise<ExchangeRate> {
+  assertPermission(ctx, "restaurant.exchange-rate.manage", "saisir le taux du dollar");
+  const parsed = parseRate(input);
+  if (!parsed.ok) throw new DomainError("INVALID_RATE", parsed.message);
+  const effectiveAt = options.effectiveAt ?? new Date().toISOString();
+  const rate: ExchangeRate = {
+    id: uuidv7(new Date(effectiveAt).getTime()),
+    establishmentId: ctx.establishmentId,
+    rate: parsed.rate,
+    effectiveAt,
+    enteredBy: ctx.userId,
+    enteredByName: ctx.userName,
+  };
+  await db.transaction("rw", db.exchangeRates, db.outbox, async () => {
+    await db.exchangeRates.add(rate);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.exchange-rate.added",
+          { rate: { id: rate.id, rate: rate.rate, effectiveAt } },
+          effectiveAt,
+        ),
+      );
+    }
+  });
+  return rate;
+}
+
+/**
+ * Enregistre un paiement (EF-ENC-02, D-032, D-033) : relit les factures et
+ * les paiements déjà reçus, calcule le reste à payer, la contre-valeur au
+ * taux du jour et la monnaie à rendre, puis affecte le montant réglé aux
+ * factures, les plus anciennes d'abord. Un serveur n'encaisse que ses
+ * propres ventes ; un gérant peut encaisser à sa place.
+ */
+export async function recordPayment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  rawInput: PaymentInput,
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Payment> {
+  assertPermission(ctx, "restaurant.payment.collect", "encaisser");
+  const parsed = paymentInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new DomainError(
+      "INVALID_PAYMENT",
+      parsed.error.issues[0]?.message ?? "Le paiement n'est pas valide.",
+    );
+  }
+  const input = parsed.data;
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const base = ctx.settings.currency;
+
+  return db.transaction("rw", [db.invoices, db.payments, db.exchangeRates, db.outbox], async () => {
+    const found = await db.invoices.bulkGet(input.invoiceIds);
+    const invoices: AdvanceInvoice[] = [];
+    for (const invoice of found) {
+      if (!invoice) {
+        throw new DomainError("INVOICE_NOT_FOUND", "Une facture à encaisser est introuvable.");
+      }
+      if (invoice.paymentStatus === "cancelled") {
+        throw new DomainError("INVOICE_CANCELLED", `La facture ${invoice.number} est annulée.`);
+      }
+      if (ctx.role === "waiter" && invoice.waiterId !== ctx.userId) {
+        throw new DomainError(
+          "FORBIDDEN",
+          `La facture ${invoice.number} appartient à ${invoice.waiterName} : seul ce serveur ou un gérant peut l'encaisser.`,
+        );
+      }
+      invoices.push(invoice);
+    }
+    invoices.sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.number.localeCompare(b.number),
+    );
+
+    // Un paiement ne précède jamais sa facture : il suffit de relire ceux qui la suivent.
+    const since = invoices[0]?.createdAt ?? createdAt;
+    const previous = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
+    const balances = invoiceBalances(invoices, previous);
+    const open: { id: string; remaining: Money }[] = [];
+    for (const invoice of invoices) {
+      const remaining = balances.get(invoice.id)?.remaining;
+      if (remaining && remaining.amountMinor > 0) open.push({ id: invoice.id, remaining });
+    }
+    const due = remainingDue(
+      open.map((entry) => entry.id),
+      balances,
+      base,
+    );
+
+    const rate = input.currency === base ? null : await currentExchangeRate(db);
+    const tendered = moneyFromMajor(input.amountMajor, input.currency);
+    const settlement = settlePayment({
+      due,
+      tendered,
+      method: input.method,
+      rate: rate?.rate ?? null,
+    });
+    if (!settlement.ok) throw new DomainError(settlement.code, settlement.message);
+
+    const payment: Payment = {
+      id: uuidv7(new Date(createdAt).getTime()),
+      establishmentId: ctx.establishmentId,
+      method: input.method,
+      provider: input.method === "mobile-money" ? input.provider : null,
+      reference: input.method === "mobile-money" ? input.reference : null,
+      tendered,
+      rate: rate ? { id: rate.id, rate: rate.rate } : null,
+      baseAmount: settlement.baseAmount,
+      change: settlement.change,
+      allocations: allocatePayment(settlement.applied, open),
+      collectedBy: ctx.userId,
+      collectedByName: ctx.userName,
+      deviceCode: ctx.deviceCode,
+      createdAt,
+    };
+    await db.payments.add(payment);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.payment.recorded",
+          {
+            payment: {
+              id: payment.id,
+              method: payment.method,
+              provider: payment.provider,
+              reference: payment.reference,
+              tendered: { amountMinor: tendered.amountMinor, currency: tendered.currency },
+              rateId: payment.rate?.id ?? null,
+              changeMinor: payment.change.amountMinor,
+              allocations: payment.allocations.map((allocation) => ({
+                invoiceId: allocation.invoiceId,
+                amountMinor: allocation.amount.amountMinor,
+              })),
+              createdAt,
+            },
+          } satisfies PaymentRecordedPayload,
+          createdAt,
+        ),
+      );
+    }
+    return payment;
+  });
+}
+
+// ─── Clôtures de service (EF-CLO-01 à 04, D-039, D-056) ─────────────────────
+
+/** Journées déjà validées par le gérant (RG-CLO-02 : plus rien ne s'y ajoute). */
+export async function validatedDays(db: RestaurantDb): Promise<Set<string>> {
+  return new Set((await db.dayClosings.toArray()).map((closing) => closing.day));
+}
+
+export type CashClosingDraft = {
+  day: string;
+  payments: Payment[];
+  lines: Omit<CashClosingLine, "counted">[];
+  byServicePoint: CashClosing["byServicePoint"];
+  unpaidInvoiceIds: string[];
+};
+
+/**
+ * Ce que la personne active doit déclarer (EF-CLO-01) : ses paiements pas
+ * encore clôturés, l'attendu par mode de paiement, la part de chaque point de
+ * service et ses factures encore impayées (RG-ENC-02).
+ */
+export async function cashClosingDraft(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  at: string = new Date().toISOString(),
+): Promise<CashClosingDraft> {
+  const { currency, businessDayStartHour, timeZone } = ctx.settings;
+  const day = currentDayKey(at, await validatedDays(db), businessDayStartHour, timeZone);
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [mine, closings] = await Promise.all([
+    db.payments.where("collectedBy").equals(ctx.userId).toArray(),
+    db.cashClosings.where("userId").equals(ctx.userId).toArray(),
+  ]);
+  const payments = unclosedPayments(mine, closings, ctx.userId)
+    .filter((payment) => payment.createdAt <= at)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const allocated = await db.invoices.bulkGet([
+    ...new Set(payments.flatMap((payment) => payment.allocations.map((a) => a.invoiceId))),
+  ]);
+  const ownInvoices = (
+    await db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray()
+  ).filter((invoice) => invoice.waiterId === ctx.userId && invoice.createdAt <= at);
+  const dayPayments = await db.payments.where("createdAt").aboveOrEqual(dayStart).toArray();
+  return {
+    day,
+    payments,
+    lines: expectedCashLines(payments, currency),
+    byServicePoint: collectedByServicePoint(
+      payments,
+      allocated.filter((invoice) => invoice !== undefined),
+      currency,
+    ),
+    unpaidInvoiceIds: unpaidInvoiceIds(
+      ownInvoices,
+      invoiceBalances(ownInvoices, dayPayments),
+      ctx.userId,
+    ),
+  };
+}
+
+/**
+ * Déclare la caisse de la personne active (EF-CLO-02, D-032) : montant compté
+ * par mode de paiement, écart figé, commentaire exigé s'il n'est pas nul.
+ * `counted` donne, pour chaque ligne attendue, le montant en unité principale.
+ */
+export async function declareCashClosing(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { counted: Readonly<Record<string, number>>; comment: string },
+  options: { declaredAt?: string; enqueue?: boolean } = {},
+): Promise<CashClosing> {
+  assertPermission(ctx, "restaurant.closing.declare", "déclarer une caisse");
+  const declaredAt = options.declaredAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [db.payments, db.invoices, db.cashClosings, db.dayClosings, db.outbox],
+    async () => {
+      const draft = await cashClosingDraft(db, ctx, declaredAt);
+      const lines: CashClosingLine[] = draft.lines.map((line) => {
+        const value = input.counted[line.key];
+        if (value === undefined || !Number.isFinite(value) || value < 0) {
+          throw new DomainError(
+            "COUNTED_REQUIRED",
+            "Saisissez le montant compté pour chaque mode de paiement (0 s'il n'y a rien).",
+          );
+        }
+        return { ...line, counted: moneyFromMajor(value, line.expected.currency) };
+      });
+      const issue = validateCashClosing({
+        lines,
+        unpaidInvoiceIds: draft.unpaidInvoiceIds,
+        comment: input.comment,
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const closing: CashClosing = {
+        id: uuidv7(new Date(declaredAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        day: draft.day,
+        userId: ctx.userId,
+        userName: ctx.userName,
+        deviceCode: ctx.deviceCode,
+        declaredAt,
+        paymentIds: draft.payments.map((payment) => payment.id),
+        lines,
+        byServicePoint: draft.byServicePoint,
+        unpaidInvoiceIds: draft.unpaidInvoiceIds,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+      };
+      await db.cashClosings.add(closing);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.cash-closing.declared",
+            {
+              closing: {
+                id: closing.id,
+                day: closing.day,
+                declaredAt,
+                paymentIds: closing.paymentIds,
+                counted: lines.map((line) => ({
+                  key: line.key,
+                  amountMinor: line.counted.amountMinor,
+                  currency: line.counted.currency,
+                })),
+                comment: closing.comment,
+              },
+            } satisfies CashClosingDeclaredPayload,
+            declaredAt,
+          ),
+        );
+      }
+      return closing;
+    },
+  );
+}
+
+/**
+ * Lignes du comptage d'un point de service (EF-CLO-03) : stock du matin en
+ * vigueur et ventes de la journée, pour chaque élément vendable.
+ */
+export async function stockCountDraft(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  servicePointId: string,
+  day: string,
+): Promise<Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [items, morning, sold, requisitions] = await Promise.all([
+    db.menuItems.toArray(),
+    currentMorningStock(db, day),
+    soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart)),
+    db.requisitions.where("day").equals(day).toArray(),
+  ]);
+  // Compléments moins retours (D-069) : les principales sont déjà dans le matin.
+  const later = laterRequisitioned(requisitions, day);
+  return itemsRequiringMorningStock(items, servicePointId).map((item) => ({
+    menuItemId: item.id,
+    name: item.name,
+    unit: item.unit,
+    morning: morning.get(item.id)?.quantity ?? null,
+    requisitioned: later.get(item.id) ?? 0,
+    sold: sold.get(item.id) ?? 0,
+  }));
+}
+
+export type StockCountInputLine = {
+  menuItemId: string;
+  counted: number | null;
+  declaredOut: number;
+  outReason: string;
+};
+
+/**
+ * Enregistre le comptage de fin de service d'un point de service (EF-CLO-03,
+ * D-044 ; gérant). Un nouveau comptage remplace le précédent tant que la
+ * journée n'est pas validée (le plus récent fait foi, l'historique reste).
+ */
+export async function recordStockCount(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { servicePointId: string; lines: readonly StockCountInputLine[]; comment: string },
+  options: { countedAt?: string; enqueue?: boolean } = {},
+): Promise<StockCount> {
+  assertPermission(ctx, "restaurant.closing.count-stock", "compter le stock");
+  const countedAt = options.countedAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.invoices,
+      db.morningStockEntries,
+      db.requisitions,
+      db.stockCounts,
+      db.dayClosings,
+      db.outbox,
+    ],
+    async () => {
+      const point = await db.servicePoints.get(input.servicePointId);
+      if (!point) {
+        throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+      }
+      const { businessDayStartHour, timeZone } = ctx.settings;
+      const day = currentDayKey(countedAt, await validatedDays(db), businessDayStartHour, timeZone);
+      const draft = await stockCountDraft(db, ctx, point.id, day);
+      const byId = new Map(input.lines.map((line) => [line.menuItemId, line]));
+      const lines: StockCountLine[] = draft.map((line) => {
+        const entry = byId.get(line.menuItemId);
+        if (!entry || entry.counted === null) {
+          throw new DomainError(
+            "COUNTED_REQUIRED",
+            `Saisissez le stock compté de « ${line.name} » (0 s'il n'y en a plus).`,
+          );
+        }
+        return {
+          ...line,
+          counted: entry.counted,
+          declaredOut: entry.declaredOut,
+          outReason: entry.outReason.trim() === "" ? null : entry.outReason.trim(),
+        };
+      });
+      const issue = validateStockCount({ lines, comment: input.comment })[0];
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const count: StockCount = {
+        id: uuidv7(new Date(countedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        day,
+        servicePointId: point.id,
+        countedAt,
+        countedBy: ctx.userId,
+        countedByName: ctx.userName,
+        lines,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+      };
+      await db.stockCounts.add(count);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.stock.counted",
+            {
+              count: {
+                id: count.id,
+                day,
+                servicePointId: point.id,
+                countedAt,
+                lines: lines.map((line) => ({
+                  menuItemId: line.menuItemId,
+                  counted: line.counted,
+                  declaredOut: line.declaredOut,
+                  outReason: line.outReason,
+                })),
+                comment: count.comment,
+              },
+            } satisfies StockCountedPayload,
+            countedAt,
+          ),
+        );
+      }
+      return count;
+    },
+  );
+}
+
+export type DayClosingStatus = {
+  day: string;
+  dayStart: string;
+  isValidated: boolean;
+  cashClosings: CashClosing[];
+  stockCounts: Map<string, StockCount>;
+  undeclared: { userId: string; name: string; payments: number }[];
+  pointsMissingMorningStock: ServicePoint[];
+  pointsNotCounted: ServicePoint[];
+};
+
+/** État de la journée à valider : ce qui est déclaré, compté, et ce qui manque. */
+export async function dayClosingStatus(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  at: string = new Date().toISOString(),
+): Promise<DayClosingStatus> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const validated = await validatedDays(db);
+  const day = currentDayKey(at, validated, businessDayStartHour, timeZone);
+  const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
+  const [points, items, payments, closings, counts, morning] = await Promise.all([
+    db.servicePoints.orderBy("sortOrder").toArray(),
+    db.menuItems.toArray(),
+    db.payments.where("createdAt").between(dayStart, at, true, true).toArray(),
+    db.cashClosings.toArray(),
+    db.stockCounts.where("day").equals(day).toArray(),
+    currentMorningStock(db, day),
+  ]);
+  const latest = latestStockCounts(counts, day);
+  const required = points.filter((point) => itemsRequiringMorningStock(items, point.id).length > 0);
+  return {
+    day,
+    dayStart,
+    isValidated: validated.has(day),
+    cashClosings: closings.filter((closing) => closing.day === day),
+    stockCounts: latest,
+    undeclared: collectorsWithUnclosedPayments(payments, closings),
+    pointsMissingMorningStock: required.filter(
+      (point) => !isMorningStockComplete(items, point.id, morning),
+    ),
+    pointsNotCounted: required.filter((point) => !latest.has(point.id)),
+  };
+}
+
+/**
+ * Valide la journée (EF-CLO-04 ; gérant). Refusée tant que manquent le stock
+ * du matin (RG-REQ-03), un comptage (EF-CLO-03), une déclaration de caisse
+ * (RG-CLO-01) ou l'envoi des opérations de l'appareil (RG-CLO-03). Le serveur
+ * refait ces contrôles avec les données de tous les appareils.
+ *
+ * Hors démonstration, rien n'est écrit sur l'appareil : la validation n'existe
+ * qu'une fois acceptée par le serveur, qui la renvoie aux appareils.
+ */
+export async function validateDay(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { comment: string; isOnline: boolean; writeLocally: boolean },
+  options: { validatedAt?: string } = {},
+): Promise<{ id: string; day: string; operationId: string }> {
+  assertPermission(ctx, "restaurant.closing.validate", "valider la journée");
+  const validatedAt = options.validatedAt ?? new Date().toISOString();
+  const status = await dayClosingStatus(db, ctx, validatedAt);
+  const pending = await db.outbox.where("status").equals("pending").count();
+  const issue = dayClosingIssues({
+    isAlreadyValidated: status.isValidated,
+    pointsMissingMorningStock: status.pointsMissingMorningStock.map((point) => point.name),
+    pointsNotCounted: status.pointsNotCounted.map((point) => point.name),
+    undeclaredCollectors: status.undeclared.map((entry) => entry.name),
+    pendingOperations: input.writeLocally ? 0 : pending,
+    isOnline: input.writeLocally || input.isOnline,
+  })[0];
+  if (issue) throw new DomainError(issue.code, issue.message);
+
+  const comment = input.comment.trim() === "" ? null : input.comment.trim();
+  const id = uuidv7(new Date(validatedAt).getTime());
+  const operation = tableOperation(
+    ctx,
+    "restaurant.day.validated",
+    { closing: { id, day: status.day, validatedAt, comment } } satisfies DayValidatedPayload,
+    validatedAt,
+  );
+  await db.transaction("rw", db.dayClosings, db.outbox, async () => {
+    if (input.writeLocally) {
+      await db.dayClosings.add({
+        id,
+        establishmentId: ctx.establishmentId,
+        day: status.day,
+        validatedAt,
+        validatedBy: ctx.userId,
+        validatedByName: ctx.userName,
+        cashClosingIds: status.cashClosings.map((closing) => closing.id),
+        stockCountIds: [...status.stockCounts.values()].map((count) => count.id),
+        comment,
+      });
+    } else {
+      // Hors démonstration, la validation n'existe qu'une fois acceptée par le serveur.
+      await db.outbox.add(operation);
+    }
+  });
+  return { id, day: status.day, operationId: operation.id };
+}
+
+// ─── Annulations et remises validées par le gérant (D-058) ──────────────────
+
+/** Factures actives d'une commande et leurs soldes (paiements et remises compris). */
+async function orderBalances(db: RestaurantDb, orderId: string) {
+  const invoices = await db.invoices.where("orderId").equals(orderId).toArray();
+  const since = invoices.map((invoice) => invoice.createdAt).sort()[0] ?? new Date(0).toISOString();
+  const payments = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
+  return { invoices, balances: invoiceBalances(invoices, payments) };
+}
+
+/**
+ * RG-CLO-02 : la commande appartient-elle à une journée validée ? Seulement
+ * si elle est antérieure à la validation : ce qui suit appartient à la
+ * journée suivante (D-039).
+ */
+async function isOrderDayValidated(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  order: Pick<Order, "createdAt">,
+): Promise<boolean> {
+  const { businessDayStartHour, timeZone } = ctx.settings;
+  const day = businessDayKey(order.createdAt, businessDayStartHour, timeZone);
+  const closings = await db.dayClosings.where("day").equals(day).toArray();
+  return closings.some((closing) => order.createdAt <= closing.validatedAt);
+}
+
+export type AdjustmentInput = {
+  kind: AdjustmentKind;
+  orderId: string;
+  reason: string;
+  /** Remise demandée, en unité principale ; ignorée pour une annulation. */
+  discountMajor?: number | null;
+  /** Vente à crédit (D-059) : client débiteur. */
+  customerId?: string | null;
+};
+
+/**
+ * Demande une annulation ou une remise sur une commande (RG-CMD-02,
+ * RG-VTE-02, RG-ENC-01). Un serveur ne demande que sur ses commandes
+ * (RG-CMD-03). Un gérant qui agit lui-même valide dans le même geste.
+ */
+export async function requestAdjustment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: AdjustmentInput,
+  options: { requestedAt?: string; enqueue?: boolean } = {},
+): Promise<{ request: AdjustmentRequest; decision: AdjustmentDecision | null }> {
+  assertPermission(ctx, "restaurant.adjustment.request", "demander une annulation ou une remise");
+  const requestedAt = options.requestedAt ?? new Date().toISOString();
+  const request = await db.transaction(
+    "rw",
+    [
+      db.orders,
+      db.invoices,
+      db.payments,
+      db.dayClosings,
+      db.adjustmentRequests,
+      db.adjustmentDecisions,
+      db.customers,
+      db.outbox,
+    ],
+    async () => {
+      const order = await db.orders.get(input.orderId);
+      if (!order) throw new DomainError("ORDER_NOT_FOUND", "Cette commande est introuvable.");
+      if (ctx.role === "waiter" && order.waiterId !== ctx.userId) {
+        throw new DomainError(
+          "FORBIDDEN",
+          `Cette commande appartient à ${order.waiterName} : lui seul ou le gérant peut demander un ajustement (RG-CMD-03).`,
+        );
+      }
+      const { invoices, balances } = await orderBalances(db, order.id);
+      const [requests, decisions] = await Promise.all([
+        db.adjustmentRequests.where("orderId").equals(order.id).toArray(),
+        db.adjustmentDecisions.toArray(),
+      ]);
+      const discount =
+        input.kind === "discount" && input.discountMajor
+          ? moneyFromMajor(input.discountMajor, ctx.settings.currency)
+          : null;
+      const issue = adjustmentIssue({
+        kind: input.kind,
+        reason: input.reason,
+        discount,
+        balances: invoices.flatMap((invoice) => {
+          const balance = balances.get(invoice.id);
+          return balance ? [balance] : [];
+        }),
+        isDayValidated: await isOrderDayValidated(db, ctx, order),
+        hasPendingRequest: pendingRequests(requests, decisions).length > 0,
+        ...(input.kind === "credit"
+          ? { credit: await creditState(db, ctx, input.customerId ?? null, invoices) }
+          : {}),
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const created: AdjustmentRequest = {
+        id: uuidv7(new Date(requestedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        kind: input.kind,
+        orderId: order.id,
+        invoiceIds: invoices
+          .filter((invoice) => invoice.paymentStatus !== "cancelled")
+          .map((invoice) => invoice.id),
+        reason: input.reason.trim(),
+        discount,
+        customerId: input.kind === "credit" ? (input.customerId ?? null) : null,
+        requestedBy: ctx.userId,
+        requestedByName: ctx.userName,
+        requestedAt,
+        deviceCode: ctx.deviceCode,
+      };
+      await db.adjustmentRequests.add(created);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.adjustment.requested",
+            {
+              request: {
+                id: created.id,
+                kind: created.kind,
+                orderId: created.orderId,
+                reason: created.reason,
+                discountMinor: discount?.amountMinor ?? null,
+                customerId: created.customerId,
+                requestedAt,
+              },
+            } satisfies AdjustmentRequestedPayload,
+            requestedAt,
+          ),
+        );
+      }
+      return created;
+    },
+  );
+  const decision = hasPermission(ctx.role, "restaurant.adjustment.approve")
+    ? await decideAdjustment(
+        db,
+        ctx,
+        { requestId: request.id, approved: true, comment: "" },
+        { decidedAt: requestedAt, ...(options.enqueue === false ? { enqueue: false } : {}) },
+      )
+    : null;
+  return { request, decision };
+}
+
+/**
+ * Le gérant valide ou refuse une demande (matrice des droits). À la
+ * validation, l'annulation ou la remise est appliquée aux factures, après un
+ * nouveau contrôle : un paiement a pu arriver depuis la demande.
+ */
+export async function decideAdjustment(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { requestId: string; approved: boolean; comment: string },
+  options: { decidedAt?: string; enqueue?: boolean } = {},
+): Promise<AdjustmentDecision> {
+  assertPermission(ctx, "restaurant.adjustment.approve", "valider une demande");
+  const decidedAt = options.decidedAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.orders,
+      db.invoices,
+      db.payments,
+      db.dayClosings,
+      db.adjustmentRequests,
+      db.adjustmentDecisions,
+      db.customers,
+      db.outbox,
+    ],
+    async () => {
+      const request = await db.adjustmentRequests.get(input.requestId);
+      if (!request) throw new DomainError("REQUEST_NOT_FOUND", "Cette demande est introuvable.");
+      if ((await db.adjustmentDecisions.where("requestId").equals(request.id).count()) > 0) {
+        throw new DomainError("ALREADY_DECIDED", "Cette demande a déjà reçu une décision.");
+      }
+      if (!input.approved && input.comment.trim().length < MIN_ADJUSTMENT_REASON) {
+        throw new DomainError(
+          "COMMENT_REQUIRED",
+          "Expliquez au serveur pourquoi la demande est refusée.",
+        );
+      }
+      const order = await db.orders.get(request.orderId);
+      const { invoices, balances } = await orderBalances(db, request.orderId);
+      const targets = invoices.filter((invoice) => request.invoiceIds.includes(invoice.id));
+      let discounts: PaymentAllocation[] = [];
+      if (input.approved) {
+        const issue = adjustmentIssue({
+          kind: request.kind,
+          reason: request.reason,
+          discount: request.discount,
+          balances: targets.flatMap((invoice) => {
+            const balance = balances.get(invoice.id);
+            return balance ? [balance] : [];
+          }),
+          isDayValidated: order ? await isOrderDayValidated(db, ctx, order) : false,
+          hasPendingRequest: false,
+          ...(request.kind === "credit"
+            ? { credit: await creditState(db, ctx, request.customerId, targets) }
+            : {}),
+        });
+        if (issue) throw new DomainError(issue.code, issue.message);
+        if (request.kind === "cancel") {
+          for (const invoice of targets) {
+            await db.invoices.update(invoice.id, {
+              paymentStatus: "cancelled",
+              cancelReason: request.reason,
+            });
+          }
+        } else if (request.kind === "credit") {
+          // D-059 : le reste à payer devient la dette du client ; la facture n'est
+          // plus un impayé du serveur (RG-ENC-02).
+          for (const invoice of targets) {
+            const remaining = balances.get(invoice.id)?.remaining;
+            if (!remaining || remaining.amountMinor <= 0) continue;
+            await db.invoices.update(invoice.id, {
+              creditRequestId: request.id,
+              credited: remaining,
+            });
+          }
+        } else if (request.discount) {
+          discounts = splitDiscount(
+            request.discount,
+            targets.map((invoice) => ({
+              id: invoice.id,
+              remaining: balances.get(invoice.id)?.remaining ?? invoice.total,
+            })),
+          );
+          for (const share of discounts) {
+            const invoice = targets.find((entry) => entry.id === share.invoiceId);
+            if (!invoice) continue;
+            await db.invoices.update(invoice.id, {
+              discount: addMoney(
+                invoice.discount ?? zeroMoney(share.amount.currency),
+                share.amount,
+              ),
+            });
+          }
+        }
+      }
+      const decision: AdjustmentDecision = {
+        id: uuidv7(new Date(decidedAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        requestId: request.id,
+        approved: input.approved,
+        comment: input.comment.trim() === "" ? null : input.comment.trim(),
+        discounts,
+        decidedBy: ctx.userId,
+        decidedByName: ctx.userName,
+        decidedAt,
+      };
+      await db.adjustmentDecisions.add(decision);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.adjustment.decided",
+            {
+              decision: {
+                id: decision.id,
+                requestId: request.id,
+                approved: input.approved,
+                comment: decision.comment,
+                decidedAt,
+              },
+            } satisfies AdjustmentDecidedPayload,
+            decidedAt,
+          ),
+        );
+      }
+      return decision;
+    },
+  );
+}
+
+// ─── Fiches clients et vente à crédit (D-059) ───────────────────────────────
+
+/**
+ * Contrôles de la vente à crédit (EF-ENC-03, D-037) : client connu, commande
+ * pas encore à crédit, encours du client sous son plafond.
+ */
+async function creditState(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  customerId: string | null,
+  invoices: readonly AdvanceInvoice[],
+) {
+  const currency = ctx.settings.currency;
+  const customer = customerId ? await db.customers.get(customerId) : undefined;
+  const credits = customer
+    ? (await db.adjustmentRequests.toArray()).filter(
+        (request) => request.kind === "credit" && request.customerId === customer.id,
+      )
+    : [];
+  const decisions = await db.adjustmentDecisions.toArray();
+  const debtInvoices = credits.length
+    ? await db.invoices
+        .where("orderId")
+        .anyOf(credits.map((request) => request.orderId))
+        .toArray()
+    : [];
+  const since = debtInvoices.map((invoice) => invoice.createdAt).sort()[0];
+  const payments = since ? await db.payments.where("createdAt").aboveOrEqual(since).toArray() : [];
+  const debts = customerDebts({
+    requests: credits,
+    decisions,
+    invoices: debtInvoices,
+    balances: invoiceBalances(debtInvoices, payments),
+    currency,
+  });
+  return {
+    hasCustomer: customer !== undefined,
+    isAlreadyCredited: invoices.some((invoice) => Boolean(invoice.creditRequestId)),
+    creditLimit: customer?.creditLimit ?? null,
+    outstanding: customer ? outstandingOf(customer.id, debts, currency) : zeroMoney(currency),
+  };
+}
+
+/** Crée la fiche d'un client pour une vente à crédit (EF-ENC-03 : nom et téléphone). */
+export async function createCustomer(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: { name: string; phone: string },
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Customer> {
+  assertPermission(ctx, "restaurant.customer.create", "créer une fiche client");
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  return db.transaction("rw", db.customers, db.outbox, async () => {
+    const issue = customerIssue(input, await db.customers.toArray());
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const customer: Customer = {
+      id: uuidv7(new Date(createdAt).getTime()),
+      establishmentId: ctx.establishmentId,
+      name: input.name.trim(),
+      phone: normalizePhone(input.phone) ?? input.phone.trim(),
+      creditLimit: null,
+      createdAt,
+      createdBy: ctx.userId,
+    };
+    await db.customers.add(customer);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "restaurant.customer.created",
+          {
+            customer: {
+              id: customer.id,
+              name: customer.name,
+              phone: customer.phone,
+              createdAt,
+            },
+          } satisfies CustomerCreatedPayload,
+          createdAt,
+        ),
+      );
+    }
+    return customer;
+  });
+}
+
+/** Fixe ou retire le plafond de crédit d'un client (D-037 ; gérant). */
+export async function setCustomerCreditLimit(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  customerId: string,
+  limitMajor: number | null,
+): Promise<void> {
+  assertPermission(ctx, "restaurant.customer.manage", "fixer un plafond de crédit");
+  if (limitMajor !== null && (!Number.isFinite(limitMajor) || limitMajor <= 0)) {
+    throw new DomainError("INVALID_LIMIT", "Le plafond doit être un montant positif.");
+  }
+  const at = new Date().toISOString();
+  await db.transaction("rw", db.customers, db.outbox, async () => {
+    const customer = await db.customers.get(customerId);
+    if (!customer) throw new DomainError("CUSTOMER_NOT_FOUND", "Ce client est introuvable.");
+    const creditLimit =
+      limitMajor === null ? null : moneyFromMajor(limitMajor, ctx.settings.currency);
+    await db.customers.update(customerId, { creditLimit });
+    await db.outbox.add(
+      tableOperation(
+        ctx,
+        "restaurant.customer.limit-set",
+        {
+          customerId,
+          creditLimitMinor: creditLimit?.amountMinor ?? null,
+        } satisfies CustomerLimitSetPayload,
+        at,
+      ),
+    );
   });
 }

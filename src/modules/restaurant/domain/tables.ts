@@ -18,9 +18,9 @@ import type {
  * d'exploitation, après sa dernière libération. Les commandes suivantes sur
  * la même table sont des commandes complémentaires de la même occupation.
  *
- * HYPOTHÈSE D-Q04 : tant que l'encaissement n'est pas tranché, la table est
- * libérée à la main par le serveur ou le gérant. Quand il le sera, la
- * libération suivra le règlement de toutes les factures de l'occupation.
+ * D-033, D-055 : le client paie le plus souvent à la fin du repas, parfois
+ * avant. Le paiement qui solde l'addition propose de libérer la table ; elle
+ * peut aussi être libérée à la main par le serveur ou le gérant.
  */
 export type TableSession = {
   tableId: string;
@@ -101,20 +101,51 @@ export type BillLine = {
  */
 export function buildTableBill(session: TableSession): { lines: BillLine[]; total: Money } {
   const lines = new Map<string, BillLine>();
+  // D-060 : les composants d'une formule, répartis entre les factures des points
+  // de service, redeviennent une seule ligne « formule » sur l'addition.
+  const formulas = new Map<
+    string,
+    { menuItemId: string; name: string; quantity: number; unitTotal: number }
+  >();
   for (const invoice of session.invoices) {
     for (const line of invoice.lines) {
-      const key = `${line.menuItemId}:${line.unitPrice.amountMinor}`;
+      if (line.formula) {
+        const entry = formulas.get(line.formula.lineId) ?? {
+          menuItemId: line.formula.menuItemId,
+          name: line.formula.name,
+          quantity: line.quantity,
+          unitTotal: 0,
+        };
+        entry.unitTotal += line.unitPrice.amountMinor;
+        formulas.set(line.formula.lineId, entry);
+        continue;
+      }
+      const options = (line.options ?? []).map((option) => option.name);
+      const key = `${line.menuItemId}:${line.unitPrice.amountMinor}:${options.join("|")}`;
       const existing = lines.get(key);
       const quantity = (existing?.quantity ?? 0) + line.quantity;
       lines.set(key, {
         menuItemId: line.menuItemId,
-        name: line.name,
+        name: options.length > 0 ? `${line.name} (${options.join(", ")})` : line.name,
         unit: line.unit,
         unitPrice: line.unitPrice,
         quantity,
         total: multiplyMoney(line.unitPrice, quantity),
       });
     }
+  }
+  for (const formula of formulas.values()) {
+    const unitPrice = { amountMinor: formula.unitTotal, currency: session.total.currency };
+    const key = `formula:${formula.menuItemId}:${formula.unitTotal}`;
+    const quantity = (lines.get(key)?.quantity ?? 0) + formula.quantity;
+    lines.set(key, {
+      menuItemId: formula.menuItemId,
+      name: formula.name,
+      unit: "dish",
+      unitPrice,
+      quantity,
+      total: multiplyMoney(unitPrice, quantity),
+    });
   }
   return { lines: [...lines.values()], total: session.total };
 }
@@ -133,7 +164,7 @@ export const MAX_TABLE_LABEL_LENGTH = 24;
 /** Contrôle d'un libellé de table ; renvoie le message d'erreur ou `null`. */
 export function validateTableLabel(
   label: string,
-  tables: readonly Pick<DiningTable, "id" | "label" | "archivedAt">[],
+  tables: readonly { id: string; label: string; archivedAt: DiningTable["archivedAt"] | Date }[],
   excludeId: string | null = null,
 ): string | null {
   const trimmed = label.trim();

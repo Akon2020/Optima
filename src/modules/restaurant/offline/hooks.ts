@@ -5,20 +5,39 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { businessDayKey, businessDayStart } from "../domain/business-day";
 import { computeAvailability, type Availability } from "../domain/menu";
+import { formulaAvailability, isFormula } from "../domain/menu-options";
+import { isDeclaredSoldOut } from "../domain/preparation";
+import { customerDebts, type CustomerDebt } from "../domain/customers";
 import { currentEntries } from "../domain/morning-stock";
+import { laterRequisitioned, stockInOfDay } from "../domain/requisition";
+import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
 import type {
+  AdjustmentDecision,
+  AdjustmentRequest,
   AdvanceInvoice,
+  Customer,
   DiningTable,
+  ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
+  Payment,
   ServicePoint,
   StaffMember,
+  StockCountLine,
   TableRelease,
 } from "../domain/types";
 import { useRestaurant } from "../components/restaurant-provider";
-import { morningProposals } from "./repository";
+import {
+  cashClosingDraft,
+  dayClosingStatus,
+  morningProposals,
+  stockCountDraft,
+  type CashClosingDraft,
+  type DayClosingStatus,
+} from "./repository";
 
 const CLOCK_INTERVAL_MS = 30_000;
 let clock: string | null = null;
@@ -74,8 +93,23 @@ export type DayData = {
   morningEntries: MorningStockEntry[];
   /** Saisie en vigueur par élément. */
   morningStock: Map<string, MorningStockEntry>;
+  /** Réquisitions de la journée (D-069), les plus anciennes d'abord. */
+  requisitions: Requisition[];
+  /** Compléments moins retours de la journée, par élément (D-069). */
+  laterRequisitioned: Map<string, number>;
   availability: Map<string, Availability>;
   soldByItem: Map<string, number>;
+  /** Paiements de la journée (EF-ENC-02), tous appareils confondus après synchronisation. */
+  payments: Payment[];
+  /** Soldes des factures de la journée, déduits des paiements. */
+  balances: Map<string, InvoiceBalance>;
+  /** Dernier taux du dollar saisi (D-042), `null` s'il n'y en a pas encore. */
+  exchangeRate: ExchangeRate | null;
+  /** Demandes d'annulation ou de remise et décisions du gérant (D-058). */
+  adjustmentRequests: AdjustmentRequest[];
+  adjustmentDecisions: AdjustmentDecision[];
+  /** Fiches clients de la vente à crédit (D-059). */
+  customers: Customer[];
 };
 
 /**
@@ -91,17 +125,38 @@ export function useDayData(): DayData | undefined {
 
   const raw = useLiveQuery(async () => {
     if (status !== "ready" || dayStart === null || day === null) return undefined;
-    const [servicePoints, menuItems, tables, staff, orders, invoices, morningEntries, releases] =
-      await Promise.all([
-        db.servicePoints.orderBy("sortOrder").toArray(),
-        db.menuItems.toArray(),
-        db.diningTables.orderBy("sortOrder").toArray(),
-        db.staff.toArray(),
-        db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
-        db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
-        db.morningStockEntries.where("day").equals(day).toArray(),
-        db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
-      ]);
+    const [
+      servicePoints,
+      menuItems,
+      tables,
+      staff,
+      orders,
+      invoices,
+      morningEntries,
+      requisitions,
+      releases,
+      payments,
+      exchangeRate,
+      adjustmentRequests,
+      adjustmentDecisions,
+      customers,
+    ] = await Promise.all([
+      db.servicePoints.orderBy("sortOrder").toArray(),
+      db.menuItems.toArray(),
+      db.diningTables.orderBy("sortOrder").toArray(),
+      db.staff.toArray(),
+      db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
+      db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
+      db.morningStockEntries.where("day").equals(day).toArray(),
+      db.requisitions.where("day").equals(day).sortBy("createdAt"),
+      db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
+      db.payments.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
+      db.exchangeRates.orderBy("effectiveAt").last(),
+      // Peu nombreuses : toutes, pour qu'une demande ancienne en attente reste visible.
+      db.adjustmentRequests.orderBy("requestedAt").toArray(),
+      db.adjustmentDecisions.toArray(),
+      db.customers.toArray(),
+    ]);
     return {
       servicePoints,
       menuItems,
@@ -110,7 +165,13 @@ export function useDayData(): DayData | undefined {
       orders,
       invoices,
       morningEntries,
+      requisitions,
       releases,
+      payments,
+      exchangeRate: exchangeRate ?? null,
+      adjustmentRequests,
+      adjustmentDecisions,
+      customers,
     };
   }, [db, status, dayStart, day]);
 
@@ -124,17 +185,29 @@ export function useDayData(): DayData | undefined {
       }
     }
     const morningStock = currentEntries(raw.morningEntries);
+    const later = laterRequisitioned(raw.requisitions, day);
     const availability = new Map<string, Availability>(
       raw.menuItems.map((item) => [
         item.id,
         computeAvailability(
           item,
-          morningStock.get(item.id)?.quantity ?? null,
+          stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
           soldByItem.get(item.id) ?? 0,
           lowStockThreshold,
         ),
       ]),
     );
+    // EF-PRE-03 : un élément déclaré épuisé par son poste l'est pour la journée.
+    for (const item of raw.menuItems) {
+      if (isDeclaredSoldOut(item, day))
+        availability.set(item.id, { status: "sold-out", remaining: 0 });
+    }
+    // D-060 : une formule est limitée par son composant le plus rare.
+    for (const item of raw.menuItems) {
+      if (isFormula(item)) {
+        availability.set(item.id, formulaAvailability(item, availability, lowStockThreshold));
+      }
+    }
     const sessions = tableSessions({
       orders: raw.orders,
       invoices: raw.invoices,
@@ -142,7 +215,19 @@ export function useDayData(): DayData | undefined {
       dayStart,
       currency,
     });
-    return { ...raw, now, day, dayStart, availability, soldByItem, morningStock, sessions };
+    const balances = invoiceBalances(raw.invoices, raw.payments);
+    return {
+      ...raw,
+      now,
+      day,
+      dayStart,
+      availability,
+      soldByItem,
+      morningStock,
+      laterRequisitioned: later,
+      sessions,
+      balances,
+    };
   }, [raw, now, day, dayStart, lowStockThreshold, currency]);
 }
 
@@ -185,4 +270,88 @@ export function useIsOnline(): boolean {
     () => navigator.onLine,
     () => true,
   );
+}
+
+export type ClosingData = {
+  status: DayClosingStatus;
+  /** Ce que la personne active doit déclarer (EF-CLO-01). */
+  myDraft: CashClosingDraft;
+  /** Lignes à compter de chaque point de service (EF-CLO-03). */
+  stockDrafts: Map<string, Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]>;
+  pendingOperations: number;
+};
+
+/** Clôture de la journée en cours, lue en direct dans la base locale (EF-CLO-01 à 04). */
+export function useClosingData(): ClosingData | undefined {
+  const { db, ctx, status } = useRestaurant();
+  const now = useNow();
+  return useLiveQuery(async () => {
+    if (status !== "ready" || now === null) return undefined;
+    const [dayStatus, myDraft, pendingOperations, points] = await Promise.all([
+      dayClosingStatus(db, ctx, now),
+      cashClosingDraft(db, ctx, now),
+      db.outbox.where("status").equals("pending").count(),
+      db.servicePoints.orderBy("sortOrder").toArray(),
+    ]);
+    const stockDrafts = new Map(
+      await Promise.all(
+        points.map(
+          async (point) =>
+            [point.id, await stockCountDraft(db, ctx, point.id, dayStatus.day)] as const,
+        ),
+      ),
+    );
+    return { status: dayStatus, myDraft, stockDrafts, pendingOperations };
+  }, [db, ctx, status, now]);
+}
+
+export type CustomersData = {
+  now: string;
+  customers: Customer[];
+  /** Dettes nées des ventes à crédit validées (D-059), réglées comprises. */
+  debts: CustomerDebt[];
+  orders: Map<string, Order>;
+  invoices: AdvanceInvoice[];
+  balances: Map<string, InvoiceBalance>;
+};
+
+/**
+ * Clients et dettes (EF-TRE-03) : les factures d'une dette peuvent dater de
+ * plusieurs semaines, elles sont donc lues hors de la journée en cours.
+ */
+export function useCustomersData(): CustomersData | undefined {
+  const { db, ctx, status } = useRestaurant();
+  const now = useNow();
+  const currency = ctx.settings.currency;
+  return useLiveQuery(async () => {
+    if (status !== "ready" || now === null) return undefined;
+    const [customers, requests, decisions] = await Promise.all([
+      db.customers.toArray(),
+      db.adjustmentRequests.toArray(),
+      db.adjustmentDecisions.toArray(),
+    ]);
+    const credits = requests.filter((request) => request.kind === "credit");
+    const orderIds = [...new Set(credits.map((request) => request.orderId))];
+    const [orders, invoices] = orderIds.length
+      ? await Promise.all([
+          db.orders.bulkGet(orderIds),
+          db.invoices.where("orderId").anyOf(orderIds).toArray(),
+        ])
+      : [[], []];
+    const since = invoices.map((invoice) => invoice.createdAt).sort()[0];
+    const payments = since
+      ? await db.payments.where("createdAt").aboveOrEqual(since).toArray()
+      : [];
+    const balances = invoiceBalances(invoices, payments);
+    return {
+      now,
+      customers: customers.sort((a, b) => a.name.localeCompare(b.name, "fr")),
+      debts: customerDebts({ requests: credits, decisions, invoices, balances, currency }),
+      orders: new Map(
+        orders.filter((order) => order !== undefined).map((order) => [order.id, order]),
+      ),
+      invoices,
+      balances,
+    };
+  }, [db, status, now, currency]);
 }

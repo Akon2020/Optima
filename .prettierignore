@@ -4,3 +4,7 @@ pnpm-lock.yaml
 docs
 CLAUDE.md
 AGENTS.md
+src/generated
+prisma/migrations
+guides
+public/sw.js

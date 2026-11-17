@@ -10,3 +10,10 @@ export const RESTAURANT_MODULE = {
 } as const;
 
 export { DEMO_ESTABLISHMENT_SLUG } from "./offline/demo-data";
+
+/** Journée d'exploitation (HYPOTHÈSE D-Q10), utilisée aussi par l'espace propriétaire. */
+export {
+  DEFAULT_BUSINESS_DAY_START_HOUR,
+  businessDayKey,
+  businessDayStart,
+} from "./domain/business-day";

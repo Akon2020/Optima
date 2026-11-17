@@ -69,3 +69,61 @@ export function formatElapsed(fromIso: string, nowIso: string): string {
   const hours = Math.floor(minutes / 60);
   return `${hours} h ${String(minutes % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Instant passé, lisible : « à l'instant », « il y a 12 min »,
+ * « aujourd'hui à 14:05 », « le 06/11/2026 à 18:30 ».
+ */
+export function formatRelativeInstant(
+  iso: string,
+  nowIso: string,
+  timeZone = DEFAULT_TIME_ZONE,
+): string {
+  const time = formatTime(iso, timeZone);
+  if (localDayKey(iso, timeZone) === localDayKey(nowIso, timeZone)) {
+    const elapsed = new Date(nowIso).getTime() - new Date(iso).getTime();
+    if (elapsed < 60_000) return "à l'instant";
+    if (elapsed < 3_600_000) return `il y a ${formatElapsed(iso, nowIso)}`;
+    return `aujourd'hui à ${time}`;
+  }
+  return `le ${formatDate(iso, timeZone)} à ${time}`;
+}
+
+/** Décalage (ms) du fuseau par rapport à UTC à un instant donné. */
+function timeZoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = formatter(timeZone, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(instant));
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number.parseInt(parts.find((part) => part.type === type)?.value ?? "0", 10);
+  const asUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second"),
+  );
+  return asUtc - Math.floor(instant / 1000) * 1000;
+}
+
+/**
+ * Début (ISO UTC) d'une date locale AAAA-MM-JJ dans le fuseau donné, par
+ * exemple pour filtrer « du 07/11/2026 » à Bukavu. `null` si la date est invalide.
+ */
+export function zonedDayStart(dayKey: string, timeZone = DEFAULT_TIME_ZONE): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const guess = Date.UTC(year, month - 1, day);
+  if (new Date(guess).getUTCDate() !== day) return null;
+  const first = guess - timeZoneOffsetMs(guess, timeZone);
+  // Second passage : exact même si le décalage change ce jour-là.
+  return new Date(guess - timeZoneOffsetMs(first, timeZone)).toISOString();
+}

@@ -1,6 +1,15 @@
 "use client";
 
-import { Calculator, FlaskConical, Menu, RotateCcw, Search } from "lucide-react";
+import {
+  Calculator,
+  FlaskConical,
+  PackageX,
+  KeyRound,
+  Menu,
+  RotateCcw,
+  Search,
+  UserRoundCog,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -14,11 +23,22 @@ import { Sheet } from "@/shared/ui/sheet";
 import { ModuleScope } from "@/shared/theme/module-scope";
 import { ThemeSwitcher } from "@/shared/theme/theme-switcher";
 
-import { DEMO_ESTABLISHMENT_SLUG } from "../../offline/demo-data";
 import { useDayData } from "../../offline/hooks";
+import { LinkUserForm } from "../device/link-user-form";
+import { PairingScreen } from "../device/pairing-screen";
+import { UserGate } from "../device/user-gate";
 import { orderPrepStatus } from "../../domain/dashboard";
 import { RestaurantProvider, useRestaurant } from "../restaurant-provider";
-import { NAV_ITEMS, isNavItemActive, restaurantHref } from "./nav-items";
+import {
+  NAV_ITEMS,
+  enabledNavItems,
+  isNavItemActive,
+  navItemForPath,
+  navItemModule,
+  restaurantHref,
+} from "./nav-items";
+import { useOfflinePreparation } from "./offline-preparation";
+import { ReadyNotice } from "./ready-notice";
 import { SyncStatus } from "./sync-status";
 
 /**
@@ -32,29 +52,26 @@ export function RestaurantShell({ children }: { children: ReactNode }) {
 
   return (
     <ModuleScope module="restaurant">
-      {slug === DEMO_ESTABLISHMENT_SLUG ? (
-        <RestaurantProvider slug={slug}>
+      <RestaurantProvider slug={slug}>
+        <DeviceGate>
           <ShellLayout>{children}</ShellLayout>
-        </RestaurantProvider>
-      ) : (
-        <main className="grid min-h-dvh place-items-center px-4">
-          <EmptyState
-            icon={FlaskConical}
-            title="Établissement introuvable"
-            description="Seul l'établissement de démonstration est disponible tant que la connexion n'est pas en place."
-            action={
-              <Link
-                href={restaurantHref(DEMO_ESTABLISHMENT_SLUG, "")}
-                className={buttonClasses("action")}
-              >
-                Ouvrir la démonstration
-              </Link>
-            }
-          />
-        </main>
-      )}
+        </DeviceGate>
+      </RestaurantProvider>
     </ModuleScope>
   );
+}
+
+/**
+ * Établissement réel : l'appareil doit être appairé, puis un utilisateur
+ * identifié (mot de passe une fois, puis PIN). La démonstration n'a ni l'un
+ * ni l'autre.
+ */
+function DeviceGate({ children }: { children: ReactNode }) {
+  const { isDemo, status, activeUser } = useRestaurant();
+  if (isDemo) return children;
+  if (status === "unpaired") return <PairingScreen />;
+  if (status === "ready" && !activeUser) return <UserGate />;
+  return children;
 }
 
 function useOpenOrderCount(): number {
@@ -69,8 +86,16 @@ function useOpenOrderCount(): number {
 }
 
 function ShellLayout({ children }: { children: ReactNode }) {
-  const { status } = useRestaurant();
+  const { status, slug, isModuleEnabled } = useRestaurant();
+  useOfflinePreparation();
   const pathname = usePathname();
+  const isRestaurantEnabled = isModuleEnabled("restaurant");
+  const currentItem = navItemForPath(pathname, slug);
+  const disabledModule = !isRestaurantEnabled
+    ? "restaurant"
+    : currentItem && !isModuleEnabled(navItemModule(currentItem))
+      ? navItemModule(currentItem)
+      : null;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const isOrderEntry = pathname.endsWith("/commandes/nouvelle");
 
@@ -100,6 +125,7 @@ function ShellLayout({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh min-w-0 flex-col">
         <Topbar onOpenMenu={() => setIsDrawerOpen(true)} />
         <DemoBanner />
+        {status === "ready" ? <ReadyNotice /> : null}
         <main
           id="contenu"
           tabIndex={-1}
@@ -108,7 +134,9 @@ function ShellLayout({ children }: { children: ReactNode }) {
             isOrderEntry ? "pb-28 lg:pb-8" : "pb-28 lg:pb-10",
           )}
         >
-          {status === "ready" ? (
+          {status === "ready" && disabledModule ? (
+            <ModuleDisabled module={disabledModule} />
+          ) : status === "ready" ? (
             children
           ) : status === "error" ? (
             <EmptyState
@@ -120,11 +148,20 @@ function ShellLayout({ children }: { children: ReactNode }) {
             <LoadingState />
           )}
         </main>
-        {isOrderEntry ? null : <BottomNav />}
+        {isOrderEntry || !isRestaurantEnabled ? null : <BottomNav />}
       </div>
     </div>
   );
 }
+
+const ROLE_LABELS: Record<string, string> = {
+  manager: "Gérant",
+  waiter: "Serveur",
+  prep: "Préparation",
+  courier: "Livreur",
+  reader: "Lecteur",
+  owner: "Propriétaire",
+};
 
 function Brand() {
   return (
@@ -147,9 +184,13 @@ function SidebarContent({
   onNavigate?: () => void;
   isInDrawer?: boolean;
 }) {
-  const { slug, establishmentName, ctx } = useRestaurant();
+  const { slug, establishmentName, ctx, isDemo, activeUser, lock, isModuleEnabled } =
+    useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
+  const [isConfirmingPassword, setIsConfirmingPassword] = useState(false);
+  const items = enabledNavItems(NAV_ITEMS, isModuleEnabled);
+  const needsPassword = !isDemo && activeUser?.role === "manager" && ctx.role !== "manager";
 
   return (
     <div className={cn("flex h-full flex-col", isInDrawer ? "-mx-2" : "px-5 py-6")}>
@@ -161,7 +202,7 @@ function SidebarContent({
       <p className="mb-2 px-3 text-xs font-medium text-text-muted">{establishmentName}</p>
       <nav aria-label="Navigation du restaurant" className="flex-1">
         <ul className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {items.map((item) => {
             const isActive = isNavItemActive(pathname, slug, item.segment);
             const Icon = item.icon;
             return (
@@ -218,9 +259,43 @@ function SidebarContent({
         <Avatar name={ctx.userName} presence="online" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{ctx.userName}</p>
-          <p className="truncate text-xs text-text-muted">Gérant · appareil {ctx.deviceCode}</p>
+          <p className="truncate text-xs text-text-muted">
+            {ROLE_LABELS[ctx.role] ?? ctx.role} · appareil {ctx.deviceCode}
+          </p>
         </div>
+        {isDemo ? null : (
+          <IconButton
+            label="Changer d'utilisateur"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onNavigate();
+              void lock();
+            }}
+          >
+            <UserRoundCog />
+          </IconButton>
+        )}
       </div>
+      {needsPassword ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() => setIsConfirmingPassword(true)}
+        >
+          <KeyRound aria-hidden />
+          Actions de gérant : mot de passe
+        </Button>
+      ) : null}
+      <Sheet
+        open={isConfirmingPassword}
+        onOpenChange={setIsConfirmingPassword}
+        title="Confirmer votre mot de passe"
+        description="Entré par code PIN, un gérant agit comme un serveur. Le mot de passe rouvre les actions de gérant pendant 15 minutes."
+      >
+        <LinkUserForm submitLabel="Confirmer" onLinked={() => setIsConfirmingPassword(false)} />
+      </Sheet>
       {isInDrawer ? (
         <div className="mt-4 flex items-center justify-between gap-3 px-2 sm:hidden">
           <span className="text-xs text-text-muted">Thème</span>
@@ -339,23 +414,29 @@ function DemoBanner() {
   );
 }
 
-const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "menus"] as const;
+const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "caisse", "menus"] as const;
 
 /** Barre d'onglets inférieure du serveur, en dessous de `lg` (§ 6). */
 function BottomNav() {
-  const { slug } = useRestaurant();
+  const { slug, isModuleEnabled } = useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
-  const items = BOTTOM_ITEMS.map((segment) =>
-    NAV_ITEMS.find((item) => item.segment === segment),
-  ).filter((item) => item !== undefined);
+  const items = enabledNavItems(
+    BOTTOM_ITEMS.map((segment) => NAV_ITEMS.find((item) => item.segment === segment)).filter(
+      (item) => item !== undefined,
+    ),
+    isModuleEnabled,
+  );
 
   return (
     <nav
       aria-label="Navigation rapide"
       className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface lg:hidden"
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-4">
+      <ul
+        className="mx-auto grid max-w-lg"
+        style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      >
         {items.map((item) => {
           const isActive = isNavItemActive(pathname, slug, item.segment);
           const isPrimary = item.segment === "commandes/nouvelle";
@@ -403,5 +484,44 @@ function LoadingState() {
       <Skeleton className="h-48 lg:col-span-2" />
       <Skeleton className="h-48" />
     </div>
+  );
+}
+
+const MODULE_NAMES: Record<string, string> = {
+  restaurant: "Restaurant",
+  delivery: "Livraison",
+  preparation: "Postes de préparation",
+  recipes: "Fiches recettes",
+};
+
+/**
+ * EF-MOD-02, RG-MOD-01 : écran d'un module désactivé par le propriétaire. Les
+ * données restent sur l'appareil ; les opérations en attente partiront à la
+ * réactivation.
+ */
+function ModuleDisabled({ module }: { module: string }) {
+  const { slug } = useRestaurant();
+  const name = MODULE_NAMES[module] ?? module;
+  return (
+    <EmptyState
+      icon={PackageX}
+      title={
+        module === "restaurant"
+          ? "Le module Restaurant est désactivé"
+          : `Le module « ${name} » est désactivé`
+      }
+      description={
+        module === "restaurant"
+          ? "Le propriétaire a désactivé le module Restaurant pour cet établissement. Les données de l'appareil sont conservées, et les opérations en attente partiront à sa réactivation."
+          : "Le propriétaire n'a pas activé ce module pour cet établissement. Ses données, s'il y en a, sont conservées."
+      }
+      action={
+        module === "restaurant" ? undefined : (
+          <Link href={restaurantHref(slug, "")} className={buttonClasses("outline")}>
+            Retour au tableau de bord
+          </Link>
+        )
+      }
+    />
   );
 }
