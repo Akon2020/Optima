@@ -657,18 +657,37 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 31 : réquisitions (17/11/2026)
+
+**Fait** (D-069, D-Q14 tranchée)
+- **Vos réponses appliquées** : le magasin est tenu par le gérant ; les boissons passent aussi par une réquisition ; les quantités sont en bouteilles, plats et morceaux ; une réquisition le matin, plus des compléments.
+- **Écran « Réquisitions »** (`/restaurant/requisitions`) : par point de service, « Nouvelle réquisition » et « Retour au magasin », liste du jour et totaux (matin, compléments, retours).
+- **Réquisition du matin** (faite avant le stock du matin du poste) : elle entre dans la proposition du stock du matin. Le motif « Réquisition du jour » n'est plus nécessaire.
+- **Complément** (fait après) : il s'ajoute au stock de la journée, l'élément redevient vendable, et au stock attendu de la clôture.
+- **Retour au magasin** : motif obligatoire ; c'est aussi la façon de corriger une erreur, puisqu'une réquisition ne se modifie plus.
+- **Serveur** : migration `20261117000001_requisitions` (table en ajout seul), numéro `REQ-…`, genre recalculé, audit, diffusion aux appareils ; le comptage de fin de service relit compléments et retours.
+- **Démonstration** : la démo fait maintenant une réquisition du matin pour le comptoir et la cuisine, et un complément de Primus l'après-midi.
+- **Tests** : 6 unitaires, 4 sur l'appareil, 4 d'intégration (droits, genre recalculé, retour, audit, ajout seul, comptage, isolation) ; parcours de bout en bout P1 (réquisition puis stock du matin pré-rempli) ; contrôle axe de l'écran en clair et en sombre.
+
+**Pas encore fait** : le solde du magasin et la réception des achats en casiers (module Achats) ; l'impression d'un bon de réquisition (D-Q13).
+
+**À faire de votre côté**
+- **Base locale** : appliquer les migrations `20261115000002` à `20261117000001` (`pnpm db:migrate`).
+- **À valider par vous** : D-069 (mise en œuvre).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
 |---|---|---|
-| D-Q14 : magasin et réquisitions | Réquisitions, formule exacte du stock du matin | Le porteur du projet y reviendra |
 | D-Q20 : Vercel ou ifastnet, domaine | Préproduction, production ; PDF et tâches de fond en production | Points à vérifier dans D-045 |
 | D-Q13 : appareils et imprimantes | Impression thermique, tests sur le matériel réel | Wi-Fi Starlink confirmé (D-041), matériel à recenser |
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-068 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-069 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -683,7 +702,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **D-Q14**, puis réquisitions et fiches recettes.
+1. **Fiches recettes** et module **Achats** (solde du magasin, casiers convertis en bouteilles).
 2. **D-Q20** (choix de l'offre), puis préproduction.
 3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
 4. **Mentions légales** : nommer l'hébergeur une fois D-Q20 tranchée.
