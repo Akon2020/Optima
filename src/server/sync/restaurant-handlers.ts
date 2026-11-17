@@ -39,6 +39,12 @@ import {
 } from "@/modules/restaurant/domain/morning-stock";
 import { splitOrderByServicePoint } from "@/modules/restaurant/domain/order";
 import {
+  REQUISITION_KIND_LABELS,
+  laterRequisitioned,
+  requisitionKind,
+  validateRequisition,
+} from "@/modules/restaurant/domain/requisition";
+import {
   checkPaymentConsistency,
   convertMoney,
   invoiceBalances,
@@ -69,6 +75,7 @@ import {
   menuItemSoldOutSetSchema,
   paymentRecordedSchema,
   prepStatusChangedSchema,
+  requisitionCreatedSchema,
   stockCountedSchema,
   tableArchivedSchema,
   tableCreatedSchema,
@@ -91,6 +98,7 @@ import {
   orderSnapshots,
   paymentSnapshots,
   rateText,
+  requisitionSnapshots,
   stockCountSnapshots,
   tableReleaseSnapshots,
 } from "../restaurant/snapshots";
@@ -484,6 +492,101 @@ const morningStockEntered = handler({
     });
     for (const entry of entries) {
       await recordChange(tx, ctx, "morning_stock_entry", entry.id, entry);
+    }
+  },
+});
+
+/**
+ * Réquisition (EF-REQ-02, RG-REQ-01, D-069 ; gérant). Le serveur relit les
+ * éléments du point de service et recalcule le genre : une réquisition faite
+ * hors connexion après un stock du matin saisi sur un autre appareil devient
+ * un complément, pour ne pas manquer au stock attendu de la clôture.
+ */
+const requisitionCreated = handler({
+  permission: "restaurant.requisition.create",
+  schema: requisitionCreatedSchema,
+  async apply(tx, ctx, { requisition }) {
+    await assertDayOpen(tx, ctx, requisition.day);
+    const point = await tx.servicePoint.findFirst({
+      where: { id: requisition.servicePointId, establishmentId: ctx.establishmentId },
+    });
+    if (!point) throw new DomainError("SERVICE_POINT_NOT_FOUND", "Point de service inconnu.");
+    const items = itemsRequiringMorningStock(
+      (
+        await tx.menuItem.findMany({
+          where: { establishmentId: ctx.establishmentId, servicePointId: point.id },
+        })
+      ).map(menuItemSnapshot),
+      point.id,
+    );
+    const itemsById = new Map(items.map((item) => [item.id, item]));
+    const isReturn = requisition.kind === "return";
+    const issue = validateRequisition({
+      isReturn,
+      lines: requisition.lines,
+      comment: requisition.comment,
+      allowedItems: itemsById,
+    })[0];
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    const firstMorning = await tx.morningStockEntry.findFirst({
+      where: {
+        establishmentId: ctx.establishmentId,
+        servicePointId: point.id,
+        day: requisition.day,
+      },
+      orderBy: { enteredAt: "asc" },
+      select: { enteredAt: true },
+    });
+    const kind = requisitionKind({
+      isReturn,
+      createdAt: new Date(requisition.createdAt).toISOString(),
+      morningEnteredAt: firstMorning?.enteredAt.toISOString() ?? null,
+    });
+    const lines = requisition.lines.map((line) => {
+      const item = itemsById.get(line.menuItemId);
+      return {
+        menuItemId: line.menuItemId,
+        name: item?.name ?? "",
+        unit: item?.unit ?? "bottle",
+        quantity: line.quantity,
+      };
+    });
+    await tx.requisition.create({
+      data: {
+        id: requisition.id,
+        establishmentId: ctx.establishmentId,
+        number: requisition.number,
+        day: requisition.day,
+        servicePointId: point.id,
+        kind,
+        lines: toJson(lines),
+        comment: requisition.comment,
+        createdAt: new Date(requisition.createdAt),
+        createdBy: ctx.userId,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "restaurant.requisition.created",
+      entity: "requisition",
+      entityId: requisition.id,
+      after: {
+        number: requisition.number,
+        day: requisition.day,
+        servicePoint: point.name,
+        kind: REQUISITION_KIND_LABELS[kind],
+        lines: lines.map((line) => `${line.name} : ${line.quantity}`),
+      },
+      reason: isReturn ? requisition.comment : null,
+    });
+    for (const snapshot of await requisitionSnapshots(tx, ctx.establishmentId, {
+      id: requisition.id,
+    })) {
+      await recordChange(tx, ctx, "requisition", snapshot.id, snapshot);
     }
   },
 });
@@ -965,6 +1068,11 @@ const stockCounted = handler({
         sold.set(line.menuItemId, (sold.get(line.menuItemId) ?? 0) + line.quantity);
       }
     }
+    // Compléments moins retours au magasin (D-069), relus eux aussi.
+    const later = laterRequisitioned(
+      await requisitionSnapshots(tx, ctx.establishmentId, { day: count.day }),
+      count.day,
+    );
     const lines: StockCountLine[] = count.lines.map((line) => {
       const item = itemById.get(line.menuItemId);
       return {
@@ -972,6 +1080,7 @@ const stockCounted = handler({
         name: item?.name ?? "",
         unit: item?.unit ?? "bottle",
         morning: morning.get(line.menuItemId)?.quantity ?? null,
+        requisitioned: later.get(line.menuItemId) ?? 0,
         sold: sold.get(line.menuItemId) ?? 0,
         declaredOut: line.declaredOut,
         outReason: line.outReason,
@@ -1532,6 +1641,7 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.menu-item.options-set": menuItemOptionsSet,
   "restaurant.menu-item.sold-out-set": menuItemSoldOutSet,
   "restaurant.morning-stock.entered": morningStockEntered,
+  "restaurant.requisition.created": requisitionCreated,
   "restaurant.table.created": tableCreated,
   "restaurant.table.renamed": tableRenamed,
   "restaurant.table.archived": tableArchiveHandler(true),

@@ -151,6 +151,40 @@ export type Order = {
 };
 
 /**
+ * Réquisition du magasin vers un point de service (EF-REQ-02, RG-REQ-01,
+ * D-069) :
+ * - `main` : faite avant le stock du matin du point de service, elle entre
+ *   dans la proposition du stock du matin (EF-REQ-04) ;
+ * - `complement` : faite après, elle s'ajoute au stock attendu à la clôture ;
+ * - `return` : retour au magasin (correction d'une erreur, surplus), qui
+ *   retire du stock attendu ; motif obligatoire.
+ * Une réquisition ne se modifie jamais. Quantités en unités de vente.
+ */
+export type RequisitionKind = "main" | "complement" | "return";
+
+export type RequisitionLine = {
+  menuItemId: string;
+  name: string;
+  unit: SaleUnit;
+  quantity: number;
+};
+
+export type Requisition = {
+  id: string;
+  establishmentId: string;
+  /** REQ-2026-D01-000001 (EF-DOC-01). */
+  number: string;
+  day: string;
+  servicePointId: string;
+  kind: RequisitionKind;
+  lines: RequisitionLine[];
+  comment: string | null;
+  createdAt: string;
+  createdBy: string;
+  createdByName: string;
+};
+
+/**
  * Saisie du stock du matin d'un élément (EF-REQ-03). Les saisies ne sont
  * jamais modifiées : une correction ajoute une nouvelle saisie qui remplace
  * la précédente (`replacesId`), l'historique reste consultable.
@@ -257,6 +291,11 @@ export type StockCountLine = {
   unit: SaleUnit;
   /** Stock du matin en vigueur, `null` s'il n'a pas été saisi. */
   morning: number | null;
+  /**
+   * Compléments reçus après le stock du matin, moins les retours au magasin
+   * (D-069). Absent des comptages enregistrés avant les réquisitions : 0.
+   */
+  requisitioned?: number;
   sold: number;
   /** Pertes, casse, repas du personnel, offerts : déclarés à part, avec un motif (D-044). */
   declaredOut: number;

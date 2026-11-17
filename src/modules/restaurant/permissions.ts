@@ -36,6 +36,8 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.customer.manage",
   /** Déclarer un élément épuisé pour la journée (EF-PRE-03 : le poste, ou le gérant). */
   "restaurant.menu.sold-out",
+  /** Faire sortir du magasin vers un point de service (EF-REQ-02 : le gérant, D-069). */
+  "restaurant.requisition.create",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];

@@ -6,7 +6,8 @@
  * tient ses propres compteurs, et un numéro attribué n'est jamais réutilisé.
  */
 
-export type DocumentPrefix = "FAC" | "CMD";
+/** FAC : facture d'avance ; CMD : commande ; REQ : réquisition (D-069). */
+export type DocumentPrefix = "FAC" | "CMD" | "REQ";
 
 const DEVICE_CODE = /^D\d{2,}$/;
 

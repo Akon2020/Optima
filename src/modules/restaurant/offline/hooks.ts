@@ -9,6 +9,7 @@ import { formulaAvailability, isFormula } from "../domain/menu-options";
 import { isDeclaredSoldOut } from "../domain/preparation";
 import { customerDebts, type CustomerDebt } from "../domain/customers";
 import { currentEntries } from "../domain/morning-stock";
+import { laterRequisitioned, stockInOfDay } from "../domain/requisition";
 import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
 import type {
@@ -20,6 +21,7 @@ import type {
   ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
   Payment,
   ServicePoint,
@@ -91,6 +93,10 @@ export type DayData = {
   morningEntries: MorningStockEntry[];
   /** Saisie en vigueur par élément. */
   morningStock: Map<string, MorningStockEntry>;
+  /** Réquisitions de la journée (D-069), les plus anciennes d'abord. */
+  requisitions: Requisition[];
+  /** Compléments moins retours de la journée, par élément (D-069). */
+  laterRequisitioned: Map<string, number>;
   availability: Map<string, Availability>;
   soldByItem: Map<string, number>;
   /** Paiements de la journée (EF-ENC-02), tous appareils confondus après synchronisation. */
@@ -127,6 +133,7 @@ export function useDayData(): DayData | undefined {
       orders,
       invoices,
       morningEntries,
+      requisitions,
       releases,
       payments,
       exchangeRate,
@@ -141,6 +148,7 @@ export function useDayData(): DayData | undefined {
       db.orders.where("createdAt").aboveOrEqual(dayStart).reverse().sortBy("createdAt"),
       db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
       db.morningStockEntries.where("day").equals(day).toArray(),
+      db.requisitions.where("day").equals(day).sortBy("createdAt"),
       db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
       db.payments.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
       db.exchangeRates.orderBy("effectiveAt").last(),
@@ -157,6 +165,7 @@ export function useDayData(): DayData | undefined {
       orders,
       invoices,
       morningEntries,
+      requisitions,
       releases,
       payments,
       exchangeRate: exchangeRate ?? null,
@@ -176,12 +185,13 @@ export function useDayData(): DayData | undefined {
       }
     }
     const morningStock = currentEntries(raw.morningEntries);
+    const later = laterRequisitioned(raw.requisitions, day);
     const availability = new Map<string, Availability>(
       raw.menuItems.map((item) => [
         item.id,
         computeAvailability(
           item,
-          morningStock.get(item.id)?.quantity ?? null,
+          stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
           soldByItem.get(item.id) ?? 0,
           lowStockThreshold,
         ),
@@ -214,6 +224,7 @@ export function useDayData(): DayData | undefined {
       availability,
       soldByItem,
       morningStock,
+      laterRequisitioned: later,
       sessions,
       balances,
     };

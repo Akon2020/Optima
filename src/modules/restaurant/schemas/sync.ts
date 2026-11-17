@@ -121,6 +121,27 @@ export const morningStockEnteredSchema = z.object({
     .max(200),
 });
 
+/**
+ * Réquisition (D-069). Le genre envoyé par l'appareil n'est qu'une
+ * indication : le serveur le recalcule (principale ou complément) d'après
+ * les saisies du stock du matin qu'il connaît. Noms et unités sont relus.
+ */
+export const requisitionCreatedSchema = z.object({
+  requisition: z.object({
+    id: uuid,
+    number: z.string().regex(/^REQ-\d{4}-D\d{2,}-\d{6}$/),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    servicePointId: uuid,
+    kind: z.enum(["main", "complement", "return"]),
+    lines: z
+      .array(z.object({ menuItemId: uuid, quantity: z.number().int().min(1).max(100_000) }))
+      .min(1)
+      .max(200),
+    comment: z.string().trim().max(200).nullable(),
+    createdAt: isoDate,
+  }),
+});
+
 export const tableCreatedSchema = z.object({
   table: z.object({
     id: uuid,
@@ -281,6 +302,7 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.menu-item.created",
   "restaurant.menu-item.sold-out-set",
   "restaurant.morning-stock.entered",
+  "restaurant.requisition.created",
   "restaurant.table.created",
   "restaurant.table.renamed",
   "restaurant.table.archived",

@@ -31,6 +31,7 @@ import {
   createCustomer,
   createOrder,
   declareCashClosing,
+  createRequisition,
   morningProposals,
   recordPayment,
   recordStockCount,
@@ -728,11 +729,32 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
   }
   await seedYesterdayClosing(db, ctx, manager, yesterdayOrders, yesterdayStart.getTime());
 
-  // Aujourd'hui : comptoir et cuisine saisis ; les apports du jour sont des
-  // écarts justifiés (HYPOTHÈSE D-Q14 : pas encore de réquisitions).
+  // Aujourd'hui : réquisition du matin du comptoir et de la cuisine (D-069),
+  // qui complète le reste de la veille jusqu'au stock habituel, puis stock du
+  // matin saisi sur la proposition (deux bouteilles cassées au comptoir).
   const enteredAt = new Date(
     Math.min(dayStart.getTime() + HOUR_MS, now.getTime() - 60_000),
   ).toISOString();
+  const requisitionAt = new Date(
+    Math.max(dayStart.getTime() + 60_000, new Date(enteredAt).getTime() - 20 * 60_000),
+  ).toISOString();
+  const leftovers = await morningProposals(db, manager, dayStart.toISOString());
+  for (const pointId of ["sp-counter", "sp-kitchen"]) {
+    const lines = ITEMS.filter((item) => item.point === pointId && item.price !== null)
+      .map((item) => ({
+        menuItemId: `item-${item.key}`,
+        quantity: Math.max(0, (item.morning ?? 0) - (leftovers.get(`item-${item.key}`) ?? 0)),
+      }))
+      .filter((line) => line.quantity > 0);
+    if (lines.length > 0) {
+      await createRequisition(
+        db,
+        manager,
+        { servicePointId: pointId, isReturn: false, lines, comment: "" },
+        { createdAt: requisitionAt, enqueue: false },
+      );
+    }
+  }
   const proposals = await morningProposals(db, manager, dayStart.toISOString());
   for (const pointId of ["sp-counter", "sp-kitchen"]) {
     await saveMorningStock(
@@ -742,20 +764,29 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
         servicePointId: pointId,
         lines: ITEMS.filter((item) => item.point === pointId && item.price !== null).map((item) => {
           const proposed = proposals.get(`item-${item.key}`) ?? null;
-          const base = Math.max(item.morning ?? 0, proposed ?? 0);
+          const base = proposed ?? item.morning ?? 0;
           const isBroken = item.key === "primus";
-          const quantity = isBroken ? base - 2 : base;
-          const restocked = proposed !== null && base > proposed;
-          const reason =
-            proposed === null || proposed === quantity
-              ? ""
-              : [restocked ? "Réquisition du jour" : "", isBroken ? "2 bouteilles cassées" : ""]
-                  .filter(Boolean)
-                  .join(" ; ");
+          const quantity = isBroken ? Math.max(0, base - 2) : base;
+          const reason = proposed !== null && proposed !== quantity ? "2 bouteilles cassées" : "";
           return { menuItemId: `item-${item.key}`, quantity, reason };
         }),
       },
       { enteredAt, enqueue: false },
+    );
+  }
+  // Un complément de Primus en milieu de journée, s'il est déjà passé.
+  const complementAt = dayStart.getTime() + 7 * HOUR_MS;
+  if (complementAt < now.getTime() - 60_000) {
+    await createRequisition(
+      db,
+      manager,
+      {
+        servicePointId: "sp-counter",
+        isReturn: false,
+        lines: [{ menuItemId: "item-primus", quantity: 24 }],
+        comment: "Un casier de plus pour le soir",
+      },
+      { createdAt: new Date(complementAt).toISOString(), enqueue: false },
     );
   }
 

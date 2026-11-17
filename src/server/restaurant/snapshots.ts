@@ -14,6 +14,9 @@ import type {
   MenuItem,
   MobileMoneyProvider,
   MorningStockEntry,
+  Requisition,
+  RequisitionKind,
+  RequisitionLine,
   OptionGroup,
   Order,
   OrderLine,
@@ -149,6 +152,35 @@ export async function tableReleaseSnapshots(
     releasedAt: row.releasedAt.toISOString(),
     releasedBy: row.releasedBy,
     releasedByName: names.get(row.releasedBy) ?? "",
+  }));
+}
+
+/** Réquisitions (D-069), avec le nom de leur auteur. */
+export async function requisitionSnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; day?: string; createdAt?: { gte: Date } },
+): Promise<Requisition[]> {
+  const rows = await tx.requisition.findMany({
+    where: { ...where, establishmentId },
+    orderBy: { createdAt: "asc" },
+  });
+  const names = await userNames(
+    tx,
+    rows.map((row) => row.createdBy),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    number: row.number,
+    day: row.day,
+    servicePointId: row.servicePointId,
+    kind: row.kind as RequisitionKind,
+    lines: row.lines as unknown as RequisitionLine[],
+    comment: row.comment,
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdBy,
+    createdByName: names.get(row.createdBy) ?? "",
   }));
 }
 

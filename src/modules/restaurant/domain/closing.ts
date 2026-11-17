@@ -203,13 +203,20 @@ export function totalsByCurrency(
 // ─── Comptage du stock d'un point de service ────────────────────────────────
 
 /**
- * Stock attendu d'une ligne de comptage, `null` sans stock du matin.
- * HYPOTHÈSE D-Q14 : les réquisitions n'existent pas encore (0).
+ * Stock attendu d'une ligne de comptage, `null` sans stock du matin. Les
+ * réquisitions principales sont déjà dans le stock du matin ; seuls les
+ * compléments et les retours (D-069) s'y ajoutent ici.
  */
-export function expectedStockOf(line: Pick<StockCountLine, "morning" | "sold">): number | null {
+export function expectedStockOf(
+  line: Pick<StockCountLine, "morning" | "sold" | "requisitioned">,
+): number | null {
   return line.morning === null
     ? null
-    : computeExpectedStock({ morning: line.morning, requisitioned: 0, sold: line.sold });
+    : computeExpectedStock({
+        morning: line.morning,
+        requisitioned: line.requisitioned ?? 0,
+        sold: line.sold,
+      });
 }
 
 /**
@@ -218,7 +225,7 @@ export function expectedStockOf(line: Pick<StockCountLine, "morning" | "sold">):
  * manque des unités que rien n'explique.
  */
 export function stockLineVariance(
-  line: Pick<StockCountLine, "morning" | "sold" | "declaredOut" | "counted">,
+  line: Pick<StockCountLine, "morning" | "requisitioned" | "sold" | "declaredOut" | "counted">,
 ): number | null {
   const expected = expectedStockOf(line);
   return expected === null ? null : line.counted - (expected - line.declaredOut);

@@ -136,8 +136,25 @@ test("EF-CPT-04, EF-AUT-05 : deux appareils appairés, chacun avec son utilisate
   deviceB = await newDevice(browser, "Tablette comptoir E2E", ready().manager);
 });
 
-test("P1, EF-REQ-04 : la gérante saisit le stock du matin, l'autre appareil le reçoit", async () => {
+test("P1, EF-REQ-02, EF-REQ-04 : réquisition du matin, stock du matin, reçu par l'autre appareil", async () => {
+  // D-069 : la gérante fait sortir 24 Primus du magasin avant le stock du matin.
+  await deviceB.goto(`${restaurant()}/requisitions`);
+  await deviceB
+    .getByRole("tablist", { name: "Points de service" })
+    .getByRole("tab", { name: /Comptoir/ })
+    .click();
+  await deviceB.getByRole("button", { name: "Nouvelle réquisition" }).click();
+  const sheet = deviceB.getByRole("dialog");
+  await expect(sheet.getByText("Réquisition du matin")).toBeVisible();
+  await sheet.getByLabel("Primus 72 cl", { exact: true }).fill("24");
+  await sheet.getByRole("button", { name: "Valider la réquisition" }).click();
+  await expect(deviceB.getByRole("status").filter({ hasText: /^REQ-/ })).toBeVisible();
+  await expect(deviceB.getByText("+24 bouteilles · Primus 72 cl")).toBeVisible();
+
   await deviceB.goto(`${restaurant()}/stock-du-matin`);
+  // EF-REQ-04 : la proposition reprend la réquisition du matin.
+  await deviceB.getByRole("tab", { name: /Comptoir/ }).click();
+  await expect(deviceB.getByLabel("Primus 72 cl", { exact: true })).toHaveValue("24");
   const morning: [string, string, number][] = [
     ["Comptoir", "Primus 72 cl", 24],
     ["Comptoir", "Eau minérale 50 cl", 12],

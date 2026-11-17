@@ -11,6 +11,7 @@ import type {
   ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
   Payment,
   ServicePoint,
@@ -52,6 +53,8 @@ export type Bootstrap = {
   orders: Order[];
   invoices: AdvanceInvoice[];
   morningEntries: MorningStockEntry[];
+  /** Réquisitions récentes (D-069) ; absentes d'un serveur plus ancien. */
+  requisitions?: Requisition[];
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) ; absent d'un serveur plus ancien. */
   modules?: string[];
@@ -109,6 +112,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.orders,
       db.invoices,
       db.morningStockEntries,
+      db.requisitions,
       db.tableReleases,
       db.payments,
       db.exchangeRates,
@@ -132,6 +136,7 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.orders.bulkPut(snapshot.orders);
       await db.invoices.bulkPut(snapshot.invoices);
       await db.morningStockEntries.bulkPut(snapshot.morningEntries);
+      if (snapshot.requisitions) await db.requisitions.bulkPut(snapshot.requisitions);
       await db.tableReleases.bulkPut(snapshot.releases);
       if (snapshot.payments) await db.payments.bulkPut(snapshot.payments);
       if (snapshot.exchangeRates) await db.exchangeRates.bulkPut(snapshot.exchangeRates);
@@ -177,6 +182,9 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "morning_stock_entry":
       await db.morningStockEntries.put(change.data as MorningStockEntry);
+      break;
+    case "requisition":
+      await db.requisitions.put(change.data as Requisition);
       break;
     case "payment":
       await db.payments.put(change.data as Payment);
@@ -273,6 +281,7 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.diningTables,
         db.tableReleases,
         db.morningStockEntries,
+        db.requisitions,
         db.payments,
         db.exchangeRates,
         db.cashClosings,

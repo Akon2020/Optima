@@ -36,6 +36,14 @@ import { canWorkStation, isDeclaredSoldOut } from "../domain/preparation";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
+  firstMorningEntryAt,
+  laterRequisitioned,
+  morningRequisitioned,
+  requisitionKind,
+  stockInOfDay,
+  validateRequisition,
+} from "../domain/requisition";
+import {
   allocatePayment,
   invoiceBalances,
   parseRate,
@@ -67,6 +75,7 @@ import type {
   Payment,
   PaymentAllocation,
   PrepStatus,
+  Requisition,
   ServicePoint,
   StockCount,
   StockCountLine,
@@ -87,6 +96,7 @@ import type {
   dayValidatedSchema,
   orderCreatedSchema,
   paymentRecordedSchema,
+  requisitionCreatedSchema,
   stockCountedSchema,
 } from "../schemas/sync";
 
@@ -94,6 +104,7 @@ type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
 type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
 type CashClosingDeclaredPayload = z.infer<typeof cashClosingDeclaredSchema>;
 type StockCountedPayload = z.infer<typeof stockCountedSchema>;
+type RequisitionCreatedPayload = z.infer<typeof requisitionCreatedSchema>;
 type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
 type AdjustmentRequestedPayload = z.infer<typeof adjustmentRequestedSchema>;
 type AdjustmentDecidedPayload = z.infer<typeof adjustmentDecidedSchema>;
@@ -205,6 +216,7 @@ export async function createOrder(
       db.invoices,
       db.counters,
       db.morningStockEntries,
+      db.requisitions,
       db.outbox,
     ],
     async () => {
@@ -214,6 +226,11 @@ export async function createOrder(
       const day = businessDayKey(createdAt, businessDayStartHour, timeZone);
       const sold = await soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart));
       const morningStock = await currentMorningStock(db, day);
+      // Un complément reçu pendant le service remet du stock en vente (D-069).
+      const later = laterRequisitioned(
+        await db.requisitions.where("day").equals(day).toArray(),
+        day,
+      );
       const orderId = uuidv7(new Date(createdAt).getTime());
 
       // D-060 : options et formules ; une formule se déplie en ses composants.
@@ -239,7 +256,7 @@ export async function createOrder(
         }
         const availability = computeAvailability(
           item,
-          morningStock.get(item.id)?.quantity ?? null,
+          stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
           sold.get(item.id) ?? 0,
           lowStockThreshold,
         );
@@ -524,12 +541,15 @@ export async function morningProposals(
   const { businessDayStartHour, timeZone } = ctx.settings;
   const previousStart = new Date(new Date(dayStartIso).getTime() - DAY_MS).toISOString();
   const previousDay = businessDayKey(previousStart, businessDayStartHour, timeZone);
-  const [previousMorning, previousSold, items, previousCounts] = await Promise.all([
+  const day = businessDayKey(dayStartIso, businessDayStartHour, timeZone);
+  const [previousMorning, previousSold, items, previousCounts, requisitions] = await Promise.all([
     currentMorningStock(db, previousDay),
     soldQuantitiesBetween(db, previousStart, dayStartIso),
     db.menuItems.toArray(),
     db.stockCounts.where("day").equals(previousDay).toArray(),
+    db.requisitions.where("day").equals(day).toArray(),
   ]);
+  const requisitioned = morningRequisitioned(requisitions, day);
   const counted = new Map<string, number>();
   for (const count of latestStockCounts(previousCounts, previousDay).values()) {
     for (const line of count.lines) counted.set(line.menuItemId, line.counted);
@@ -541,8 +561,8 @@ export async function morningProposals(
         previousMorning: previousMorning.get(item.id)?.quantity ?? null,
         previousSold: previousSold.get(item.id) ?? 0,
         previousCounted: counted.get(item.id) ?? null,
-        // HYPOTHÈSE D-Q14 : les réquisitions ne sont pas encore gérées.
-        requisitioned: null,
+        // EF-REQ-04 : réquisitions principales du jour (D-069).
+        requisitioned: requisitioned.get(item.id) ?? null,
       }),
     ]),
   );
@@ -570,13 +590,15 @@ export async function saveMorningStock(
 
   return db.transaction(
     "rw",
-    // stockCounts : la proposition part du stock compté à la clôture de la veille.
+    // stockCounts : la proposition part du stock compté à la clôture de la veille ;
+    // requisitions : elle y ajoute les réquisitions principales du jour.
     [
       db.servicePoints,
       db.menuItems,
       db.invoices,
       db.morningStockEntries,
       db.stockCounts,
+      db.requisitions,
       db.outbox,
     ],
     async () => {
@@ -643,6 +665,117 @@ export async function saveMorningStock(
         );
       }
       return entries;
+    },
+  );
+}
+
+export type RequisitionInput = {
+  servicePointId: string;
+  /** Retour au magasin (correction, surplus) plutôt que sortie. */
+  isReturn: boolean;
+  lines: readonly { menuItemId: string; quantity: number }[];
+  comment: string;
+};
+
+/**
+ * Établit et valide une réquisition (EF-REQ-02, RG-REQ-01, D-069 ; gérant) :
+ * sortie du magasin vers un point de service, ou retour au magasin. Les
+ * lignes à zéro sont ignorées ; noms et unités sont relus depuis le menu.
+ * Principale ou complément selon que le stock du matin du point est déjà
+ * saisi. Une réquisition ne se modifie plus : une erreur se corrige par un
+ * retour au magasin.
+ */
+export async function createRequisition(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: RequisitionInput,
+  options: { createdAt?: string; enqueue?: boolean } = {},
+): Promise<Requisition> {
+  assertPermission(ctx, "restaurant.requisition.create", "faire une réquisition");
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [
+      db.servicePoints,
+      db.menuItems,
+      db.morningStockEntries,
+      db.dayClosings,
+      db.requisitions,
+      db.counters,
+      db.outbox,
+    ],
+    async () => {
+      const point = await db.servicePoints.get(input.servicePointId);
+      if (!point) {
+        throw new DomainError("SERVICE_POINT_NOT_FOUND", "Ce point de service n'existe pas.");
+      }
+      const items = itemsRequiringMorningStock(await db.menuItems.toArray(), point.id);
+      const itemsById = new Map(items.map((item) => [item.id, item]));
+      const lines = input.lines.filter((line) => line.quantity !== 0);
+      const comment = input.comment.trim() === "" ? null : input.comment.trim();
+      const issue = validateRequisition({
+        isReturn: input.isReturn,
+        lines,
+        comment,
+        allowedItems: itemsById,
+      })[0];
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const { businessDayStartHour, timeZone } = ctx.settings;
+      const day = currentDayKey(createdAt, await validatedDays(db), businessDayStartHour, timeZone);
+      const entries = await db.morningStockEntries.where("day").equals(day).toArray();
+      const kind = requisitionKind({
+        isReturn: input.isReturn,
+        createdAt,
+        morningEnteredAt: firstMorningEntryAt(entries, point.id, day),
+      });
+      const requisition: Requisition = {
+        id: uuidv7(new Date(createdAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        number: await nextNumber(db, "REQ", createdAt, ctx),
+        day,
+        servicePointId: point.id,
+        kind,
+        lines: lines.map((line) => {
+          const item = itemsById.get(line.menuItemId);
+          return {
+            menuItemId: line.menuItemId,
+            name: item?.name ?? "",
+            unit: item?.unit ?? "bottle",
+            quantity: line.quantity,
+          };
+        }),
+        comment,
+        createdAt,
+        createdBy: ctx.userId,
+        createdByName: ctx.userName,
+      };
+      await db.requisitions.add(requisition);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.requisition.created",
+            {
+              requisition: {
+                id: requisition.id,
+                number: requisition.number,
+                day,
+                servicePointId: point.id,
+                kind,
+                lines: lines.map((line) => ({
+                  menuItemId: line.menuItemId,
+                  quantity: line.quantity,
+                })),
+                comment,
+                createdAt,
+              },
+            } satisfies RequisitionCreatedPayload,
+            createdAt,
+          ),
+        );
+      }
+      return requisition;
     },
   );
 }
@@ -1092,16 +1225,20 @@ export async function stockCountDraft(
 ): Promise<Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]> {
   const { businessDayStartHour, timeZone } = ctx.settings;
   const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
-  const [items, morning, sold] = await Promise.all([
+  const [items, morning, sold, requisitions] = await Promise.all([
     db.menuItems.toArray(),
     currentMorningStock(db, day),
     soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart)),
+    db.requisitions.where("day").equals(day).toArray(),
   ]);
+  // Compléments moins retours (D-069) : les principales sont déjà dans le matin.
+  const later = laterRequisitioned(requisitions, day);
   return itemsRequiringMorningStock(items, servicePointId).map((item) => ({
     menuItemId: item.id,
     name: item.name,
     unit: item.unit,
     morning: morning.get(item.id)?.quantity ?? null,
+    requisitioned: later.get(item.id) ?? 0,
     sold: sold.get(item.id) ?? 0,
   }));
 }
@@ -1133,6 +1270,7 @@ export async function recordStockCount(
       db.menuItems,
       db.invoices,
       db.morningStockEntries,
+      db.requisitions,
       db.stockCounts,
       db.dayClosings,
       db.outbox,

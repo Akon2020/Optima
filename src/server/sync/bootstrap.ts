@@ -10,6 +10,7 @@ import type {
   ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
   Payment,
   ServicePoint,
@@ -30,6 +31,7 @@ import {
   exchangeRateSnapshots,
   menuItemSnapshot,
   morningEntrySnapshots,
+  requisitionSnapshots,
   orderSnapshots,
   paymentSnapshots,
   servicePointSnapshot,
@@ -55,6 +57,8 @@ export type DeviceBootstrap = {
   orders: Order[];
   invoices: AdvanceInvoice[];
   morningEntries: MorningStockEntry[];
+  /** Réquisitions de la même période (D-069). */
+  requisitions: Requisition[];
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) : l'appareil masque les écrans des autres. */
   modules: string[];
@@ -100,6 +104,7 @@ export async function buildBootstrap(
       tables,
       activity,
       morningEntries,
+      requisitions,
       releases,
       modules,
       payments,
@@ -115,6 +120,7 @@ export async function buildBootstrap(
       tx.diningTable.findMany({ where, orderBy: { sortOrder: "asc" } }),
       orderSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
       morningEntrySnapshots(tx, establishment.id, { enteredAt: { gte: since } }),
+      requisitionSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
       tableReleaseSnapshots(tx, establishment.id, { releasedAt: { gte: since } }),
       tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
       paymentSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
@@ -193,6 +199,7 @@ export async function buildBootstrap(
       orders: [...activity.orders, ...older.orders],
       invoices: [...activity.invoices, ...older.invoices],
       morningEntries,
+      requisitions,
       releases,
       modules: modules.map((entry) => entry.module).sort(),
       payments: [...payments, ...olderPayments],

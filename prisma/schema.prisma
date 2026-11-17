@@ -7,7 +7,8 @@
 // - Tables en ajout seul (trigger) : audit_log, sync_operations, change_log,
 //   morning_stock_entries, table_releases, invoice_lines, exchange_rates,
 //   payments, payment_allocations, cash_closings, cash_closing_payments,
-//   stock_counts, day_closings, adjustment_requests, adjustment_decisions.
+//   stock_counts, day_closings, adjustment_requests, adjustment_decisions,
+//   requisitions.
 
 generator client {
   provider = "prisma-client"
@@ -479,6 +480,27 @@ model StockCount {
 
   @@index([establishmentId, day])
   @@map("stock_counts")
+}
+
+// Réquisition du magasin vers un point de service (EF-REQ-01, EF-REQ-02,
+// RG-REQ-01, D-069) : principale (avant le stock du matin), complément ou
+// retour au magasin. Lignes en unités de vente. Ajout seul.
+model Requisition {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  number          String
+  day             String
+  servicePointId  String   @map("service_point_id") @db.Uuid
+  kind            String
+  lines           Json
+  comment         String?
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  createdBy       String   @map("created_by") @db.Uuid
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@unique([establishmentId, number])
+  @@index([establishmentId, day])
+  @@map("requisitions")
 }
 
 // Validation de la journée par le gérant (EF-CLO-04, D-039) : une par journée.

@@ -14,6 +14,7 @@ import type {
   ExchangeRate,
   MenuItem,
   MorningStockEntry,
+  Requisition,
   Order,
   Payment,
   ServicePoint,
@@ -53,6 +54,7 @@ export class RestaurantDb extends Dexie {
   orders!: EntityTable<Order, "id">;
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
+  requisitions!: EntityTable<Requisition, "id">;
   tableReleases!: EntityTable<TableRelease, "id">;
   payments!: EntityTable<Payment, "id">;
   exchangeRates!: EntityTable<ExchangeRate, "id">;
@@ -153,6 +155,8 @@ export class RestaurantDb extends Dexie {
     });
     // v9 : fiches clients de la vente à crédit (D-059).
     this.version(9).stores({ customers: "id, phone" });
+    // v10 : réquisitions du magasin vers les points de service (D-069).
+    this.version(10).stores({ requisitions: "id, day, servicePointId, createdAt" });
   }
 }
 

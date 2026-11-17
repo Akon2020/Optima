@@ -55,7 +55,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Réquisitions",
     shortLabel: "Réquisitions",
     icon: ArrowRightLeft,
-    isUpcoming: true,
   },
   {
     segment: "preparation",

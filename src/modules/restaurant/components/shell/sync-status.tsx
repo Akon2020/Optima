@@ -17,6 +17,7 @@ const OPERATION_LABELS: Record<string, string> = {
   "restaurant.invoice.prep-status-changed": "Statut de préparation",
   "restaurant.menu-item.created": "Élément de menu",
   "restaurant.morning-stock.entered": "Stock du matin",
+  "restaurant.requisition.created": "Réquisition",
   "restaurant.table.created": "Nouvelle table",
   "restaurant.table.renamed": "Table renommée",
   "restaurant.table.archived": "Table retirée",
