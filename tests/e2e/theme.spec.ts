@@ -39,6 +39,13 @@ const SCREENS: { name: string; path: string; ready: (page: Page) => Promise<void
     },
   },
   {
+    name: "mentions-legales",
+    path: "/mentions-legales",
+    ready: async (page) => {
+      await expect(page.getByRole("heading", { name: "Mentions légales", level: 1 })).toBeVisible();
+    },
+  },
+  {
     name: "connexion",
     path: "/connexion",
     ready: async (page) => {

@@ -31,7 +31,23 @@ export const instant = false;
 
 const isIndexable = process.env.NEXT_PUBLIC_SITE_INDEXABLE === "true";
 
+/**
+ * Origine publique (`APP_ORIGIN`, validée par `src/server/env.ts`) : sert aux
+ * URL canoniques et à l'image de partage. Le domaine dépend de D-Q20 ; en son
+ * absence, Next.js retombe sur l'adresse locale.
+ */
+function siteOrigin(): URL | undefined {
+  try {
+    return process.env.APP_ORIGIN ? new URL(process.env.APP_ORIGIN) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const origin = siteOrigin();
+
 export const metadata: Metadata = {
+  ...(origin ? { metadataBase: origin } : {}),
   title: {
     default: "OPTIMA · Gestion commerciale multi-établissements",
     template: "%s · OPTIMA",
@@ -41,6 +57,7 @@ export const metadata: Metadata = {
   applicationName: "OPTIMA",
   appleWebApp: { capable: true, title: "OPTIMA", statusBarStyle: "default" },
   icons: { apple: "/icons/apple-touch-icon.png" },
+  openGraph: { type: "website", locale: "fr_FR", siteName: "OPTIMA" },
   // Indexation désactivée tant que D-Q01 n'est pas tranchée.
   robots: isIndexable ? { index: true, follow: true } : { index: false, follow: false },
 };
