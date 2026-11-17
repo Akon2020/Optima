@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && tsx scripts/build-sw.mts",
+    "build": "prisma generate && next build && tsx scripts/build-sw.mts",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit && tsc --noEmit -p src/offline/sw",
     "lint": "eslint && pnpm lint:css",

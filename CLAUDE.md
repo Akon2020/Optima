@@ -751,7 +751,7 @@ Scripts existants dans `package.json` :
 | Commande | Rôle |
 |---|---|
 | `pnpm dev` | Serveur de développement |
-| `pnpm build` / `pnpm start` | Build et démarrage de production ; `pnpm build` produit aussi le service worker `public/sw.js` (D-028) |
+| `pnpm build` / `pnpm start` | Build et démarrage de production ; `pnpm build` génère d'abord le client Prisma (un cache de dépendances, comme celui de Vercel, peut sauter le `postinstall`) et produit aussi le service worker `public/sw.js` (D-028) |
 | `pnpm check:offline` | Vérifie la PWA hors connexion sur un serveur de production lancé (`next start -p 3100`), avec le Chrome installé |
 | `pnpm check:csp` | Vérifie la CSP sur un serveur de production lancé (`next start -p 3100`) : aucune violation, chaque script du HTML porte le nonce, le JavaScript s'exécute |
 | `pnpm exec tsx scripts/generate-icons.mts` | Régénère les icônes de l'application installable (provisoires, D-Q11) |
