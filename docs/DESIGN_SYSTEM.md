@@ -460,6 +460,7 @@ Les maquettes affichent des « Restaurants » (plusieurs adresses). Dans OPTIMA,
 - Durées : 120ms (survol, pression), 200ms (ouverture de menus, onglets), 300ms (panneaux latéraux, modales). Courbe `cubic-bezier(.2,.8,.2,1)`.
 - Animations utiles uniquement : apparition des panneaux, mise en évidence d'une commande prête (EF-PRE-02), confirmation d'enregistrement.
 - `prefers-reduced-motion: reduce` désactive les translations et ne garde que les fondus courts.
+- **Landing page** (D-068) : jetons `--animate-enter` (fondu et montée de 16px), `--animate-float` (flottement lent de 8px), `--animate-draw` (tracé d'une courbe SVG), `--animate-halo` (halo d'un point) et `--animate-grow` (remplissage d'une barre). Ils n'animent que `translate`, `scale`, l'opacité ou le tracé, jamais `transform`, pour rester combinables avec une inclinaison. Rien ne défile ni ne change seul en boucle, hors le flottement de deux cartes décoratives.
 - Aucune transition de couleur globale au changement de thème (`disableTransitionOnChange`), pour éviter un clignotement de toute l'interface.
 
 ## 8. Accessibilité (applicable aux quatre combinaisons)

@@ -642,6 +642,21 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 30 : landing page (17/11/2026)
+
+**Fait** (D-068, D-Q26 tranchée)
+- **Vos réponses appliquées** : signature « Pilotez tous vos établissements », aucun contact publié, « Bukavu, RDC » en pied de page.
+- **Bouton « Voir la démo »** dans l'en-tête, le hero, l'onglet Restaurant et l'appel final : il ouvre l'aperçu du Restaurant sur données de démonstration.
+- **Mise en page** inspirée de vos maquettes, en bleu nuit : barre flottante en pilule, hero à bandes translucides avec un tableau de bord abstrait incliné, sections en panneaux arrondis, modules en onglets, sécurité en accordéon.
+- **Animations sobres** : entrée du hero, courbe qui se trace, barres qui se remplissent, cartes qui flottent lentement, sections qui apparaissent au défilement. Rien ne défile tout seul ; tout s'arrête si le téléphone demande moins d'animations.
+- **Pas repris des maquettes** : les pourcentages, témoignages et tarifs (aucun chiffre ni client inventé, D-012).
+- **Mentions légales** (`/mentions-legales`) et **image de partage** générée.
+- **Vérifié** : typage, lint, build ; 8 parcours de bout en bout de la landing page (titres, ancres, onglets, accordéon, menu mobile sans débordement à 360 px, thème retenu sans flash, mentions légales, image de partage) ; contrôle axe en clair et en sombre de l'accueil et des mentions légales ; captures à 360, 768 et 1280 px dans les deux thèmes.
+
+**À valider par vous** : D-068 (mise en page et animations).
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -652,9 +667,8 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
-| D-Q26 : signature, contact, coordonnées, entité juridique | Landing page complète | À fournir (D-051) |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-067 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-068 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -672,4 +686,4 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 1. **D-Q14**, puis réquisitions et fiches recettes.
 2. **D-Q20** (choix de l'offre), puis préproduction.
 3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
-4. **Landing page** dès que D-Q26 sera tranchée.
+4. **Mentions légales** : nommer l'hébergeur une fois D-Q20 tranchée.

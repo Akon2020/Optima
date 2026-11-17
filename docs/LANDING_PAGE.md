@@ -1,6 +1,6 @@
 # Landing page d'OPTIMA
 
-Spécification de la première interface publique. **Charte générale**, thèmes clair et sombre (voir `docs/DESIGN_SYSTEM.md`). Décisions associées : D-008, D-010, D-012, D-030 (vitrine non indexée), D-040 (logotype, bleu nuit, Inter), D-051 (contenu). Restent à fournir (D-Q26) : la signature, le contact, les coordonnées, l'entité juridique et le domaine.
+Spécification de la première interface publique. **Charte générale**, thèmes clair et sombre (voir `docs/DESIGN_SYSTEM.md`). Décisions associées : D-008, D-010, D-012, D-030 (vitrine non indexée), D-040 (logotype, bleu nuit, Inter), D-051 (contenu). D-Q26 est tranchée (D-068) : signature « Pilotez tous vos établissements », aucun contact, « Bukavu, RDC » en pied de page ; le domaine suivra D-Q20. Mise en page et animations : D-068.
 
 ## 1. Objectif
 
@@ -28,16 +28,16 @@ En moins d'une minute, un visiteur doit comprendre :
 
 | # | Section | Contenu | Source |
 |---|---|---|---|
-| 1 | **En-tête** (collant, réduit au défilement) | Logotype « OPTIMA » suivi de sa signature `[À COMPLÉTER : D-Q26]` (D-040, D-051). Ancres : Fonctionnalités, Modules, Fonctionnement, Sécurité. `ThemeSwitcher`. Bouton « Se connecter ». Sur mobile, menu en tiroir accessible (piège du focus, fermeture par Échap) | D-010 |
-| 2 | **Hero** | Titre proposé : « Tous vos établissements, un seul outil de gestion. » Sous-titre : « Caisse, stock, commandes et clôtures, même sans connexion. Chaque établissement garde ses données, le propriétaire voit l'ensemble. » Bouton principal « Se connecter », bouton secondaire « Découvrir les modules ». Visuel : aperçu stylisé d'un tableau de bord (abstrait), qui suit le thème | Cahier § 1.1 et 1.2 |
+| 1 | **En-tête** (collant, réduit au défilement) | Barre flottante en pilule. Logotype « OPTIMA » suivi de sa signature « Pilotez tous vos établissements » (D-040, D-068). Ancres : Fonctionnalités, Modules, Fonctionnement, Sécurité, avec une pastille sur la section lue. `ThemeSwitcher`. Boutons « Voir la démo » et « Se connecter ». Sur mobile, menu en tiroir accessible (piège du focus, fermeture par Échap) | D-010 |
+| 2 | **Hero** | Titre proposé : « Tous vos établissements, un seul outil de gestion. » Sous-titre : « Caisse, stock, commandes et clôtures, même sans connexion. Chaque établissement garde ses données, le propriétaire voit l'ensemble. » Bouton principal « Se connecter », bouton secondaire « Voir la démo » (aperçu local du Restaurant, D-068). Visuel : aperçu stylisé d'un tableau de bord (abstrait), qui suit le thème | Cahier § 1.1 et 1.2 |
 | 3 | **Le constat** | Trois constats, sans chiffres : fiches Excel et souches papier dispersées, calculs refaits à la main, manquants de caisse difficiles à expliquer et absence de vue d'ensemble | Cahier § 1.1 |
 | 4 | **Ce qu'OPTIMA apporte** | Quatre bénéfices : vue d'ensemble pour le propriétaire, caisse défendable, stock fiable, travail sans Internet | Cahier § 1.2 |
 | 5 | **Modules** | Cartes avec badge d'état : Espace propriétaire, Socle commerce (catalogue, prix, stock, achats, caisse, documents), Restaurant (trois points de service, factures d'avance réparties, stock du matin, fiches recettes, livraison, clôtures), Boutique (phase 2). Mention : « Les modules s'activent établissement par établissement. » | `CLAUDE.md` § 1.6 |
 | 6 | **Une journée avec OPTIMA** | Frise en quatre temps, illustrée sur l'exemple du restaurant : Matin (stock du matin), Service (commande puis factures d'avance par point de service), Fin de service (clôture et écarts), Propriétaire (suivi en temps réel) | Parcours P1 à P6 |
 | 7 | **Même sans Internet** | Explication courte : enregistrement sur l'appareil, envoi automatique au retour du réseau, rien n'est compté deux fois. Petite animation des états « Hors ligne, 3 opérations en attente » puis « Synchronisé » | EF-OFF-01 à 04 |
 | 8 | **Sécurité et traçabilité** | Données séparées par établissement, accès selon le rôle, journal d'audit inaltérable, sauvegardes quotidiennes chiffrées. Formulé comme des **principes de conception**, pas comme une certification | `CLAUDE.md` § 5 |
-| 9 | **Appel final** | « Se connecter » et un contact `[À COMPLÉTER : D-Q26]` | D-051 |
-| 10 | **Pied de page** | Logotype, ancres, mention « © 2026 OPTIMA », coordonnées et entité juridique `[À COMPLÉTER : D-Q26]`, mentions légales, rappel du sélecteur de thème | D-051 |
+| 9 | **Appel final** | « Se connecter » et « Voir la démo » ; aucun contact (D-068) | D-051, D-068 |
+| 10 | **Pied de page** | Logotype, ancres, mention « © 2026 OPTIMA », « Bukavu, RDC », sans entité juridique (D-068), lien vers `/mentions-legales`, rappel du sélecteur de thème | D-051 |
 
 Le bouton « Se connecter » pointe vers `/connexion`. Tant que l'authentification n'existe pas, cette route affiche une page honnête, « Accès bientôt disponible », dans la même charte.
 

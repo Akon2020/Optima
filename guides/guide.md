@@ -198,8 +198,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 3. **D-Q13** : appareils et imprimantes à recenser au restaurant (le réseau est un Wi-Fi Starlink, D-041).
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
-6. **D-Q26** : signature, contact, coordonnées et entité juridique pour la landing page (D-051).
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-067**.
+6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-068**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -305,11 +305,13 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] GitHub Actions (D-047, D-061) sur `develop` et sur les pull requests vers `main` : typage, lint, format, tests, intégration, build, bout en bout, audit.
 - [ ] Passage des tests d'intégration contre un vrai PostgreSQL (D-021).
 
-### 7.9 Landing page ⬜ 🔒 D-Q26
+### 7.9 Landing page ✅ (D-068)
 
-- [ ] Sections de `docs/LANDING_PAGE.md`, en charte générale, avec les deux thèmes.
-- [ ] `noindex` (D-030), français seulement, établissements non nommés (D-051).
-- [ ] Aucun chiffre, client ni témoignage inventé (D-012).
+- [x] Sections de `docs/LANDING_PAGE.md`, en charte générale, avec les deux thèmes et des animations sobres.
+- [x] `noindex` (D-030), français seulement, établissements non nommés (D-051).
+- [x] Aucun chiffre, client ni témoignage inventé (D-012).
+- [x] Bouton « Voir la démo » vers l'aperçu local du Restaurant ; mentions légales ; image de partage.
+- [ ] Nommer l'hébergeur dans les mentions légales (avec D-Q20) ; passer `NEXT_PUBLIC_SITE_INDEXABLE` à `true` si l'ouverture au public est décidée.
 
 ### 7.10 Phase 2 : boutique de gold detectors ⬜ 🔒 D-Q27 à D-Q30
 
