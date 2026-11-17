@@ -755,7 +755,7 @@ Scripts existants dans `package.json` :
 | `pnpm check:offline` | Vérifie la PWA hors connexion sur un serveur de production lancé (`next start -p 3100`), avec le Chrome installé |
 | `pnpm check:csp` | Vérifie la CSP sur un serveur de production lancé (`next start -p 3100`) : aucune violation, chaque script du HTML porte le nonce, le JavaScript s'exécute |
 | `pnpm exec tsx scripts/generate-icons.mts` | Régénère les icônes de l'application installable (provisoires, D-Q11) |
-| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm typecheck` | `next typegen` (types des routes, `PageProps` et `LayoutProps`, sans build) puis `tsc --noEmit` ; indispensable sur une machine sans dossier `.next`, comme la CI |
 | `pnpm lint` / `pnpm lint:css` | ESLint (règles Next.js, couleurs littérales) puis Stylelint ; `lint:css` lance Stylelint seul (D-067) |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm test` / `pnpm test:watch` | Tests unitaires Vitest (`*.test.ts` à côté du code ; IndexedDB simulée par `fake-indexeddb`) |
