@@ -685,7 +685,6 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-Q13 : appareils et imprimantes | Impression thermique, tests sur le matériel réel | Wi-Fi Starlink confirmé (D-041), matériel à recenser |
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
-| D-Q07 : zones et frais de livraison | Module Livraison | Livreurs du personnel (D-036), frais à décider |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
 | D-022 à D-029 et D-055 à D-069 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 

@@ -197,7 +197,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 2. **D-Q20** : choisir entre Vercel et ifastnet (points à vérifier dans D-045), puis le domaine.
 3. **D-Q13** : appareils et imprimantes à recenser au restaurant (le réseau est un Wi-Fi Starlink, D-041).
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
-5. **D-Q07** : zones et frais de livraison (les livreurs sont du personnel, D-036).
+5. ~~**D-Q07**~~ : tranchée (D-070) : frais par zone fixés par le gérant, au restaurant, paiement à la livraison.
 6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
 7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-069**.
 8. Faire signer le cahier des charges (D-013).
@@ -263,7 +263,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] Menus avec éléments à options et formules (D-035, D-060).
 - [ ] Effet des options sur le stock (D-Q33) ; modification et archivage d'une formule depuis l'écran Menus.
 - [ ] Fiches recettes (EF-RCT-01 à 04), après les menus à options.
-- [ ] Livraison (EF-LIV-01 à 04), livreurs du personnel (D-036) 🔒 zones et frais D-Q07.
+- [ ] Livraison (EF-LIV-01 à 04, RG-LIV-01), livreurs du personnel (D-036), frais par zone et paiement à la livraison (D-070).
 - [x] Rapports et exports PDF, Excel, CSV (EF-RAP-01, 03, 04, D-065).
 - [ ] Marge et bénéfice (EF-RAP-02), après les prix de revient ; rapport « ses ventes » du serveur.
 - [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02) 🔒 D-Q13.
