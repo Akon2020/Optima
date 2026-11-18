@@ -697,6 +697,20 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 33 : livraison, deuxième partie (18/11/2026)
+
+**Fait** (D-073)
+- **Livraison échouée** : après un échec (avec son motif), le gérant choisit sur la carte de la livraison « Réutilisables, remis en stock » ou « Perdus, en perte ». La commande est annulée, frais compris ; les plats perdus ne reviennent ni en vente ni dans le stock attendu à la clôture. Refusé si le client a déjà payé ou si la journée est validée.
+- **Frais de livraison visibles** : ligne « Frais de livraison » dans la déclaration de caisse (part à reverser), le rapport de journée et les rapports en ligne.
+- **Menu selon le rôle** : le livreur ne voit plus que Menus, Caisse, Clôtures et Livraisons ; le poste de préparation, Menus, Stock du matin et Préparation (aucun montant) ; la barre du bas du téléphone suit.
+- **Tests** : 2 unitaires de plus, 2 sur l'appareil, 1 d'intégration (perte relue au comptage, droits, une seule décision), 3 sur le menu par rôle.
+
+**À faire de votre côté**
+- **Base locale** : appliquer la migration `20261118000002` (`pnpm db:migrate`).
+- **À valider par vous** : D-073.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -706,7 +720,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-071 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-073 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
