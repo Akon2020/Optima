@@ -1,7 +1,13 @@
 import { moneyFromMajor, type Currency, type Money } from "@/shared/lib/money";
 
 import { normalizePhone } from "./customers";
-import type { Delivery, DeliveryStatus, DeliveryZone } from "./types";
+import type {
+  AdvanceInvoice,
+  Delivery,
+  DeliveryOutcome,
+  DeliveryStatus,
+  DeliveryZone,
+} from "./types";
 
 /**
  * Livraison (EF-LIV-01 à 04, D-036, D-070 ; mise en œuvre D-071) :
@@ -29,6 +35,11 @@ export const DELIVERY_TRANSITIONS: Record<DeliveryStatus, readonly DeliveryStatu
   "en-route": ["delivered", "failed"],
   delivered: [],
   failed: [],
+};
+
+export const DELIVERY_OUTCOME_LABELS: Record<DeliveryOutcome, string> = {
+  reusable: "Plats réutilisables, remis en stock",
+  lost: "Plats perdus, enregistrés en perte",
 };
 
 export const MAX_DELIVERY_FEE_MAJOR = 1_000_000;
@@ -244,4 +255,63 @@ export function courierQueue<T extends Pick<Delivery, "courierId" | "status" | "
     .sort(
       (a, b) => Number(isOpen(b)) - Number(isOpen(a)) || a.createdAt.localeCompare(b.createdAt),
     );
+}
+
+// ─── Livraison échouée (RG-LIV-01) ──────────────────────────────────────────
+
+/**
+ * RG-LIV-01 : le gérant tranche une seule fois, sur une livraison échouée,
+ * tant que la journée n'est pas validée et qu'aucun paiement n'a été reçu
+ * (l'annulation ne rembourse rien).
+ */
+export function failureSettlementIssue(input: {
+  delivery: Pick<Delivery, "status" | "failureOutcome">;
+  hasPayment: boolean;
+  isDayValidated: boolean;
+}): DeliveryIssue | null {
+  if (input.delivery.status !== "failed") {
+    return { code: "NOT_FAILED", message: "Seule une livraison échouée se règle ainsi." };
+  }
+  if (input.delivery.failureOutcome) {
+    return { code: "ALREADY_SETTLED", message: "Cette livraison échouée est déjà réglée." };
+  }
+  if (input.isDayValidated) {
+    return {
+      code: "DAY_VALIDATED",
+      message: "La journée de cette commande est validée : corrigez par une écriture d'ajustement.",
+    };
+  }
+  if (input.hasPayment) {
+    return {
+      code: "DELIVERY_PAID",
+      message:
+        "Un paiement a été reçu pour cette commande : réglez-le avant d'annuler la livraison.",
+    };
+  }
+  return null;
+}
+
+/**
+ * Quantités perdues par élément (RG-LIV-01) : les lignes des factures des
+ * livraisons échouées déclarées perdues. Ces factures sont annulées (elles
+ * ne comptent plus comme vendues) mais les plats ne reviennent pas en stock :
+ * on les retire du stock disponible et du stock attendu.
+ */
+export function lostQuantities(
+  deliveries: readonly Pick<Delivery, "orderId" | "failureOutcome">[],
+  invoices: readonly (Pick<AdvanceInvoice, "orderId"> & {
+    lines: readonly { menuItemId: string; quantity: number }[];
+  })[],
+): Map<string, number> {
+  const lostOrders = new Set(
+    deliveries.filter((delivery) => delivery.failureOutcome === "lost").map((d) => d.orderId),
+  );
+  const totals = new Map<string, number>();
+  for (const invoice of invoices) {
+    if (!lostOrders.has(invoice.orderId)) continue;
+    for (const line of invoice.lines) {
+      totals.set(line.menuItemId, (totals.get(line.menuItemId) ?? 0) + line.quantity);
+    }
+  }
+  return totals;
 }

@@ -106,13 +106,14 @@ export function collectedByServicePoint(
   payments: readonly Pick<Payment, "allocations">[],
   invoices: readonly Pick<AdvanceInvoice, "id" | "servicePointId">[],
   base: Currency,
-): { servicePointId: string; amount: Money }[] {
+): { servicePointId: string | null; amount: Money }[] {
   const pointOf = new Map(invoices.map((invoice) => [invoice.id, invoice.servicePointId]));
-  const amounts = new Map<string, Money>();
+  // `null` : frais de livraison, part du restaurant hors points de service (D-071).
+  const amounts = new Map<string | null, Money>();
   for (const payment of payments) {
     for (const allocation of payment.allocations) {
-      const point = pointOf.get(allocation.invoiceId);
-      if (!point) continue;
+      if (!pointOf.has(allocation.invoiceId)) continue;
+      const point = pointOf.get(allocation.invoiceId) ?? null;
       amounts.set(point, addMoney(amounts.get(point) ?? zero(base), allocation.amount));
     }
   }
@@ -208,14 +209,15 @@ export function totalsByCurrency(
  * compléments et les retours (D-069) s'y ajoutent ici.
  */
 export function expectedStockOf(
-  line: Pick<StockCountLine, "morning" | "sold" | "requisitioned">,
+  line: Pick<StockCountLine, "morning" | "sold" | "requisitioned" | "lost">,
 ): number | null {
   return line.morning === null
     ? null
     : computeExpectedStock({
         morning: line.morning,
         requisitioned: line.requisitioned ?? 0,
-        sold: line.sold,
+        // RG-LIV-01 : les plats perdus d'une livraison échouée sortent comme vendus.
+        sold: line.sold + (line.lost ?? 0),
       });
 }
 
@@ -225,7 +227,10 @@ export function expectedStockOf(
  * manque des unités que rien n'explique.
  */
 export function stockLineVariance(
-  line: Pick<StockCountLine, "morning" | "requisitioned" | "sold" | "declaredOut" | "counted">,
+  line: Pick<
+    StockCountLine,
+    "morning" | "requisitioned" | "sold" | "lost" | "declaredOut" | "counted"
+  >,
 ): number | null {
   const expected = expectedStockOf(line);
   return expected === null ? null : line.counted - (expected - line.declaredOut);

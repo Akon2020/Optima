@@ -39,9 +39,12 @@ import {
 } from "@/modules/restaurant/domain/morning-stock";
 import { splitOrderByServicePoint } from "@/modules/restaurant/domain/order";
 import {
+  DELIVERY_OUTCOME_LABELS,
   DELIVERY_STATUS_LABELS,
   checkDeliveryDetails,
   courierIssue,
+  failureSettlementIssue,
+  lostQuantities,
   statusIssue,
   zoneIssue,
 } from "@/modules/restaurant/domain/delivery";
@@ -75,6 +78,7 @@ import {
   customerLimitSetSchema,
   dayValidatedSchema,
   deliveryAssignedSchema,
+  deliveryFailureSettledSchema,
   deliveryStatusChangedSchema,
   deliveryZoneArchivedSchema,
   deliveryZoneSavedSchema,
@@ -506,6 +510,70 @@ const deliveryAssigned = handler({
       before: { courierId: delivery.courierId },
       after: { courierId: payload.courierId, order: delivery.orderNumber },
     });
+    await broadcastDelivery(tx, ctx, delivery.id);
+  },
+});
+
+/**
+ * RG-LIV-01 : le gérant règle une livraison échouée. La commande est annulée,
+ * frais compris ; les plats perdus restent hors du stock (comptage, D-073).
+ */
+const deliveryFailureSettled = handler({
+  permission: "delivery.manage",
+  schema: deliveryFailureSettledSchema,
+  async apply(tx, ctx, payload) {
+    const delivery = await findDelivery(tx, ctx, payload.deliveryId);
+    const order = await tx.order.findFirst({
+      where: { id: delivery.orderId, establishmentId: ctx.establishmentId },
+      select: { id: true, createdAt: true },
+    });
+    if (!order) throw new DomainError("ORDER_NOT_FOUND", "Commande inconnue du serveur.");
+    const state = await adjustmentState(tx, ctx, order);
+    const hasPayment = [...state.balances.values()].some((balance) => balance.paid.amountMinor > 0);
+    const issue = failureSettlementIssue({
+      delivery,
+      hasPayment,
+      isDayValidated: state.isDayValidated,
+    });
+    if (issue) throw new DomainError(issue.code, issue.message);
+
+    const failure = [...delivery.events].reverse().find((event) => event.kind === "failed");
+    const reason = `Livraison échouée${failure?.note ? ` : ${failure.note}` : ""}`;
+    const at = new Date(payload.at);
+    await tx.advanceInvoice.updateMany({
+      where: { establishmentId: ctx.establishmentId, orderId: order.id, cancelledAt: null },
+      data: { cancelledAt: at, cancelReason: reason },
+    });
+    await tx.delivery.update({
+      where: { id: delivery.id },
+      data: { failureOutcome: payload.outcome },
+    });
+    await tx.deliveryEvent.create({
+      data: {
+        id: payload.eventId,
+        establishmentId: ctx.establishmentId,
+        deliveryId: delivery.id,
+        kind: "settled",
+        note: DELIVERY_OUTCOME_LABELS[payload.outcome],
+        at,
+        by: ctx.userId,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "delivery.failure-settled",
+      entity: "delivery",
+      entityId: delivery.id,
+      after: { outcome: DELIVERY_OUTCOME_LABELS[payload.outcome], order: delivery.orderNumber },
+      reason,
+    });
+    const snapshot = await orderSnapshots(tx, ctx.establishmentId, { id: order.id });
+    for (const invoice of snapshot.invoices) {
+      await recordChange(tx, ctx, "advance_invoice", invoice.id, invoice);
+    }
     await broadcastDelivery(tx, ctx, delivery.id);
   },
 });
@@ -1375,6 +1443,13 @@ const stockCounted = handler({
         sold.set(line.menuItemId, (sold.get(line.menuItemId) ?? 0) + line.quantity);
       }
     }
+    // RG-LIV-01 : plats perdus d'une livraison échouée, relus eux aussi.
+    const lost = lostQuantities(
+      await deliverySnapshots(tx, ctx.establishmentId, {
+        orderId: { in: [...new Set(activity.invoices.map((invoice) => invoice.orderId))] },
+      }),
+      activity.invoices,
+    );
     // Compléments moins retours au magasin (D-069), relus eux aussi.
     const later = laterRequisitioned(
       await requisitionSnapshots(tx, ctx.establishmentId, { day: count.day }),
@@ -1389,6 +1464,7 @@ const stockCounted = handler({
         morning: morning.get(line.menuItemId)?.quantity ?? null,
         requisitioned: later.get(line.menuItemId) ?? 0,
         sold: sold.get(line.menuItemId) ?? 0,
+        lost: lost.get(line.menuItemId) ?? 0,
         declaredOut: line.declaredOut,
         outReason: line.outReason,
         counted: line.counted,
@@ -1953,6 +2029,7 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "delivery.zone.archived": deliveryZoneArchived,
   "delivery.assigned": deliveryAssigned,
   "delivery.status-changed": deliveryStatusChanged,
+  "delivery.failure-settled": deliveryFailureSettled,
   "restaurant.table.created": tableCreated,
   "restaurant.table.renamed": tableRenamed,
   "restaurant.table.archived": tableArchiveHandler(true),

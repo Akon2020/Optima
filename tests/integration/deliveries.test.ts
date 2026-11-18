@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { businessDayKey } from "@/modules/restaurant/domain/business-day";
 import { withContext } from "@/server/db/context";
 import { buildBootstrap } from "@/server/sync/bootstrap";
 import {
@@ -265,6 +266,73 @@ describe("livraison (D-070, D-071)", () => {
       status: "delivered",
       courierName: "Livreur A",
     });
+  });
+
+  it("RG-LIV-01 : livraison échouée réglée « perdue », relue au comptage", async () => {
+    const order = deliveryOrder();
+    expect(await push(fx.waiterA.id, "restaurant.order.created", order.payload)).toBe("accepted");
+    const at = () => new Date().toISOString();
+    expect(
+      await push(fx.managerA.id, "delivery.status-changed", {
+        deliveryId: order.deliveryId,
+        eventId: crypto.randomUUID(),
+        status: "failed",
+        note: "Client absent",
+        at: at(),
+      }),
+    ).toBe("accepted");
+    const settle = (userId: string, outcome: string) =>
+      push(userId, "delivery.failure-settled", {
+        deliveryId: order.deliveryId,
+        eventId: crypto.randomUUID(),
+        outcome,
+        at: at(),
+      });
+    expect(await settle(fx.waiterA.id, "lost")).toBe("FORBIDDEN");
+    expect(await settle(fx.managerA.id, "lost")).toBe("accepted");
+    expect(await settle(fx.managerA.id, "reusable")).toBe("ALREADY_SETTLED");
+
+    const { invoices, delivery } = await inA(async (tx) => ({
+      invoices: await tx.advanceInvoice.findMany({ where: { orderId: order.orderId } }),
+      delivery: await tx.delivery.findUniqueOrThrow({ where: { id: order.deliveryId } }),
+    }));
+    expect(invoices.every((invoice) => invoice.cancelledAt !== null)).toBe(true);
+    expect(delivery.failureOutcome).toBe("lost");
+
+    // Comptage de la cuisine : les 2 frites perdues sont relues par le serveur.
+    const day = businessDayKey(new Date().toISOString(), 6, "Africa/Lubumbashi");
+    expect(
+      await push(fx.managerA.id, "restaurant.morning-stock.entered", {
+        day,
+        servicePointId: fx.a.kitchen.id,
+        entries: [
+          {
+            id: crypto.randomUUID(),
+            menuItemId: fx.a.fries.id,
+            quantity: 30,
+            proposed: null,
+            reason: null,
+            replacesId: null,
+            enteredAt: new Date(Date.now() - 3_600_000).toISOString(),
+          },
+        ],
+      }),
+    ).toBe("accepted");
+    const countId = crypto.randomUUID();
+    expect(
+      await push(fx.managerA.id, "restaurant.stock.counted", {
+        count: {
+          id: countId,
+          day,
+          servicePointId: fx.a.kitchen.id,
+          countedAt: at(),
+          lines: [{ menuItemId: fx.a.fries.id, counted: 0, declaredOut: 0, outReason: null }],
+          comment: "Test",
+        },
+      }),
+    ).toBe("accepted");
+    const count = await inA((tx) => tx.stockCount.findUniqueOrThrow({ where: { id: countId } }));
+    expect(count.lines).toEqual([expect.objectContaining({ menuItemId: fx.a.fries.id, lost: 2 })]);
   });
 
   it("RLS : un autre établissement ne voit ni zones ni livraisons", async () => {

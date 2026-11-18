@@ -6,7 +6,7 @@ import { formatDate, formatLongDate, formatTime } from "@/shared/lib/dates";
 import { formatMoney } from "@/shared/lib/money";
 
 import { latestStockCounts, stockLineVariance, totalsByCurrency } from "../../domain/closing";
-import { holdingLabel } from "../labels";
+import { holdingLabel, invoicePointName } from "../labels";
 import { useRestaurant } from "../restaurant-provider";
 import { cashVarianceLabel, stockVarianceLabel } from "./closing-labels";
 
@@ -33,10 +33,9 @@ export function DayReport({ day }: { day: string }) {
   }, [db, day]);
 
   if (!report) return null;
-  const pointName = (id: string) =>
-    report.points.find((point) => point.id === id)?.name ?? "Point de service";
+  const pointName = (id: string | null) => invoicePointName(report.points, id);
   const allLines = report.cashClosings.flatMap((entry) => entry.lines);
-  const byPoint = new Map<string, number>();
+  const byPoint = new Map<string | null, number>();
   for (const entry of report.cashClosings) {
     for (const part of entry.byServicePoint) {
       byPoint.set(
@@ -127,7 +126,7 @@ export function DayReport({ day }: { day: string }) {
           <h3 className="mb-1 font-bold">Encaissé par point de service</h3>
           <ul>
             {[...byPoint.entries()].map(([pointId, amountMinor]) => (
-              <li key={pointId} className="flex justify-between gap-3">
+              <li key={pointId ?? "delivery-fees"} className="flex justify-between gap-3">
                 <span>{pointName(pointId)}</span>
                 <span className="tabular">{formatMoney({ amountMinor, currency: base })}</span>
               </li>

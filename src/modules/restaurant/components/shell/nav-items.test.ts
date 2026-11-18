@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { NAV_ITEMS, enabledNavItems, navItemForPath, navItemModule } from "./nav-items";
+import {
+  NAV_ITEMS,
+  enabledNavItems,
+  navItemForPath,
+  navItemModule,
+  navItemsForRole,
+} from "./nav-items";
 
 describe("menus selon les modules actifs (EF-MOD-02)", () => {
   const segments = (enabled: string[]) =>
@@ -26,5 +32,22 @@ describe("menus selon les modules actifs (EF-MOD-02)", () => {
     });
     expect(navItemModule(NAV_ITEMS[0]!)).toBe("restaurant");
     expect(navItemForPath("/e/autre/restaurant", "resto")).toBeNull();
+  });
+});
+
+describe("menu selon le rôle (D-073)", () => {
+  const segments = (role: Parameters<typeof navItemsForRole>[1]) =>
+    navItemsForRole(NAV_ITEMS, role).map((item) => item.segment);
+
+  it("le livreur ne voit que ses écrans", () => {
+    expect(segments("courier")).toEqual(["menus", "caisse", "clotures", "livraisons"]);
+  });
+
+  it("le poste de préparation ne voit aucun écran avec des montants", () => {
+    expect(segments("prep")).toEqual(["menus", "stock-du-matin", "preparation"]);
+  });
+
+  it("le gérant voit tout", () => {
+    expect(segments("manager")).toEqual(NAV_ITEMS.map((item) => item.segment));
   });
 });

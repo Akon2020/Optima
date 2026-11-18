@@ -10,6 +10,7 @@ import { isDeclaredSoldOut } from "../domain/preparation";
 import { customerDebts, type CustomerDebt } from "../domain/customers";
 import { currentEntries } from "../domain/morning-stock";
 import { laterRequisitioned, stockInOfDay } from "../domain/requisition";
+import { lostQuantities } from "../domain/delivery";
 import { invoiceBalances, type InvoiceBalance } from "../domain/payment";
 import { tableSessions, type TableSession } from "../domain/tables";
 import type {
@@ -198,13 +199,15 @@ export function useDayData(): DayData | undefined {
     }
     const morningStock = currentEntries(raw.morningEntries);
     const later = laterRequisitioned(raw.requisitions, day);
+    // RG-LIV-01 : les plats perdus d'une livraison échouée ne reviennent pas en vente.
+    const lost = lostQuantities(raw.deliveries, raw.invoices);
     const availability = new Map<string, Availability>(
       raw.menuItems.map((item) => [
         item.id,
         computeAvailability(
           item,
           stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
-          soldByItem.get(item.id) ?? 0,
+          (soldByItem.get(item.id) ?? 0) + (lost.get(item.id) ?? 0),
           lowStockThreshold,
         ),
       ]),

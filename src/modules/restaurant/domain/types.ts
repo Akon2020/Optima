@@ -100,11 +100,20 @@ export type DeliveryZone = {
 /** EF-LIV-03 : en préparation, en route, livrée ou échouée. */
 export type DeliveryStatus = "preparing" | "en-route" | "delivered" | "failed";
 
+/**
+ * RG-LIV-01 : après un échec, le gérant déclare les plats rapportés
+ * réutilisables (remis en stock) ou perdus (enregistrés en perte).
+ */
+export type DeliveryOutcome = "reusable" | "lost";
+
 /** Changement horodaté d'une livraison (EF-LIV-03), en ajout seul. */
 export type DeliveryEvent = {
   id: string;
-  /** Statut atteint, ou `assigned` pour l'attribution à un livreur (EF-LIV-02). */
-  kind: DeliveryStatus | "assigned";
+  /**
+   * Statut atteint, `assigned` pour l'attribution à un livreur (EF-LIV-02),
+   * `settled` pour la décision du gérant sur une livraison échouée (RG-LIV-01).
+   */
+  kind: DeliveryStatus | "assigned" | "settled";
   at: string;
   by: string;
   byName: string;
@@ -134,6 +143,8 @@ export type Delivery = {
   courierId: string | null;
   courierName: string;
   status: DeliveryStatus;
+  /** RG-LIV-01 : décision du gérant sur une livraison échouée ; absente des anciens enregistrements. */
+  failureOutcome?: DeliveryOutcome | null;
   events: DeliveryEvent[];
   createdAt: string;
   createdBy: string;
@@ -340,7 +351,8 @@ export type CashClosing = {
   paymentIds: string[];
   lines: CashClosingLine[];
   /** Part encaissée revenant à chaque point de service, en devise de base. */
-  byServicePoint: { servicePointId: string; amount: Money }[];
+  /** `servicePointId` à `null` : frais de livraison, part du restaurant (D-071). */
+  byServicePoint: { servicePointId: string | null; amount: Money }[];
   /** RG-ENC-02 : factures de la personne encore impayées au moment de la clôture. */
   unpaidInvoiceIds: string[];
   comment: string | null;
@@ -359,6 +371,11 @@ export type StockCountLine = {
    */
   requisitioned?: number;
   sold: number;
+  /**
+   * Plats d'une livraison échouée déclarés perdus (RG-LIV-01) : la vente est
+   * annulée mais les unités ne reviennent pas en stock. Absent : 0.
+   */
+  lost?: number;
   /** Pertes, casse, repas du personnel, offerts : déclarés à part, avec un motif (D-044). */
   declaredOut: number;
   outReason: string | null;

@@ -32,6 +32,7 @@ import { RestaurantProvider, useRestaurant } from "../restaurant-provider";
 import {
   NAV_ITEMS,
   enabledNavItems,
+  navItemsForRole,
   isNavItemActive,
   navItemForPath,
   navItemModule,
@@ -189,7 +190,7 @@ function SidebarContent({
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
   const [isConfirmingPassword, setIsConfirmingPassword] = useState(false);
-  const items = enabledNavItems(NAV_ITEMS, isModuleEnabled);
+  const items = navItemsForRole(enabledNavItems(NAV_ITEMS, isModuleEnabled), ctx.role);
   const needsPassword = !isDemo && activeUser?.role === "manager" && ctx.role !== "manager";
 
   return (
@@ -418,15 +419,16 @@ const BOTTOM_ITEMS = ["", "commandes", "commandes/nouvelle", "caisse", "menus"] 
 
 /** Barre d'onglets inférieure du serveur, en dessous de `lg` (§ 6). */
 function BottomNav() {
-  const { slug, isModuleEnabled } = useRestaurant();
+  const { slug, ctx, isModuleEnabled } = useRestaurant();
   const pathname = usePathname();
   const openOrders = useOpenOrderCount();
-  const items = enabledNavItems(
-    BOTTOM_ITEMS.map((segment) => NAV_ITEMS.find((item) => item.segment === segment)).filter(
-      (item) => item !== undefined,
-    ),
-    isModuleEnabled,
+  const visible = navItemsForRole(enabledNavItems(NAV_ITEMS, isModuleEnabled), ctx.role);
+  // Les onglets du serveur ; un rôle qui n'en a pas l'usage (livreur, poste,
+  // lecteur) retrouve ses propres écrans (D-073).
+  const usual = BOTTOM_ITEMS.flatMap((segment) =>
+    visible.filter((item) => item.segment === segment),
   );
+  const items = usual.length >= 3 ? usual : visible.slice(0, 5);
 
   return (
     <nav

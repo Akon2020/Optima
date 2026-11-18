@@ -70,6 +70,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "delivery.zone.restored": "Zone de livraison remise en service",
   "delivery.assigned": "Livraison attribuée",
   "delivery.status-changed": "Statut de livraison changé",
+  "delivery.failure-settled": "Livraison échouée réglée",
   "restaurant.table.created": "Table ajoutée",
   "restaurant.table.renamed": "Table renommée",
   "restaurant.table.archived": "Table retirée du service",

@@ -7,9 +7,12 @@ import {
   checkDeliveryDetails,
   courierIssue,
   courierQueue,
+  failureSettlementIssue,
+  lostQuantities,
   statusIssue,
   zoneIssue,
 } from "./delivery";
+import { expectedStockOf } from "./closing";
 import type { DeliveryZone } from "./types";
 
 const zone = (id: string, name: string, archivedAt: string | null = null): DeliveryZone => ({
@@ -137,5 +140,45 @@ describe("attribution et statuts (EF-LIV-02, EF-LIV-03)", () => {
       "c1",
     );
     expect(queue.map((delivery) => delivery.id)).toEqual(["d", "b", "a"]);
+  });
+});
+
+describe("livraison échouée (RG-LIV-01)", () => {
+  it("se règle une fois, sans paiement reçu, avant la validation de la journée", () => {
+    const failed = { status: "failed" as const, failureOutcome: null };
+    const issue = (patch: Partial<Parameters<typeof failureSettlementIssue>[0]>) =>
+      failureSettlementIssue({
+        delivery: failed,
+        hasPayment: false,
+        isDayValidated: false,
+        ...patch,
+      })?.code ?? null;
+    expect(issue({})).toBeNull();
+    expect(issue({ delivery: { status: "en-route", failureOutcome: null } })).toBe("NOT_FAILED");
+    expect(issue({ delivery: { status: "failed", failureOutcome: "lost" } })).toBe(
+      "ALREADY_SETTLED",
+    );
+    expect(issue({ hasPayment: true })).toBe("DELIVERY_PAID");
+    expect(issue({ isDayValidated: true })).toBe("DAY_VALIDATED");
+  });
+
+  it("les plats perdus restent hors du stock attendu ; les réutilisables y reviennent", () => {
+    const line = (menuItemId: string, quantity: number) => ({ menuItemId, quantity });
+    const invoices = [
+      { orderId: "o-lost", lines: [line("tilapia", 2), line("frites", 1)] },
+      { orderId: "o-reused", lines: [line("tilapia", 5)] },
+      { orderId: "o-ok", lines: [line("tilapia", 9)] },
+    ];
+    const lost = lostQuantities(
+      [
+        { orderId: "o-lost", failureOutcome: "lost" },
+        { orderId: "o-reused", failureOutcome: "reusable" },
+        { orderId: "o-ok", failureOutcome: null },
+      ],
+      invoices,
+    );
+    expect(Object.fromEntries(lost)).toEqual({ tilapia: 2, frites: 1 });
+    // Stock attendu : matin 20, vendus 9 (factures non annulées), perdus 2.
+    expect(expectedStockOf({ morning: 20, sold: 9, lost: 2 })).toBe(9);
   });
 });

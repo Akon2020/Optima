@@ -142,6 +142,18 @@ export function buildSalesReport(input: {
       };
     })
     .filter((entry) => entry.invoices > 0);
+  // D-071 : les frais de livraison reviennent au restaurant, hors points de service.
+  const fees = active.filter((invoice) => invoice.servicePointId === null);
+  if (fees.length > 0) {
+    const value = sum(fees.map(net), currency);
+    byPoint.push({
+      id: "delivery-fees",
+      name: "Frais de livraison",
+      revenue: value,
+      invoices: fees.length,
+      share: revenue.amountMinor > 0 ? value.amountMinor / revenue.amountMinor : 0,
+    });
+  }
 
   const waiters = new Map<string, { orders: Set<string>; revenue: number }>();
   for (const invoice of active) {

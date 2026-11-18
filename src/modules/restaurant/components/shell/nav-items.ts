@@ -14,6 +14,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { hasPermission, type RestaurantPermission, type RestaurantRole } from "../../permissions";
+
 export type NavItem = {
   /** Segment relatif à /e/[etablissement]/restaurant (URL en français). */
   segment: string;
@@ -27,34 +29,83 @@ export type NavItem = {
    * « restaurant » par défaut. L'écran disparaît si le module est désactivé.
    */
   module?: string;
+  /**
+   * Permission qui rend l'écran utile au rôle actif (matrice des droits) :
+   * sans elle, l'élément n'apparaît pas dans le menu. L'action reste de
+   * toute façon contrôlée par l'appareil et par le serveur.
+   */
+  permission?: RestaurantPermission;
+  /** Rôles à qui l'écran ne sert pas, malgré la permission (ex. le livreur). */
+  hiddenFor?: readonly RestaurantRole[];
 };
 
 export const DEFAULT_NAV_MODULE = "restaurant";
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { segment: "", label: "Tableau de bord", shortLabel: "Accueil", icon: LayoutDashboard },
-  { segment: "commandes", label: "Commandes", shortLabel: "Commandes", icon: ClipboardList },
+  {
+    segment: "",
+    label: "Tableau de bord",
+    shortLabel: "Accueil",
+    icon: LayoutDashboard,
+    // Le tableau de bord montre des montants : ni le préparateur ni le livreur.
+    permission: "restaurant.closing.read",
+    hiddenFor: ["courier"],
+  },
+  {
+    segment: "commandes",
+    label: "Commandes",
+    shortLabel: "Commandes",
+    icon: ClipboardList,
+    permission: "restaurant.order.create",
+  },
   {
     segment: "commandes/nouvelle",
     label: "Nouvelle commande",
     shortLabel: "Commander",
     icon: SquarePlus,
+    permission: "restaurant.order.create",
   },
-  { segment: "menus", label: "Menus", shortLabel: "Menus", icon: UtensilsCrossed },
-  { segment: "tables", label: "Tables", shortLabel: "Tables", icon: Armchair },
-  { segment: "caisse", label: "Caisse", shortLabel: "Caisse", icon: Wallet },
-  { segment: "clients", label: "Clients", shortLabel: "Clients", icon: Users },
+  {
+    segment: "menus",
+    label: "Menus",
+    shortLabel: "Menus",
+    icon: UtensilsCrossed,
+    permission: "restaurant.menu.read",
+  },
+  {
+    segment: "tables",
+    label: "Tables",
+    shortLabel: "Tables",
+    icon: Armchair,
+    permission: "restaurant.table.release",
+  },
+  {
+    segment: "caisse",
+    label: "Caisse",
+    shortLabel: "Caisse",
+    icon: Wallet,
+    permission: "restaurant.payment.collect",
+  },
+  {
+    segment: "clients",
+    label: "Clients",
+    shortLabel: "Clients",
+    icon: Users,
+    permission: "restaurant.customer.create",
+  },
   {
     segment: "stock-du-matin",
     label: "Stock du matin",
     shortLabel: "Stock",
     icon: Sunrise,
+    permission: "restaurant.morning-stock.read",
   },
   {
     segment: "requisitions",
     label: "Réquisitions",
     shortLabel: "Réquisitions",
     icon: ArrowRightLeft,
+    permission: "restaurant.requisition.create",
   },
   {
     segment: "preparation",
@@ -62,12 +113,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     shortLabel: "Préparation",
     icon: ChefHat,
     module: "preparation",
+    permission: "restaurant.order.prep-status",
+    hiddenFor: ["courier"],
   },
   {
     segment: "clotures",
     label: "Clôtures",
     shortLabel: "Clôtures",
     icon: Calculator,
+    permission: "restaurant.closing.read",
   },
   {
     segment: "livraisons",
@@ -75,8 +129,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
     shortLabel: "Livraisons",
     icon: Bike,
     module: "delivery",
+    permission: "delivery.read",
   },
 ];
+
+/**
+ * Menu du rôle actif (D-073) : seuls les écrans utiles à ce rôle, par exemple
+ * Menus, Caisse, Clôtures et Livraisons pour un livreur.
+ */
+export function navItemsForRole(items: readonly NavItem[], role: RestaurantRole): NavItem[] {
+  return items.filter(
+    (item) =>
+      (item.permission === undefined || hasPermission(role, item.permission)) &&
+      !(item.hiddenFor ?? []).includes(role),
+  );
+}
 
 export function restaurantHref(slug: string, segment: string): string {
   return `/e/${slug}/restaurant${segment ? `/${segment}` : ""}`;

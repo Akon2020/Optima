@@ -36,9 +36,12 @@ import { canWorkStation, isDeclaredSoldOut } from "../domain/preparation";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
+  DELIVERY_OUTCOME_LABELS,
   canCollectFor,
   checkDeliveryDetails,
   courierIssue,
+  failureSettlementIssue,
+  lostQuantities,
   statusIssue,
   zoneFee,
   zoneIssue,
@@ -75,6 +78,7 @@ import type {
   CashClosingLine,
   Customer,
   Delivery,
+  DeliveryOutcome,
   DeliveryStatus,
   DeliveryZone,
   MenuItem,
@@ -103,6 +107,7 @@ import type {
   cashClosingDeclaredSchema,
   customerCreatedSchema,
   deliveryAssignedSchema,
+  deliveryFailureSettledSchema,
   deliveryStatusChangedSchema,
   deliveryZoneArchivedSchema,
   deliveryZoneSavedSchema,
@@ -123,6 +128,7 @@ type StockCountedPayload = z.infer<typeof stockCountedSchema>;
 type DeliveryZoneSavedPayload = z.infer<typeof deliveryZoneSavedSchema>;
 type DeliveryZoneArchivedPayload = z.infer<typeof deliveryZoneArchivedSchema>;
 type DeliveryAssignedPayload = z.infer<typeof deliveryAssignedSchema>;
+type DeliveryFailureSettledPayload = z.infer<typeof deliveryFailureSettledSchema>;
 type DeliveryStatusChangedPayload = z.infer<typeof deliveryStatusChangedSchema>;
 type RequisitionCreatedPayload = z.infer<typeof requisitionCreatedSchema>;
 type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
@@ -253,6 +259,14 @@ export async function createOrder(
         await db.requisitions.where("day").equals(day).toArray(),
         day,
       );
+      // RG-LIV-01 : les plats perdus d'une livraison échouée ne reviennent pas en vente.
+      const lost = lostQuantities(
+        await db.deliveries.where("createdAt").aboveOrEqual(dayStart).toArray(),
+        await db.invoices
+          .where("createdAt")
+          .between(dayStart, nextDayIso(dayStart), true, false)
+          .toArray(),
+      );
       const orderId = uuidv7(new Date(createdAt).getTime());
 
       // D-060 : options et formules ; une formule se déplie en ses composants.
@@ -279,7 +293,7 @@ export async function createOrder(
         const availability = computeAvailability(
           item,
           stockInOfDay(morningStock.get(item.id)?.quantity ?? null, later.get(item.id) ?? 0),
-          sold.get(item.id) ?? 0,
+          (sold.get(item.id) ?? 0) + (lost.get(item.id) ?? 0),
           lowStockThreshold,
         );
         const max = maxOrderableQuantity(availability);
@@ -1086,6 +1100,77 @@ export async function setDeliveryStatus(
   });
 }
 
+/**
+ * RG-LIV-01 : le gérant règle une livraison échouée. La commande est annulée
+ * (frais compris) ; les plats rapportés reviennent en stock s'ils sont
+ * réutilisables, sinon ils sont comptés en perte.
+ */
+export async function settleFailedDelivery(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  deliveryId: string,
+  outcome: DeliveryOutcome,
+  options: { at?: string; enqueue?: boolean } = {},
+): Promise<Delivery> {
+  assertPermission(ctx, "delivery.manage", "régler une livraison échouée");
+  const at = options.at ?? new Date().toISOString();
+  return db.transaction(
+    "rw",
+    [db.deliveries, db.orders, db.invoices, db.payments, db.dayClosings, db.outbox],
+    async () => {
+      const delivery = await db.deliveries.get(deliveryId);
+      if (!delivery) {
+        throw new DomainError("DELIVERY_NOT_FOUND", "Cette livraison est introuvable.");
+      }
+      const order = await db.orders.get(delivery.orderId);
+      const { invoices, balances } = await orderBalances(db, delivery.orderId);
+      const hasPayment = invoices.some(
+        (invoice) => (balances.get(invoice.id)?.paid.amountMinor ?? 0) > 0,
+      );
+      const issue = failureSettlementIssue({
+        delivery,
+        hasPayment,
+        isDayValidated: order ? await isOrderDayValidated(db, ctx, order) : false,
+      });
+      if (issue) throw new DomainError(issue.code, issue.message);
+
+      const failure = [...delivery.events].reverse().find((event) => event.kind === "failed");
+      const reason = `Livraison échouée${failure?.note ? ` : ${failure.note}` : ""}`;
+      for (const invoice of invoices) {
+        await db.invoices.update(invoice.id, { paymentStatus: "cancelled", cancelReason: reason });
+      }
+      const eventId = uuidv7(new Date(at).getTime());
+      const updated: Delivery = {
+        ...delivery,
+        failureOutcome: outcome,
+        events: [
+          ...delivery.events,
+          {
+            id: eventId,
+            kind: "settled",
+            at,
+            by: ctx.userId,
+            byName: ctx.userName,
+            note: DELIVERY_OUTCOME_LABELS[outcome],
+          },
+        ],
+      };
+      await db.deliveries.put(updated);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "delivery.failure-settled",
+            { deliveryId, eventId, outcome, at } satisfies DeliveryFailureSettledPayload,
+            at,
+          ),
+        );
+      }
+      return updated;
+    },
+  );
+}
+
 function tableOperation(ctx: DeviceContext, type: string, payload: unknown, createdAt: string) {
   return createOperation({
     id: uuidv7(),
@@ -1550,12 +1635,16 @@ export async function stockCountDraft(
 ): Promise<Omit<StockCountLine, "counted" | "declaredOut" | "outReason">[]> {
   const { businessDayStartHour, timeZone } = ctx.settings;
   const dayStart = businessDayStartOf(day, businessDayStartHour, timeZone);
-  const [items, morning, sold, requisitions] = await Promise.all([
+  const [items, morning, sold, requisitions, dayInvoices, deliveries] = await Promise.all([
     db.menuItems.toArray(),
     currentMorningStock(db, day),
     soldQuantitiesBetween(db, dayStart, nextDayIso(dayStart)),
     db.requisitions.where("day").equals(day).toArray(),
+    db.invoices.where("createdAt").between(dayStart, nextDayIso(dayStart), true, false).toArray(),
+    db.deliveries.where("createdAt").aboveOrEqual(dayStart).toArray(),
   ]);
+  // RG-LIV-01 : plats perdus d'une livraison échouée.
+  const lost = lostQuantities(deliveries, dayInvoices);
   // Compléments moins retours (D-069) : les principales sont déjà dans le matin.
   const later = laterRequisitioned(requisitions, day);
   return itemsRequiringMorningStock(items, servicePointId).map((item) => ({
@@ -1565,6 +1654,7 @@ export async function stockCountDraft(
     morning: morning.get(item.id)?.quantity ?? null,
     requisitioned: later.get(item.id) ?? 0,
     sold: sold.get(item.id) ?? 0,
+    lost: lost.get(item.id) ?? 0,
   }));
 }
 
@@ -1596,6 +1686,7 @@ export async function recordStockCount(
       db.invoices,
       db.morningStockEntries,
       db.requisitions,
+      db.deliveries,
       db.stockCounts,
       db.dayClosings,
       db.outbox,

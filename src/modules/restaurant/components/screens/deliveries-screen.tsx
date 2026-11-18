@@ -15,6 +15,7 @@ import { Field, Input, Select } from "@/shared/ui/field";
 import { Tabs } from "@/shared/ui/tabs";
 
 import {
+  DELIVERY_OUTCOME_LABELS,
   DELIVERY_STATUS_LABELS,
   DELIVERY_TRANSITIONS,
   canCollectFor,
@@ -28,6 +29,7 @@ import {
   saveDeliveryZone,
   setDeliveryStatus,
   setDeliveryZoneArchived,
+  settleFailedDelivery,
 } from "../../offline/repository";
 import { hasPermission } from "../../permissions";
 import { PaymentSheet } from "../payments/payment-sheet";
@@ -46,6 +48,7 @@ const EVENT_LABELS: Record<Delivery["events"][number]["kind"], string> = {
   ...DELIVERY_STATUS_LABELS,
   preparing: "Commande prise",
   assigned: "Attribuée",
+  settled: "Échec réglé",
 };
 
 const isOpen = (delivery: Delivery) =>
@@ -302,7 +305,7 @@ function DeliveryCard({
               Livrée
             </Button>
           ) : null}
-          {canCollect && due.amountMinor > 0 ? (
+          {canCollect && due.amountMinor > 0 && delivery.status !== "failed" ? (
             <Button variant="outline" onClick={() => setIsPaying(true)}>
               Encaisser
             </Button>
@@ -314,6 +317,43 @@ function DeliveryCard({
           ) : null}
         </div>
       )}
+
+      {/* RG-LIV-01 : le gérant règle une livraison échouée, une seule fois. */}
+      {delivery.status === "failed" ? (
+        delivery.failureOutcome ? (
+          <p className="rounded-md bg-bg-subtle px-3 py-2 text-sm">
+            Commande annulée · {DELIVERY_OUTCOME_LABELS[delivery.failureOutcome].toLowerCase()}.
+          </p>
+        ) : canManage ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+            <p className="text-sm">
+              Les plats rapportés sont-ils réutilisables ? La commande sera annulée, frais compris.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void run(() => settleFailedDelivery(db, ctx, delivery.id, "reusable"))
+                }
+              >
+                Réutilisables, remis en stock
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void run(() => settleFailedDelivery(db, ctx, delivery.id, "lost"))}
+              >
+                Perdus, en perte
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-text-muted">Le gérant décidera du sort des plats rapportés.</p>
+        )
+      ) : null}
 
       {error ? (
         <p role="alert" className="text-sm text-danger">

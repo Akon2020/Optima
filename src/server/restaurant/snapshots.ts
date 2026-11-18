@@ -11,6 +11,7 @@ import type {
   DayClosing,
   Delivery,
   DeliveryEvent,
+  DeliveryOutcome,
   DeliveryStatus,
   DeliveryZone,
   DiningTable,
@@ -129,6 +130,7 @@ export async function deliverySnapshots(
     courierId: row.courierId,
     courierName: row.courierId ? (names.get(row.courierId) ?? "") : "",
     status: row.status as DeliveryStatus,
+    failureOutcome: row.failureOutcome as DeliveryOutcome | null,
     events: events
       .filter((event) => event.deliveryId === row.id)
       .map((event): DeliveryEvent => ({

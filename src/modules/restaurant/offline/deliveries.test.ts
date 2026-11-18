@@ -12,6 +12,8 @@ import {
   saveDeliveryZone,
   setDeliveryStatus,
   setDeliveryZoneArchived,
+  settleFailedDelivery,
+  stockCountDraft,
   type DeviceContext,
 } from "./repository";
 
@@ -205,5 +207,56 @@ describe("livraison (EF-LIV-01 à 04, D-070, D-071)", () => {
     });
     const failed = await setDeliveryStatus(db, manager, delivery.id, "failed", "Client absent");
     expect(failed.events.at(-1)).toMatchObject({ kind: "failed", note: "Client absent" });
+  });
+
+  it("RG-LIV-01 : plats perdus hors du stock, réutilisables remis ; commande annulée", async () => {
+    const coca = async () =>
+      (await stockCountDraft(db, manager, "sp-counter", "2026-11-07")).find(
+        (line) => line.menuItemId === "item-coca",
+      );
+    const before = await coca();
+    const failOrder = async () => {
+      const { order } = await deliveryOrder();
+      const delivery = await db.deliveries.where("orderId").equals(order.id).first();
+      if (!delivery) throw new Error("livraison attendue");
+      await setDeliveryStatus(db, manager, delivery.id, "failed", "Client absent");
+      return { order, delivery };
+    };
+
+    const lost = await failOrder();
+    await expect(settleFailedDelivery(db, waiter, lost.delivery.id, "lost")).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    const settled = await settleFailedDelivery(db, manager, lost.delivery.id, "lost");
+    expect(settled.failureOutcome).toBe("lost");
+    const invoices = await db.invoices.where("orderId").equals(lost.order.id).toArray();
+    expect(invoices.every((invoice) => invoice.paymentStatus === "cancelled")).toBe(true);
+    // Ventes annulées, mais les 2 Coca perdues sortent du stock attendu.
+    expect(await coca()).toMatchObject({ sold: before?.sold, lost: 2 });
+    await expect(
+      settleFailedDelivery(db, manager, lost.delivery.id, "reusable"),
+    ).rejects.toMatchObject({ code: "ALREADY_SETTLED" });
+
+    const reused = await failOrder();
+    await settleFailedDelivery(db, manager, reused.delivery.id, "reusable");
+    expect(await coca()).toMatchObject({ sold: before?.sold, lost: 2 });
+  });
+
+  it("RG-LIV-01 : refusé si un paiement a été reçu", async () => {
+    const { order, invoices } = await deliveryOrder();
+    const delivery = await db.deliveries.where("orderId").equals(order.id).first();
+    if (!delivery) throw new Error("livraison attendue");
+    await recordPayment(db, manager, {
+      invoiceIds: invoices.map((invoice) => invoice.id),
+      method: "cash",
+      provider: null,
+      reference: null,
+      currency: "CDF",
+      amountMajor: 1000,
+    });
+    await setDeliveryStatus(db, manager, delivery.id, "failed", "Client absent");
+    await expect(settleFailedDelivery(db, manager, delivery.id, "lost")).rejects.toMatchObject({
+      code: "DELIVERY_PAID",
+    });
   });
 });

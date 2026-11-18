@@ -114,6 +114,14 @@ export const deliveryStatusChangedSchema = z.object({
   at: isoDate,
 });
 
+/** RG-LIV-01 : décision du gérant sur une livraison échouée. */
+export const deliveryFailureSettledSchema = z.object({
+  deliveryId: uuid,
+  eventId: uuid,
+  outcome: z.enum(["reusable", "lost"]),
+  at: isoDate,
+});
+
 export const prepStatusChangedSchema = z.object({
   invoiceId: uuid,
   status: z.enum(["pending", "ready", "served"]),
@@ -355,6 +363,7 @@ export const RESTAURANT_OPERATION_TYPES = [
   "delivery.zone.archived",
   "delivery.assigned",
   "delivery.status-changed",
+  "delivery.failure-settled",
   "restaurant.table.created",
   "restaurant.table.renamed",
   "restaurant.table.archived",

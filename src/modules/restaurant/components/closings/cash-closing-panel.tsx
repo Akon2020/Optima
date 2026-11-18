@@ -16,7 +16,7 @@ import { MIN_COMMENT_LENGTH, computeCashVariance } from "../../domain/closing";
 import type { CashClosing } from "../../domain/types";
 import type { ClosingData, DayData } from "../../offline/hooks";
 import { declareCashClosing } from "../../offline/repository";
-import { holdingLabel, orderPlaceLabel } from "../labels";
+import { holdingLabel, invoicePointName, orderPlaceLabel } from "../labels";
 import { useRestaurant } from "../restaurant-provider";
 import { cashVarianceLabel, parseCountedAmount } from "./closing-labels";
 
@@ -47,8 +47,7 @@ export function CashClosingPanel({ data, closing }: { data: DayData; closing: Cl
       computeCashVariance(line.expected, line.countedMoney).requiresComment,
   );
   const isComplete = lines.every((line) => line.value !== null);
-  const pointName = (id: string) =>
-    data.servicePoints.find((point) => point.id === id)?.name ?? "Point de service";
+  const pointName = (id: string | null) => invoicePointName(data.servicePoints, id);
   const invoiceById = new Map(data.invoices.map((invoice) => [invoice.id, invoice]));
   const mine = closing.status.cashClosings.filter((entry) => entry.userId === ctx.userId);
 
@@ -163,7 +162,7 @@ export function CashClosingPanel({ data, closing }: { data: DayData; closing: Cl
                 <p className="mb-1.5 text-xs font-medium">À reverser à chaque point de service</p>
                 <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
                   {draft.byServicePoint.map((entry) => (
-                    <div key={entry.servicePointId} className="contents">
+                    <div key={entry.servicePointId ?? "delivery-fees"} className="contents">
                       <dt className="text-text-muted">{pointName(entry.servicePointId)}</dt>
                       <dd className="text-right tabular">{formatMoney(entry.amount)}</dd>
                     </div>

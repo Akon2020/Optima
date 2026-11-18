@@ -536,6 +536,8 @@ model Delivery {
   desiredTime     String?  @map("desired_time")
   courierId       String?  @map("courier_id") @db.Uuid
   status          String   @default("preparing")
+  /// RG-LIV-01 : plats d'une livraison échouée réutilisables ou perdus.
+  failureOutcome  String?  @map("failure_outcome")
   createdAt       DateTime @map("created_at") @db.Timestamptz(6)
   createdBy       String   @map("created_by") @db.Uuid
 
