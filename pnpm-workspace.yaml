@@ -8,3 +8,11 @@ allowBuilds:
 # Correctif de sécurité (GHSA-mrhx-c7xc-m3w5) : zod 4.6.5 embarqué par @serwist/build.
 overrides:
   "zod@<4.6.6": 4.6.7
+
+# D-072 (accord du porteur du projet, 18/11/2026) : ReDoS de picomatch
+# (GHSA-fc5q-39xc-vjpf), sans version corrigée à cette date. Il n'atteint que
+# les outils de développement (ESLint, Stylelint, build), sur nos propres
+# motifs ; `pnpm audit --prod` est propre. À retirer dès qu'un correctif paraît.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
