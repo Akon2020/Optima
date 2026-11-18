@@ -216,7 +216,10 @@ describe("options et formules (D-035, D-060)", () => {
 
 describe("données de démonstration", () => {
   it("couvrent les trois points de service sans créer d'opération à envoyer", async () => {
-    const points = new Set((await db.invoices.toArray()).map((i) => i.servicePointId));
+    // Les frais de livraison (D-071) n'ont pas de point de service : ils ne comptent pas ici.
+    const points = new Set(
+      (await db.invoices.toArray()).flatMap((i) => (i.servicePointId ? [i.servicePointId] : [])),
+    );
     expect(points).toEqual(new Set(["sp-counter", "sp-kitchen", "sp-grill"]));
     expect(await db.outbox.count()).toBe(0);
   });
