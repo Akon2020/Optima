@@ -201,8 +201,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
 7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-071**.
 8. Surveiller la parution d'un correctif de `picomatch` et retirer alors l'exception d'audit (D-072, `pnpm-workspace.yaml`).
-8. Faire signer le cahier des charges (D-013).
-9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
+9. Faire signer le cahier des charges (D-013).
+10. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
 ### 7.2 Relier le Restaurant au serveur (en grande partie fait)
 
