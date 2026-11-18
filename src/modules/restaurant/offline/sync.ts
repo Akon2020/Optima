@@ -10,6 +10,8 @@ import type {
   DiningTable,
   ExchangeRate,
   MenuItem,
+  Delivery,
+  DeliveryZone,
   MorningStockEntry,
   Requisition,
   Order,
@@ -55,6 +57,9 @@ export type Bootstrap = {
   morningEntries: MorningStockEntry[];
   /** Réquisitions récentes (D-069) ; absentes d'un serveur plus ancien. */
   requisitions?: Requisition[];
+  /** Zones et livraisons récentes (D-070) ; absentes d'un serveur plus ancien. */
+  deliveryZones?: DeliveryZone[];
+  deliveries?: Delivery[];
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) ; absent d'un serveur plus ancien. */
   modules?: string[];
@@ -113,6 +118,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       db.invoices,
       db.morningStockEntries,
       db.requisitions,
+      db.deliveryZones,
+      db.deliveries,
       db.tableReleases,
       db.payments,
       db.exchangeRates,
@@ -137,6 +144,8 @@ export async function applyBootstrap(db: RestaurantDb, snapshot: Bootstrap): Pro
       await db.invoices.bulkPut(snapshot.invoices);
       await db.morningStockEntries.bulkPut(snapshot.morningEntries);
       if (snapshot.requisitions) await db.requisitions.bulkPut(snapshot.requisitions);
+      if (snapshot.deliveryZones) await db.deliveryZones.bulkPut(snapshot.deliveryZones);
+      if (snapshot.deliveries) await db.deliveries.bulkPut(snapshot.deliveries);
       await db.tableReleases.bulkPut(snapshot.releases);
       if (snapshot.payments) await db.payments.bulkPut(snapshot.payments);
       if (snapshot.exchangeRates) await db.exchangeRates.bulkPut(snapshot.exchangeRates);
@@ -185,6 +194,12 @@ export async function applyChange(db: RestaurantDb, change: Change): Promise<voi
       break;
     case "requisition":
       await db.requisitions.put(change.data as Requisition);
+      break;
+    case "delivery_zone":
+      await db.deliveryZones.put(change.data as DeliveryZone);
+      break;
+    case "delivery":
+      await db.deliveries.put(change.data as Delivery);
       break;
     case "payment":
       await db.payments.put(change.data as Payment);
@@ -282,6 +297,8 @@ export async function pullChanges(db: RestaurantDb, device: DeviceInfo): Promise
         db.tableReleases,
         db.morningStockEntries,
         db.requisitions,
+        db.deliveryZones,
+        db.deliveries,
         db.payments,
         db.exchangeRates,
         db.cashClosings,

@@ -248,7 +248,7 @@ async function loadReport(
         day: dayOf(invoice.createdAt),
         time: formatTime(createdAt, timeZone),
         number: invoice.number,
-        pointName: pointName.get(invoice.servicePointId) ?? "",
+        pointName: pointName.get(invoice.servicePointId ?? "") ?? "",
         waiterName: waiterNames.get(waiterOf.get(invoice.orderId) ?? "") ?? "",
         item: line.name,
         quantity: line.quantity,

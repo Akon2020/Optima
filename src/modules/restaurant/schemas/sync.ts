@@ -37,6 +37,23 @@ export const optionGroupsSchema = z
   )
   .max(6);
 
+/** Coordonnées d'une livraison (EF-LIV-01, D-070) ; frais relus côté serveur. */
+const deliveryDetails = z.object({
+  id: uuid,
+  /** Facture des frais (D-071) ; `null` pour une zone gratuite. */
+  feeInvoice: z
+    .object({ id: uuid, number: z.string().regex(/^FAC-\d{4}-D\d{2,}-\d{6}$/) })
+    .nullable(),
+  customerName: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(6).max(24),
+  address: z.string().trim().min(3).max(200),
+  zoneId: uuid,
+  desiredTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .nullable(),
+});
+
 export const orderCreatedSchema = z.object({
   orderId: uuid,
   number: z.string().regex(/^CMD-\d{4}-D\d{2,}-\d{6}$/),
@@ -64,6 +81,37 @@ export const orderCreatedSchema = z.object({
     )
     .min(1)
     .max(10),
+  /** Livraison (D-070) : exigée en mode « delivery », absente sinon. */
+  delivery: deliveryDetails.optional(),
+});
+
+/** Zone de livraison (EF-LIV-01, D-070), créée ou modifiée par le gérant. */
+export const deliveryZoneSavedSchema = z.object({
+  zone: z.object({
+    id: uuid,
+    name: z.string().trim().min(2).max(60),
+    feeMajor: z.number().int().min(0).max(1_000_000),
+    sortOrder: z.number().int().min(0).max(10_000),
+  }),
+});
+
+export const deliveryZoneArchivedSchema = z.object({ zoneId: uuid, isArchived: z.boolean() });
+
+/** EF-LIV-02 : attribution à un livreur. */
+export const deliveryAssignedSchema = z.object({
+  deliveryId: uuid,
+  eventId: uuid,
+  courierId: uuid,
+  at: isoDate,
+});
+
+/** EF-LIV-03, EF-LIV-04 : changement de statut, horodaté. */
+export const deliveryStatusChangedSchema = z.object({
+  deliveryId: uuid,
+  eventId: uuid,
+  status: z.enum(["en-route", "delivered", "failed"]),
+  note: z.string().trim().max(200).nullable(),
+  at: isoDate,
 });
 
 export const prepStatusChangedSchema = z.object({
@@ -303,6 +351,10 @@ export const RESTAURANT_OPERATION_TYPES = [
   "restaurant.menu-item.sold-out-set",
   "restaurant.morning-stock.entered",
   "restaurant.requisition.created",
+  "delivery.zone.saved",
+  "delivery.zone.archived",
+  "delivery.assigned",
+  "delivery.status-changed",
   "restaurant.table.created",
   "restaurant.table.renamed",
   "restaurant.table.archived",

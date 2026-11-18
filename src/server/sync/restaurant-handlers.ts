@@ -39,6 +39,13 @@ import {
 } from "@/modules/restaurant/domain/morning-stock";
 import { splitOrderByServicePoint } from "@/modules/restaurant/domain/order";
 import {
+  DELIVERY_STATUS_LABELS,
+  checkDeliveryDetails,
+  courierIssue,
+  statusIssue,
+  zoneIssue,
+} from "@/modules/restaurant/domain/delivery";
+import {
   REQUISITION_KIND_LABELS,
   laterRequisitioned,
   requisitionKind,
@@ -67,6 +74,10 @@ import {
   customerCreatedSchema,
   customerLimitSetSchema,
   dayValidatedSchema,
+  deliveryAssignedSchema,
+  deliveryStatusChangedSchema,
+  deliveryZoneArchivedSchema,
+  deliveryZoneSavedSchema,
   exchangeRateAddedSchema,
   menuItemCreatedSchema,
   morningStockEnteredSchema,
@@ -90,6 +101,8 @@ import {
   cashClosingSnapshots,
   customerSnapshot,
   dayClosingSnapshots,
+  deliverySnapshots,
+  deliveryZoneSnapshot,
   diningTableSnapshot,
   exchangeRateSnapshots,
   jsonArray,
@@ -203,9 +216,14 @@ const orderCreated = handler({
       );
     }
 
+    // EF-LIV-01, D-070, D-071 : coordonnées relues, frais de la zone relus côté serveur.
+    const delivery = await deliveryOfOrder(tx, ctx, payload);
+    if (delivery?.feeInvoice) assertDeviceNumber(delivery.feeInvoice.number, ctx);
+
     // RG-STK-03 : pas de blocage sur le stock à la synchronisation.
     const createdAt = new Date(payload.createdAt);
-    const total = split.reduce((sum, group) => sum + group.total.amountMinor, 0);
+    const total =
+      split.reduce((sum, group) => sum + group.total.amountMinor, 0) + (delivery?.feeMinor ?? 0);
     await tx.order.create({
       data: {
         id: payload.orderId,
@@ -255,6 +273,52 @@ const orderCreated = handler({
         })),
       });
     }
+    if (delivery) {
+      // D-071 : facture des frais, sans point de service ni lignes, rien à préparer.
+      if (delivery.feeInvoice) {
+        await tx.advanceInvoice.create({
+          data: {
+            id: delivery.feeInvoice.id,
+            establishmentId: ctx.establishmentId,
+            orderId: payload.orderId,
+            servicePointId: null,
+            number: delivery.feeInvoice.number,
+            totalMinor: BigInt(delivery.feeMinor),
+            currency: ctx.currency,
+            prepStatus: "served",
+            createdAt,
+          },
+        });
+      }
+      await tx.delivery.create({
+        data: {
+          id: delivery.id,
+          establishmentId: ctx.establishmentId,
+          orderId: payload.orderId,
+          customerName: delivery.details.customerName,
+          phone: delivery.details.phone,
+          address: delivery.details.address,
+          zoneId: delivery.details.zone.id,
+          zoneName: delivery.details.zone.name,
+          feeMinor: BigInt(delivery.feeMinor),
+          currency: ctx.currency,
+          feeInvoiceId: delivery.feeInvoice?.id ?? null,
+          desiredTime: delivery.details.desiredTime,
+          createdAt,
+          createdBy: ctx.userId,
+        },
+      });
+      await tx.deliveryEvent.create({
+        data: {
+          id: delivery.id,
+          establishmentId: ctx.establishmentId,
+          deliveryId: delivery.id,
+          kind: "preparing",
+          at: createdAt,
+          by: ctx.userId,
+        },
+      });
+    }
     // Diffusion aux autres appareils : enregistrements complets, prix du serveur.
     const snapshot = await orderSnapshots(tx, ctx.establishmentId, { id: payload.orderId });
     for (const invoice of snapshot.invoices) {
@@ -263,6 +327,228 @@ const orderCreated = handler({
     for (const order of snapshot.orders) {
       await recordChange(tx, ctx, "order", order.id, order);
     }
+    if (delivery) await broadcastDelivery(tx, ctx, delivery.id);
+  },
+});
+
+/**
+ * Livraison d'une commande (EF-LIV-01, D-070) : exigée en mode « delivery »,
+ * module Livraison actif, zone en service. Les frais sont ceux de la zone
+ * sur le serveur, qui fait foi ; une zone gratuite n'a pas de facture.
+ */
+async function deliveryOfOrder(
+  tx: Tx,
+  ctx: HandlerContext,
+  payload: z.infer<typeof orderCreatedSchema>,
+) {
+  if (payload.mode !== "delivery") {
+    if (payload.delivery) {
+      throw new DomainError("NOT_A_DELIVERY", "Seule une commande en livraison a des coordonnées.");
+    }
+    return null;
+  }
+  if (!payload.delivery) {
+    throw new DomainError("DELIVERY_REQUIRED", "Une commande en livraison exige ses coordonnées.");
+  }
+  const deliveryModule = await tx.establishmentModule.findUnique({
+    where: {
+      establishmentId_module: { establishmentId: ctx.establishmentId, module: "delivery" },
+    },
+  });
+  if (!deliveryModule?.enabled) {
+    throw new DomainError("MODULE_DISABLED", "La livraison n'est pas activée ici.");
+  }
+  const zones = (
+    await tx.deliveryZone.findMany({ where: { establishmentId: ctx.establishmentId } })
+  ).map(deliveryZoneSnapshot);
+  const checked = checkDeliveryDetails(
+    { ...payload.delivery, desiredTime: payload.delivery.desiredTime ?? "" },
+    zones,
+  );
+  if (!checked.ok) throw new DomainError(checked.code, checked.message);
+  const feeMinor = checked.details.zone.fee.amountMinor;
+  if (feeMinor > 0 && !payload.delivery.feeInvoice) {
+    throw new DomainError(
+      "FEE_INVOICE_REQUIRED",
+      "Les frais de cette zone ont changé : synchronisez l'appareil puis reprenez la commande.",
+    );
+  }
+  return {
+    id: payload.delivery.id,
+    details: checked.details,
+    feeMinor,
+    feeInvoice: feeMinor > 0 ? payload.delivery.feeInvoice : null,
+  };
+}
+
+async function broadcastDelivery(tx: Tx, ctx: HandlerContext, deliveryId: string) {
+  for (const snapshot of await deliverySnapshots(tx, ctx.establishmentId, { id: deliveryId })) {
+    await recordChange(tx, ctx, "delivery", snapshot.id, snapshot);
+  }
+}
+
+/** Zone de livraison créée ou modifiée par le gérant (EF-LIV-01, D-070). */
+const deliveryZoneSaved = handler({
+  permission: "delivery.manage",
+  schema: deliveryZoneSavedSchema,
+  async apply(tx, ctx, { zone }) {
+    const zones = (
+      await tx.deliveryZone.findMany({ where: { establishmentId: ctx.establishmentId } })
+    ).map(deliveryZoneSnapshot);
+    const current = zones.find((entry) => entry.id === zone.id);
+    const issue = zoneIssue({ name: zone.name, feeMajor: zone.feeMajor }, zones, zone.id);
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const feeMinor = BigInt(zone.feeMajor) * 100n;
+    const saved = await tx.deliveryZone.upsert({
+      where: { id: zone.id },
+      create: {
+        id: zone.id,
+        establishmentId: ctx.establishmentId,
+        name: zone.name,
+        feeMinor,
+        currency: ctx.currency,
+        sortOrder: zone.sortOrder,
+      },
+      update: { name: zone.name, feeMinor },
+    });
+    if (saved.establishmentId !== ctx.establishmentId) {
+      throw new DomainError("ZONE_NOT_FOUND", "Zone inconnue.");
+    }
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: current ? "delivery.zone.updated" : "delivery.zone.created",
+      entity: "delivery_zone",
+      entityId: zone.id,
+      before: current ? { name: current.name, fee: formatMoney(current.fee) } : null,
+      after: {
+        name: zone.name,
+        fee: formatMoney(moneyFromMinor(zone.feeMajor * 100, ctx.currency)),
+      },
+    });
+    await recordChange(tx, ctx, "delivery_zone", zone.id, deliveryZoneSnapshot(saved));
+  },
+});
+
+const deliveryZoneArchived = handler({
+  permission: "delivery.manage",
+  schema: deliveryZoneArchivedSchema,
+  async apply(tx, ctx, payload) {
+    const zone = await tx.deliveryZone.findFirst({
+      where: { id: payload.zoneId, establishmentId: ctx.establishmentId },
+    });
+    if (!zone) throw new DomainError("ZONE_NOT_FOUND", "Zone inconnue du serveur.");
+    const saved = await tx.deliveryZone.update({
+      where: { id: zone.id },
+      data: { archivedAt: payload.isArchived ? (zone.archivedAt ?? ctx.receivedAt) : null },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: payload.isArchived ? "delivery.zone.archived" : "delivery.zone.restored",
+      entity: "delivery_zone",
+      entityId: zone.id,
+      after: { name: zone.name },
+    });
+    await recordChange(tx, ctx, "delivery_zone", zone.id, deliveryZoneSnapshot(saved));
+  },
+});
+
+async function findDelivery(tx: Tx, ctx: HandlerContext, deliveryId: string) {
+  const [delivery] = await deliverySnapshots(tx, ctx.establishmentId, { id: deliveryId });
+  if (!delivery) throw new DomainError("DELIVERY_NOT_FOUND", "Livraison inconnue du serveur.");
+  return delivery;
+}
+
+/** EF-LIV-02 : attribution à un livreur du personnel, par le gérant. */
+const deliveryAssigned = handler({
+  permission: "delivery.manage",
+  schema: deliveryAssignedSchema,
+  async apply(tx, ctx, payload) {
+    const delivery = await findDelivery(tx, ctx, payload.deliveryId);
+    const membership = await tx.membership.findFirst({
+      where: {
+        userId: payload.courierId,
+        establishmentId: ctx.establishmentId,
+        status: "active",
+      },
+      select: { role: true },
+    });
+    const issue = courierIssue(delivery, membership ?? undefined);
+    if (issue) throw new DomainError(issue.code, issue.message);
+    await tx.delivery.update({
+      where: { id: delivery.id },
+      data: { courierId: payload.courierId },
+    });
+    await tx.deliveryEvent.create({
+      data: {
+        id: payload.eventId,
+        establishmentId: ctx.establishmentId,
+        deliveryId: delivery.id,
+        kind: "assigned",
+        courierId: payload.courierId,
+        at: new Date(payload.at),
+        by: ctx.userId,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "delivery.assigned",
+      entity: "delivery",
+      entityId: delivery.id,
+      before: { courierId: delivery.courierId },
+      after: { courierId: payload.courierId, order: delivery.orderNumber },
+    });
+    await broadcastDelivery(tx, ctx, delivery.id);
+  },
+});
+
+/** EF-LIV-03, EF-LIV-04 : statut horodaté ; un livreur ne suit que les siennes. */
+const deliveryStatusChanged = handler({
+  permission: "delivery.update",
+  schema: deliveryStatusChangedSchema,
+  async apply(tx, ctx, payload) {
+    const delivery = await findDelivery(tx, ctx, payload.deliveryId);
+    const issue = statusIssue({
+      delivery,
+      next: payload.status,
+      role: ctx.role,
+      userId: ctx.userId,
+      note: payload.note,
+    });
+    if (issue) throw new DomainError(issue.code, issue.message);
+    await tx.delivery.update({ where: { id: delivery.id }, data: { status: payload.status } });
+    await tx.deliveryEvent.create({
+      data: {
+        id: payload.eventId,
+        establishmentId: ctx.establishmentId,
+        deliveryId: delivery.id,
+        kind: payload.status,
+        note: payload.note,
+        at: new Date(payload.at),
+        by: ctx.userId,
+      },
+    });
+    await writeAudit(tx, {
+      establishmentId: ctx.establishmentId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      deviceId: ctx.deviceId,
+      action: "delivery.status-changed",
+      entity: "delivery",
+      entityId: delivery.id,
+      before: { status: DELIVERY_STATUS_LABELS[delivery.status] },
+      after: { status: DELIVERY_STATUS_LABELS[payload.status], order: delivery.orderNumber },
+      reason: payload.status === "failed" ? payload.note : null,
+    });
+    await broadcastDelivery(tx, ctx, delivery.id);
   },
 });
 
@@ -289,6 +575,10 @@ const prepStatusChanged = handler({
       where: { id: payload.invoiceId, establishmentId: ctx.establishmentId },
     });
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Facture inconnue du serveur.");
+    // Les frais de livraison (D-071) ne se préparent pas.
+    if (invoice.servicePointId === null) {
+      throw new DomainError("NOT_PREPARED", "Les frais de livraison ne se préparent pas.");
+    }
     await assertOwnStation(tx, ctx, invoice.servicePointId);
     if (invoice.cancelledAt)
       throw new DomainError("INVOICE_CANCELLED", "Cette facture est annulée.");
@@ -758,6 +1048,23 @@ const paymentRecorded = handler({
         throw new DomainError(
           "ALLOCATION_TOO_HIGH",
           `Le montant affecté à la facture ${invoice.number} dépasse son total.`,
+        );
+      }
+    }
+
+    // D-070 : un livreur n'encaisse que les commandes de ses livraisons.
+    if (ctx.role === "courier") {
+      const orderIds = [...new Set(invoices.map((invoice) => invoice.orderId))];
+      const deliveries = await tx.delivery.findMany({
+        where: { establishmentId: ctx.establishmentId, orderId: { in: orderIds } },
+        select: { orderId: true, courierId: true },
+      });
+      const isOwn = (orderId: string) =>
+        deliveries.some((entry) => entry.orderId === orderId && entry.courierId === ctx.userId);
+      if (!orderIds.every(isOwn)) {
+        throw new DomainError(
+          "FORBIDDEN",
+          "Un livreur n'encaisse que les commandes des livraisons qui lui sont attribuées.",
         );
       }
     }
@@ -1642,6 +1949,10 @@ export const RESTAURANT_HANDLERS: Record<string, OperationHandler> = {
   "restaurant.menu-item.sold-out-set": menuItemSoldOutSet,
   "restaurant.morning-stock.entered": morningStockEntered,
   "restaurant.requisition.created": requisitionCreated,
+  "delivery.zone.saved": deliveryZoneSaved,
+  "delivery.zone.archived": deliveryZoneArchived,
+  "delivery.assigned": deliveryAssigned,
+  "delivery.status-changed": deliveryStatusChanged,
   "restaurant.table.created": tableCreated,
   "restaurant.table.renamed": tableRenamed,
   "restaurant.table.archived": tableArchiveHandler(true),

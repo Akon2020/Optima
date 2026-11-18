@@ -20,6 +20,8 @@ import type {
   DiningTable,
   ExchangeRate,
   MenuItem,
+  Delivery,
+  DeliveryZone,
   MorningStockEntry,
   Requisition,
   Order,
@@ -97,6 +99,10 @@ export type DayData = {
   requisitions: Requisition[];
   /** Compléments moins retours de la journée, par élément (D-069). */
   laterRequisitioned: Map<string, number>;
+  /** Zones de livraison, archivées comprises, dans l'ordre du gérant (D-070). */
+  deliveryZones: DeliveryZone[];
+  /** Livraisons de la journée, les plus anciennes d'abord (EF-LIV). */
+  deliveries: Delivery[];
   availability: Map<string, Availability>;
   soldByItem: Map<string, number>;
   /** Paiements de la journée (EF-ENC-02), tous appareils confondus après synchronisation. */
@@ -134,6 +140,8 @@ export function useDayData(): DayData | undefined {
       invoices,
       morningEntries,
       requisitions,
+      deliveryZones,
+      deliveries,
       releases,
       payments,
       exchangeRate,
@@ -149,6 +157,8 @@ export function useDayData(): DayData | undefined {
       db.invoices.where("createdAt").aboveOrEqual(dayStart).toArray(),
       db.morningStockEntries.where("day").equals(day).toArray(),
       db.requisitions.where("day").equals(day).sortBy("createdAt"),
+      db.deliveryZones.orderBy("sortOrder").toArray(),
+      db.deliveries.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
       db.tableReleases.where("releasedAt").aboveOrEqual(dayStart).toArray(),
       db.payments.where("createdAt").aboveOrEqual(dayStart).sortBy("createdAt"),
       db.exchangeRates.orderBy("effectiveAt").last(),
@@ -166,6 +176,8 @@ export function useDayData(): DayData | undefined {
       invoices,
       morningEntries,
       requisitions,
+      deliveryZones,
+      deliveries,
       releases,
       payments,
       exchangeRate: exchangeRate ?? null,

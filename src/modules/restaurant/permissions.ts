@@ -38,6 +38,15 @@ export const RESTAURANT_PERMISSIONS = [
   "restaurant.menu.sold-out",
   /** Faire sortir du magasin vers un point de service (EF-REQ-02 : le gérant, D-069). */
   "restaurant.requisition.create",
+  /**
+   * Livraison (EF-LIV, D-070) : préfixe « delivery » pour que le serveur exige le
+   * module Livraison actif (`permissionModule`). Gérer : zones et attribution.
+   */
+  "delivery.manage",
+  /** Faire avancer une livraison (EF-LIV-03, 04) : le gérant, ou le livreur pour les siennes. */
+  "delivery.update",
+  /** Voir les livraisons (le serveur qui les prend, le livreur les siennes). */
+  "delivery.read",
 ] as const;
 
 export type RestaurantPermission = (typeof RESTAURANT_PERMISSIONS)[number];
@@ -57,6 +66,7 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.closing.declare",
     "restaurant.adjustment.request",
     "restaurant.customer.create",
+    "delivery.read",
   ],
   prep: [
     "restaurant.order.prep-status",
@@ -64,7 +74,15 @@ const ROLE_PERMISSIONS: Record<RestaurantRole, readonly RestaurantPermission[]> 
     "restaurant.morning-stock.read",
     "restaurant.menu.sold-out",
   ],
-  courier: [],
+  // Livreur (D-036, D-070) : ses livraisons, leur encaissement, sa propre caisse.
+  courier: [
+    "restaurant.menu.read",
+    "restaurant.payment.collect",
+    "restaurant.closing.read",
+    "restaurant.closing.declare",
+    "delivery.read",
+    "delivery.update",
+  ],
   reader: ["restaurant.menu.read", "restaurant.morning-stock.read", "restaurant.closing.read"],
 };
 

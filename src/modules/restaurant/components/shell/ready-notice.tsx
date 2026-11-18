@@ -7,7 +7,7 @@ import { useEffect, useRef } from "react";
 import { readyForWaiter } from "../../domain/preparation";
 import { useDayData } from "../../offline/hooks";
 import { hasPermission } from "../../permissions";
-import { orderPlaceLabel } from "../labels";
+import { invoicePointName, orderPlaceLabel } from "../labels";
 import { useRestaurant } from "../restaurant-provider";
 import { restaurantHref } from "./nav-items";
 
@@ -34,7 +34,7 @@ export function ReadyNotice() {
   }, [count]);
 
   if (count === 0 || !data) return null;
-  const pointName = (id: string) => data.servicePoints.find((point) => point.id === id)?.name ?? "";
+  const pointName = (id: string | null) => invoicePointName(data.servicePoints, id);
   return (
     <div
       role="status"

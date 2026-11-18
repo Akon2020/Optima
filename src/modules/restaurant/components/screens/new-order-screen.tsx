@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { errorMessage } from "@/shared/lib/errors";
-import { formatMoney, multiplyMoney, sumMoney, type Money } from "@/shared/lib/money";
+import { addMoney, formatMoney, multiplyMoney, sumMoney, type Money } from "@/shared/lib/money";
 import { Badge } from "@/shared/ui/badge";
 import { Button, IconButton, buttonClasses } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -31,11 +31,13 @@ import {
   maxOrderableQuantity,
   sortByPopularity,
 } from "../../domain/menu";
+import type { DeliveryDetailsInput } from "../../domain/delivery";
 import { cartLinePrice, isFormula } from "../../domain/menu-options";
 import { CART_ISSUE_MESSAGES, validateCart } from "../../domain/order";
 import { isDeclaredSoldOut } from "../../domain/preparation";
 import type {
   AdvanceInvoice,
+  DeliveryZone,
   MenuItem,
   MenuKind,
   OrderMode,
@@ -43,6 +45,7 @@ import type {
 } from "../../domain/types";
 import { useDayData, type DayData } from "../../offline/hooks";
 import { createOrder } from "../../offline/repository";
+import { DeliveryFields, EMPTY_DELIVERY } from "../delivery/delivery-fields";
 import { availabilityBadge, categoryVisual } from "../labels";
 import { AdvanceInvoiceTicket } from "../orders/advance-invoice-ticket";
 import { OptionPickerSheet } from "../orders/option-picker-sheet";
@@ -78,9 +81,11 @@ const TILE: Record<string, string> = {
  * de service, validation qui produit une facture d'avance par poste.
  */
 export function NewOrderScreen() {
-  const { db, ctx, slug, establishmentName } = useRestaurant();
+  const { db, ctx, slug, establishmentName, isModuleEnabled } = useRestaurant();
   const data = useDayData();
   const [mode, setMode] = useState<OrderMode>("dine-in");
+  // EF-LIV-01, D-070 : coordonnées d'une commande en livraison.
+  const [deliveryDraft, setDeliveryDraft] = useState<DeliveryDetailsInput>(EMPTY_DELIVERY);
   const searchParams = useSearchParams();
   // EF-CMD-04 : arrivée depuis l'écran Tables, la table est déjà choisie.
   const [requestedTableId, setTableId] = useState<string | null>(() => searchParams.get("table"));
@@ -162,6 +167,7 @@ export function NewOrderScreen() {
       const result = await createOrder(db, ctx, {
         mode,
         tableId: mode === "dine-in" ? tableId : null,
+        ...(mode === "delivery" ? { delivery: deliveryDraft } : {}),
         lines: cartLines.map((line) => ({
           menuItemId: line.item.id,
           quantity: line.quantity,
@@ -182,6 +188,7 @@ export function NewOrderScreen() {
     setCreated(null);
     setTableId(null);
     setMode("dine-in");
+    setDeliveryDraft(EMPTY_DELIVERY);
     setQuery("");
   }
 
@@ -200,11 +207,25 @@ export function NewOrderScreen() {
       )
       .reduce((sum, line) => sum + line.quantity, 0);
 
+  // D-070 : la livraison n'est proposée que si le module est actif et qu'une zone existe.
+  const deliveryZones = data.deliveryZones.filter((zone) => zone.archivedAt === null);
+  const deliveryBlocker = !isModuleEnabled("delivery")
+    ? "Le module Livraison n'est pas activé pour cet établissement."
+    : deliveryZones.length === 0
+      ? "Aucune zone de livraison : le gérant les crée dans l'écran Livraisons."
+      : null;
+  const deliveryZone =
+    mode === "delivery"
+      ? deliveryZones.find((zone) => zone.id === deliveryDraft.zoneId)
+      : undefined;
+  const orderTotal = deliveryZone ? addMoney(cartTotal, deliveryZone.fee) : cartTotal;
+
   const cartPanel = (
     <CartPanel
       data={data}
       lines={cartLines}
-      total={cartTotal}
+      total={orderTotal}
+      deliveryZone={deliveryZone}
       mode={mode}
       tableLabel={data.tables.find((t) => t.id === tableId)?.label ?? null}
       error={error}
@@ -240,7 +261,7 @@ export function NewOrderScreen() {
                 { value: "delivery", label: "Livraison" },
               ] as const
             ).map((option) => {
-              const isDisabled = option.value === "delivery";
+              const isDisabled = option.value === "delivery" && deliveryBlocker !== null;
               const isChecked = mode === option.value;
               return (
                 <button
@@ -249,9 +270,7 @@ export function NewOrderScreen() {
                   role="radio"
                   aria-checked={isChecked}
                   disabled={isDisabled}
-                  title={
-                    isDisabled ? "La livraison arrive avec le module Livraison (D-Q07)." : undefined
-                  }
+                  title={isDisabled ? (deliveryBlocker ?? undefined) : undefined}
                   onClick={() => setMode(option.value)}
                   className={cn(
                     "flex h-11 flex-col items-center justify-center rounded-sm text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:text-text-subtle",
@@ -261,12 +280,21 @@ export function NewOrderScreen() {
                   )}
                 >
                   {option.label}
-                  {isDisabled ? <span className="text-[10px] leading-none">Bientôt</span> : null}
+                  {isDisabled ? (
+                    <span className="text-[10px] leading-none">Indisponible</span>
+                  ) : null}
                 </button>
               );
             })}
           </div>
 
+          {mode === "delivery" ? (
+            <DeliveryFields
+              zones={deliveryZones}
+              value={deliveryDraft}
+              onChange={setDeliveryDraft}
+            />
+          ) : null}
           {mode === "dine-in" ? (
             <div className="mt-4">
               <p id="table-label" className="mb-2 text-xs font-medium">
@@ -403,7 +431,7 @@ export function NewOrderScreen() {
           <span className="flex-1 text-left text-sm font-medium">
             {cartCount === 0 ? "Commande vide" : "Voir la commande"}
           </span>
-          <span className="text-sm font-semibold tabular">{formatMoney(cartTotal)}</span>
+          <span className="text-sm font-semibold tabular">{formatMoney(orderTotal)}</span>
         </button>
       </div>
 
@@ -458,16 +486,19 @@ export function NewOrderScreen() {
         }
       >
         <div className="print-area flex flex-col gap-4">
-          {created?.map((invoice) => (
-            <AdvanceInvoiceTicket
-              key={invoice.id}
-              invoice={invoice}
-              establishmentName={establishmentName}
-              servicePointName={
-                data.servicePoints.find((p) => p.id === invoice.servicePointId)?.name ?? ""
-              }
-            />
-          ))}
+          {/* Factures d'avance des postes ; les frais de livraison n'ont rien à préparer. */}
+          {created
+            ?.filter((invoice) => invoice.servicePointId !== null)
+            .map((invoice) => (
+              <AdvanceInvoiceTicket
+                key={invoice.id}
+                invoice={invoice}
+                establishmentName={establishmentName}
+                servicePointName={
+                  data.servicePoints.find((p) => p.id === invoice.servicePointId)?.name ?? ""
+                }
+              />
+            ))}
         </div>
       </Sheet>
     </div>
@@ -581,6 +612,7 @@ function CartPanel({
   data,
   lines,
   total,
+  deliveryZone,
   mode,
   tableLabel,
   error,
@@ -591,6 +623,8 @@ function CartPanel({
   data: DayData;
   lines: CartLine[];
   total: Money;
+  /** Zone choisie d'une livraison : ses frais s'ajoutent au total (D-070). */
+  deliveryZone?: DeliveryZone | undefined;
   mode: OrderMode;
   tableLabel: string | null;
   error: string | null;
@@ -614,7 +648,11 @@ function CartPanel({
       <div className="hidden items-baseline justify-between lg:flex">
         <h2 className="text-lg font-medium">Commande</h2>
         <p className="text-sm text-text-muted">
-          {mode === "dine-in" ? (tableLabel ?? "Table à choisir") : "À emporter"}
+          {mode === "dine-in"
+            ? (tableLabel ?? "Table à choisir")
+            : mode === "delivery"
+              ? `Livraison${deliveryZone ? ` · ${deliveryZone.name}` : ""}`
+              : "À emporter"}
         </p>
       </div>
 
@@ -646,6 +684,14 @@ function CartPanel({
         </div>
       )}
 
+      {deliveryZone ? (
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="text-text-muted">Frais de livraison · {deliveryZone.name}</span>
+          <span className="tabular">
+            {deliveryZone.fee.amountMinor === 0 ? "Gratuit" : formatMoney(deliveryZone.fee)}
+          </span>
+        </div>
+      ) : null}
       <div className="flex items-baseline justify-between border-t border-border pt-4">
         <span className="text-sm text-text-muted">Total</span>
         <span className="text-xl font-semibold tabular">{formatMoney(total)}</span>

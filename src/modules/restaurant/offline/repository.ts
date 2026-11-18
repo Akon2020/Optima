@@ -36,6 +36,15 @@ import { canWorkStation, isDeclaredSoldOut } from "../domain/preparation";
 import { counterKey, formatDocumentNumber, type DocumentPrefix } from "../domain/numbering";
 import { linesTotal, splitOrderByServicePoint } from "../domain/order";
 import {
+  canCollectFor,
+  checkDeliveryDetails,
+  courierIssue,
+  statusIssue,
+  zoneFee,
+  zoneIssue,
+  type DeliveryDetails,
+} from "../domain/delivery";
+import {
   firstMorningEntryAt,
   laterRequisitioned,
   morningRequisitioned,
@@ -65,6 +74,9 @@ import type {
   CashClosing,
   CashClosingLine,
   Customer,
+  Delivery,
+  DeliveryStatus,
+  DeliveryZone,
   MenuItem,
   DiningTable,
   ExchangeRate,
@@ -90,6 +102,10 @@ import type {
   adjustmentRequestedSchema,
   cashClosingDeclaredSchema,
   customerCreatedSchema,
+  deliveryAssignedSchema,
+  deliveryStatusChangedSchema,
+  deliveryZoneArchivedSchema,
+  deliveryZoneSavedSchema,
   menuItemOptionsSetSchema,
   menuItemSoldOutSetSchema,
   customerLimitSetSchema,
@@ -104,6 +120,10 @@ type OrderCreatedPayload = z.infer<typeof orderCreatedSchema>;
 type PaymentRecordedPayload = z.infer<typeof paymentRecordedSchema>;
 type CashClosingDeclaredPayload = z.infer<typeof cashClosingDeclaredSchema>;
 type StockCountedPayload = z.infer<typeof stockCountedSchema>;
+type DeliveryZoneSavedPayload = z.infer<typeof deliveryZoneSavedSchema>;
+type DeliveryZoneArchivedPayload = z.infer<typeof deliveryZoneArchivedSchema>;
+type DeliveryAssignedPayload = z.infer<typeof deliveryAssignedSchema>;
+type DeliveryStatusChangedPayload = z.infer<typeof deliveryStatusChangedSchema>;
 type RequisitionCreatedPayload = z.infer<typeof requisitionCreatedSchema>;
 type DayValidatedPayload = z.infer<typeof dayValidatedSchema>;
 type AdjustmentRequestedPayload = z.infer<typeof adjustmentRequestedSchema>;
@@ -217,6 +237,8 @@ export async function createOrder(
       db.counters,
       db.morningStockEntries,
       db.requisitions,
+      db.deliveryZones,
+      db.deliveries,
       db.outbox,
     ],
     async () => {
@@ -283,6 +305,17 @@ export async function createOrder(
       }
       const tableLabel = table?.label ?? null;
 
+      // EF-LIV-01, D-070 : coordonnées du client et frais de la zone, figés ici.
+      let delivery: DeliveryDetails | null = null;
+      if (input.mode === "delivery") {
+        if (!input.delivery) {
+          throw new DomainError("DELIVERY_REQUIRED", "Indiquez les coordonnées de la livraison.");
+        }
+        const checked = checkDeliveryDetails(input.delivery, await db.deliveryZones.toArray());
+        if (!checked.ok) throw new DomainError(checked.code, checked.message);
+        delivery = checked.details;
+      }
+
       const split = splitOrderByServicePoint(lines, servicePoints, currency);
       const orderNumber = await nextNumber(db, "CMD", createdAt, ctx);
 
@@ -306,6 +339,30 @@ export async function createOrder(
           paymentStatus: "unpaid",
         });
       }
+      // D-071 : les frais de livraison sont une facture à part, sans point de
+      // service ni lignes ; rien à préparer. Pas de facture pour une zone gratuite.
+      const fee = delivery?.zone.fee ?? null;
+      const feeInvoice: AdvanceInvoice | null =
+        fee && fee.amountMinor > 0
+          ? {
+              id: uuidv7(new Date(createdAt).getTime()),
+              establishmentId: ctx.establishmentId,
+              orderId,
+              servicePointId: null,
+              number: await nextNumber(db, "FAC", createdAt, ctx),
+              mode: input.mode,
+              tableLabel: null,
+              waiterId: ctx.userId,
+              waiterName: ctx.userName,
+              deviceCode: ctx.deviceCode,
+              createdAt,
+              lines: [],
+              total: fee,
+              prepStatus: "served",
+              paymentStatus: "unpaid",
+            }
+          : null;
+      if (feeInvoice) invoices.push(feeInvoice);
 
       const order: Order = {
         id: orderId,
@@ -319,12 +376,45 @@ export async function createOrder(
         deviceCode: ctx.deviceCode,
         createdAt,
         lines,
-        total: linesTotal(lines, currency),
+        total: fee ? addMoney(linesTotal(lines, currency), fee) : linesTotal(lines, currency),
         invoiceIds: invoices.map((invoice) => invoice.id),
       };
 
+      const deliveryRecord: Delivery | null = delivery
+        ? {
+            id: uuidv7(new Date(createdAt).getTime()),
+            establishmentId: ctx.establishmentId,
+            orderId,
+            orderNumber,
+            customerName: delivery.customerName,
+            phone: delivery.phone,
+            address: delivery.address,
+            zoneId: delivery.zone.id,
+            zoneName: delivery.zone.name,
+            fee: delivery.zone.fee,
+            feeInvoiceId: feeInvoice?.id ?? null,
+            desiredTime: delivery.desiredTime,
+            courierId: null,
+            courierName: "",
+            status: "preparing",
+            events: [
+              {
+                id: uuidv7(new Date(createdAt).getTime()),
+                kind: "preparing",
+                at: createdAt,
+                by: ctx.userId,
+                byName: ctx.userName,
+                note: null,
+              },
+            ],
+            createdAt,
+            createdBy: ctx.userId,
+          }
+        : null;
+
       await db.orders.add(order);
       await db.invoices.bulkAdd(invoices);
+      if (deliveryRecord) await db.deliveries.add(deliveryRecord);
       if (options.enqueue !== false) {
         await db.outbox.add(
           createOperation({
@@ -339,11 +429,33 @@ export async function createOrder(
               mode: input.mode,
               tableId: input.tableId,
               lines: input.lines,
-              invoices: invoices.map((invoice) => ({
-                id: invoice.id,
-                number: invoice.number,
-                servicePointId: invoice.servicePointId,
-              })),
+              invoices: invoices.flatMap((invoice) =>
+                invoice.servicePointId === null
+                  ? []
+                  : [
+                      {
+                        id: invoice.id,
+                        number: invoice.number,
+                        servicePointId: invoice.servicePointId,
+                      },
+                    ],
+              ),
+              ...(deliveryRecord && delivery
+                ? {
+                    delivery: {
+                      id: deliveryRecord.id,
+                      // Zone gratuite : pas de facture de frais.
+                      feeInvoice: feeInvoice
+                        ? { id: feeInvoice.id, number: feeInvoice.number }
+                        : null,
+                      customerName: delivery.customerName,
+                      phone: delivery.phone,
+                      address: delivery.address,
+                      zoneId: delivery.zone.id,
+                      desiredTime: delivery.desiredTime,
+                    },
+                  }
+                : {}),
             } satisfies OrderCreatedPayload,
             establishmentId: ctx.establishmentId,
             userId: ctx.userId,
@@ -368,6 +480,10 @@ export async function setInvoicePrepStatus(
   await db.transaction("rw", db.invoices, db.staff, db.outbox, async () => {
     const invoice = await db.invoices.get(invoiceId);
     if (!invoice) throw new DomainError("INVOICE_NOT_FOUND", "Cette facture est introuvable.");
+    // Les frais de livraison (D-071) ne se préparent pas.
+    if (invoice.servicePointId === null) {
+      throw new DomainError("NOT_PREPARED", "Les frais de livraison ne se préparent pas.");
+    }
     if (ctx.role === "prep") {
       const own = (await db.staff.get(ctx.userId))?.servicePointId ?? null;
       if (!canWorkStation(ctx.role, own, invoice.servicePointId)) {
@@ -780,6 +896,196 @@ export async function createRequisition(
   );
 }
 
+// ─── Livraison (EF-LIV-01 à 04, D-070, D-071) ───────────────────────────────
+
+export type DeliveryZoneInput = { id?: string; name: string; feeMajor: number | null };
+
+/** Crée ou modifie une zone de livraison et ses frais (EF-LIV-01 ; gérant). */
+export async function saveDeliveryZone(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  input: DeliveryZoneInput,
+  options: { at?: string; enqueue?: boolean } = {},
+): Promise<DeliveryZone> {
+  assertPermission(ctx, "delivery.manage", "gérer les zones de livraison");
+  const at = options.at ?? new Date().toISOString();
+  return db.transaction("rw", [db.deliveryZones, db.outbox], async () => {
+    const zones = await db.deliveryZones.toArray();
+    const issue = zoneIssue(input, zones, input.id);
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const current = input.id ? zones.find((zone) => zone.id === input.id) : undefined;
+    if (input.id && !current) {
+      throw new DomainError("ZONE_NOT_FOUND", "Cette zone n'existe plus.");
+    }
+    const zone: DeliveryZone = {
+      id: current?.id ?? uuidv7(new Date(at).getTime()),
+      establishmentId: ctx.establishmentId,
+      name: input.name.trim(),
+      fee: zoneFee(input.feeMajor ?? 0, ctx.settings.currency),
+      sortOrder:
+        current?.sortOrder ?? zones.reduce((max, zone) => Math.max(max, zone.sortOrder), 0) + 1,
+      createdAt: current?.createdAt ?? at,
+      archivedAt: current?.archivedAt ?? null,
+    };
+    await db.deliveryZones.put(zone);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "delivery.zone.saved",
+          {
+            zone: {
+              id: zone.id,
+              name: zone.name,
+              feeMajor: input.feeMajor ?? 0,
+              sortOrder: zone.sortOrder,
+            },
+          } satisfies DeliveryZoneSavedPayload,
+          at,
+        ),
+      );
+    }
+    return zone;
+  });
+}
+
+/** Retire une zone du service, ou l'y remet (EF-LIV-01 ; gérant). */
+export async function setDeliveryZoneArchived(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  zoneId: string,
+  isArchived: boolean,
+  options: { at?: string; enqueue?: boolean } = {},
+): Promise<void> {
+  assertPermission(ctx, "delivery.manage", "gérer les zones de livraison");
+  const at = options.at ?? new Date().toISOString();
+  await db.transaction("rw", [db.deliveryZones, db.outbox], async () => {
+    const zones = await db.deliveryZones.toArray();
+    const zone = zones.find((entry) => entry.id === zoneId);
+    if (!zone) throw new DomainError("ZONE_NOT_FOUND", "Cette zone n'existe plus.");
+    if (!isArchived) {
+      const issue = zoneIssue({ name: zone.name, feeMajor: 0 }, zones, zone.id);
+      if (issue?.code === "ZONE_NAME_TAKEN") throw new DomainError(issue.code, issue.message);
+    }
+    await db.deliveryZones.update(zoneId, { archivedAt: isArchived ? at : null });
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "delivery.zone.archived",
+          { zoneId, isArchived } satisfies DeliveryZoneArchivedPayload,
+          at,
+        ),
+      );
+    }
+  });
+}
+
+/** EF-LIV-02 : le gérant attribue la livraison à un livreur du personnel. */
+export async function assignDelivery(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  deliveryId: string,
+  courierId: string,
+  options: { at?: string; enqueue?: boolean } = {},
+): Promise<Delivery> {
+  assertPermission(ctx, "delivery.manage", "attribuer une livraison");
+  const at = options.at ?? new Date().toISOString();
+  return db.transaction("rw", [db.deliveries, db.staff, db.outbox], async () => {
+    const delivery = await db.deliveries.get(deliveryId);
+    if (!delivery) throw new DomainError("DELIVERY_NOT_FOUND", "Cette livraison est introuvable.");
+    const courier = await db.staff.get(courierId);
+    const issue = courierIssue(delivery, courier);
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const eventId = uuidv7(new Date(at).getTime());
+    const updated: Delivery = {
+      ...delivery,
+      courierId,
+      courierName: courier?.name ?? "",
+      events: [
+        ...delivery.events,
+        {
+          id: eventId,
+          kind: "assigned",
+          at,
+          by: ctx.userId,
+          byName: ctx.userName,
+          courierId,
+          note: null,
+        },
+      ],
+    };
+    await db.deliveries.put(updated);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "delivery.assigned",
+          { deliveryId, eventId, courierId, at } satisfies DeliveryAssignedPayload,
+          at,
+        ),
+      );
+    }
+    return updated;
+  });
+}
+
+/**
+ * EF-LIV-03, EF-LIV-04 : en route, livrée, ou échouée avec un motif. Le
+ * livreur fait avancer les siennes, le gérant toutes.
+ */
+export async function setDeliveryStatus(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  deliveryId: string,
+  status: Exclude<DeliveryStatus, "preparing">,
+  note: string | null = null,
+  options: { at?: string; enqueue?: boolean } = {},
+): Promise<Delivery> {
+  assertPermission(ctx, "delivery.update", "suivre une livraison");
+  const at = options.at ?? new Date().toISOString();
+  return db.transaction("rw", [db.deliveries, db.outbox], async () => {
+    const delivery = await db.deliveries.get(deliveryId);
+    if (!delivery) throw new DomainError("DELIVERY_NOT_FOUND", "Cette livraison est introuvable.");
+    const cleanNote = note?.trim() ? note.trim() : null;
+    const issue = statusIssue({
+      delivery,
+      next: status,
+      role: ctx.role,
+      userId: ctx.userId,
+      note: cleanNote,
+    });
+    if (issue) throw new DomainError(issue.code, issue.message);
+    const eventId = uuidv7(new Date(at).getTime());
+    const updated: Delivery = {
+      ...delivery,
+      status,
+      events: [
+        ...delivery.events,
+        { id: eventId, kind: status, at, by: ctx.userId, byName: ctx.userName, note: cleanNote },
+      ],
+    };
+    await db.deliveries.put(updated);
+    if (options.enqueue !== false) {
+      await db.outbox.add(
+        tableOperation(
+          ctx,
+          "delivery.status-changed",
+          {
+            deliveryId,
+            eventId,
+            status,
+            note: cleanNote,
+            at,
+          } satisfies DeliveryStatusChangedPayload,
+          at,
+        ),
+      );
+    }
+    return updated;
+  });
+}
+
 function tableOperation(ctx: DeviceContext, type: string, payload: unknown, createdAt: string) {
   return createOperation({
     id: uuidv7(),
@@ -983,97 +1289,116 @@ export async function recordPayment(
   const createdAt = options.createdAt ?? new Date().toISOString();
   const base = ctx.settings.currency;
 
-  return db.transaction("rw", [db.invoices, db.payments, db.exchangeRates, db.outbox], async () => {
-    const found = await db.invoices.bulkGet(input.invoiceIds);
-    const invoices: AdvanceInvoice[] = [];
-    for (const invoice of found) {
-      if (!invoice) {
-        throw new DomainError("INVOICE_NOT_FOUND", "Une facture à encaisser est introuvable.");
+  return db.transaction(
+    "rw",
+    [db.invoices, db.payments, db.exchangeRates, db.deliveries, db.outbox],
+    async () => {
+      const found = await db.invoices.bulkGet(input.invoiceIds);
+      const invoices: AdvanceInvoice[] = [];
+      for (const invoice of found) {
+        if (!invoice) {
+          throw new DomainError("INVOICE_NOT_FOUND", "Une facture à encaisser est introuvable.");
+        }
+        if (invoice.paymentStatus === "cancelled") {
+          throw new DomainError("INVOICE_CANCELLED", `La facture ${invoice.number} est annulée.`);
+        }
+        // Matrice des droits : un serveur encaisse ses ventes, un livreur ses
+        // livraisons (D-070), le gérant tout.
+        const delivery =
+          ctx.role === "courier"
+            ? await db.deliveries.where("orderId").equals(invoice.orderId).first()
+            : undefined;
+        if (
+          !canCollectFor({
+            role: ctx.role,
+            userId: ctx.userId,
+            waiterId: invoice.waiterId,
+            delivery,
+          })
+        ) {
+          throw new DomainError(
+            "FORBIDDEN",
+            ctx.role === "courier"
+              ? `La facture ${invoice.number} ne fait pas partie de vos livraisons.`
+              : `La facture ${invoice.number} appartient à ${invoice.waiterName} : seul ce serveur ou un gérant peut l'encaisser.`,
+          );
+        }
+        invoices.push(invoice);
       }
-      if (invoice.paymentStatus === "cancelled") {
-        throw new DomainError("INVOICE_CANCELLED", `La facture ${invoice.number} est annulée.`);
+      invoices.sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt) || a.number.localeCompare(b.number),
+      );
+
+      // Un paiement ne précède jamais sa facture : il suffit de relire ceux qui la suivent.
+      const since = invoices[0]?.createdAt ?? createdAt;
+      const previous = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
+      const balances = invoiceBalances(invoices, previous);
+      const open: { id: string; remaining: Money }[] = [];
+      for (const invoice of invoices) {
+        const remaining = balances.get(invoice.id)?.remaining;
+        if (remaining && remaining.amountMinor > 0) open.push({ id: invoice.id, remaining });
       }
-      if (ctx.role === "waiter" && invoice.waiterId !== ctx.userId) {
-        throw new DomainError(
-          "FORBIDDEN",
-          `La facture ${invoice.number} appartient à ${invoice.waiterName} : seul ce serveur ou un gérant peut l'encaisser.`,
+      const due = remainingDue(
+        open.map((entry) => entry.id),
+        balances,
+        base,
+      );
+
+      const rate = input.currency === base ? null : await currentExchangeRate(db);
+      const tendered = moneyFromMajor(input.amountMajor, input.currency);
+      const settlement = settlePayment({
+        due,
+        tendered,
+        method: input.method,
+        rate: rate?.rate ?? null,
+      });
+      if (!settlement.ok) throw new DomainError(settlement.code, settlement.message);
+
+      const payment: Payment = {
+        id: uuidv7(new Date(createdAt).getTime()),
+        establishmentId: ctx.establishmentId,
+        method: input.method,
+        provider: input.method === "mobile-money" ? input.provider : null,
+        reference: input.method === "mobile-money" ? input.reference : null,
+        tendered,
+        rate: rate ? { id: rate.id, rate: rate.rate } : null,
+        baseAmount: settlement.baseAmount,
+        change: settlement.change,
+        allocations: allocatePayment(settlement.applied, open),
+        collectedBy: ctx.userId,
+        collectedByName: ctx.userName,
+        deviceCode: ctx.deviceCode,
+        createdAt,
+      };
+      await db.payments.add(payment);
+      if (options.enqueue !== false) {
+        await db.outbox.add(
+          tableOperation(
+            ctx,
+            "restaurant.payment.recorded",
+            {
+              payment: {
+                id: payment.id,
+                method: payment.method,
+                provider: payment.provider,
+                reference: payment.reference,
+                tendered: { amountMinor: tendered.amountMinor, currency: tendered.currency },
+                rateId: payment.rate?.id ?? null,
+                changeMinor: payment.change.amountMinor,
+                allocations: payment.allocations.map((allocation) => ({
+                  invoiceId: allocation.invoiceId,
+                  amountMinor: allocation.amount.amountMinor,
+                })),
+                createdAt,
+              },
+            } satisfies PaymentRecordedPayload,
+            createdAt,
+          ),
         );
       }
-      invoices.push(invoice);
-    }
-    invoices.sort(
-      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.number.localeCompare(b.number),
-    );
-
-    // Un paiement ne précède jamais sa facture : il suffit de relire ceux qui la suivent.
-    const since = invoices[0]?.createdAt ?? createdAt;
-    const previous = await db.payments.where("createdAt").aboveOrEqual(since).toArray();
-    const balances = invoiceBalances(invoices, previous);
-    const open: { id: string; remaining: Money }[] = [];
-    for (const invoice of invoices) {
-      const remaining = balances.get(invoice.id)?.remaining;
-      if (remaining && remaining.amountMinor > 0) open.push({ id: invoice.id, remaining });
-    }
-    const due = remainingDue(
-      open.map((entry) => entry.id),
-      balances,
-      base,
-    );
-
-    const rate = input.currency === base ? null : await currentExchangeRate(db);
-    const tendered = moneyFromMajor(input.amountMajor, input.currency);
-    const settlement = settlePayment({
-      due,
-      tendered,
-      method: input.method,
-      rate: rate?.rate ?? null,
-    });
-    if (!settlement.ok) throw new DomainError(settlement.code, settlement.message);
-
-    const payment: Payment = {
-      id: uuidv7(new Date(createdAt).getTime()),
-      establishmentId: ctx.establishmentId,
-      method: input.method,
-      provider: input.method === "mobile-money" ? input.provider : null,
-      reference: input.method === "mobile-money" ? input.reference : null,
-      tendered,
-      rate: rate ? { id: rate.id, rate: rate.rate } : null,
-      baseAmount: settlement.baseAmount,
-      change: settlement.change,
-      allocations: allocatePayment(settlement.applied, open),
-      collectedBy: ctx.userId,
-      collectedByName: ctx.userName,
-      deviceCode: ctx.deviceCode,
-      createdAt,
-    };
-    await db.payments.add(payment);
-    if (options.enqueue !== false) {
-      await db.outbox.add(
-        tableOperation(
-          ctx,
-          "restaurant.payment.recorded",
-          {
-            payment: {
-              id: payment.id,
-              method: payment.method,
-              provider: payment.provider,
-              reference: payment.reference,
-              tendered: { amountMinor: tendered.amountMinor, currency: tendered.currency },
-              rateId: payment.rate?.id ?? null,
-              changeMinor: payment.change.amountMinor,
-              allocations: payment.allocations.map((allocation) => ({
-                invoiceId: allocation.invoiceId,
-                amountMinor: allocation.amount.amountMinor,
-              })),
-              createdAt,
-            },
-          } satisfies PaymentRecordedPayload,
-          createdAt,
-        ),
-      );
-    }
-    return payment;
-  });
+      return payment;
+    },
+  );
 }
 
 // ─── Clôtures de service (EF-CLO-01 à 04, D-039, D-056) ─────────────────────

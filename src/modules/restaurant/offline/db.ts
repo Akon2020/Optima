@@ -13,6 +13,8 @@ import type {
   DiningTable,
   ExchangeRate,
   MenuItem,
+  Delivery,
+  DeliveryZone,
   MorningStockEntry,
   Requisition,
   Order,
@@ -55,6 +57,8 @@ export class RestaurantDb extends Dexie {
   invoices!: EntityTable<AdvanceInvoice, "id">;
   morningStockEntries!: EntityTable<MorningStockEntry, "id">;
   requisitions!: EntityTable<Requisition, "id">;
+  deliveryZones!: EntityTable<DeliveryZone, "id">;
+  deliveries!: EntityTable<Delivery, "id">;
   tableReleases!: EntityTable<TableRelease, "id">;
   payments!: EntityTable<Payment, "id">;
   exchangeRates!: EntityTable<ExchangeRate, "id">;
@@ -157,6 +161,11 @@ export class RestaurantDb extends Dexie {
     this.version(9).stores({ customers: "id, phone" });
     // v10 : réquisitions du magasin vers les points de service (D-069).
     this.version(10).stores({ requisitions: "id, day, servicePointId, createdAt" });
+    // v11 : zones et livraisons (EF-LIV-01 à 04, D-070).
+    this.version(11).stores({
+      deliveryZones: "id, sortOrder",
+      deliveries: "id, orderId, courierId, createdAt",
+    });
   }
 }
 

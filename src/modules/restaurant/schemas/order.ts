@@ -21,10 +21,24 @@ export const orderInputSchema = z
         }),
       )
       .min(1, "Ajoutez au moins un élément à la commande."),
+    /** Livraison (EF-LIV-01, D-070) : contrôlée en détail par `checkDeliveryDetails`. */
+    delivery: z
+      .object({
+        customerName: z.string(),
+        phone: z.string(),
+        address: z.string(),
+        zoneId: z.string(),
+        desiredTime: z.string(),
+      })
+      .optional(),
   })
   .refine((value) => value.mode !== "dine-in" || value.tableId !== null, {
     message: "Choisissez la table avant de valider la commande.",
     path: ["tableId"],
+  })
+  .refine((value) => value.mode !== "delivery" || value.delivery !== undefined, {
+    message: "Indiquez les coordonnées de la livraison.",
+    path: ["delivery"],
   });
 
 export type OrderInput = z.infer<typeof orderInputSchema>;

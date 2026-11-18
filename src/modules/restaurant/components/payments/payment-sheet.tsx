@@ -27,7 +27,7 @@ import {
 import type { AdvanceInvoice, MobileMoneyProvider, PaymentMethod } from "../../domain/types";
 import { useDayData } from "../../offline/hooks";
 import { recordPayment, releaseTable } from "../../offline/repository";
-import { PAYMENT_STATUS, PROVIDER_LABELS } from "../labels";
+import { PAYMENT_STATUS, PROVIDER_LABELS, invoicePointName } from "../labels";
 import { useRestaurant } from "../restaurant-provider";
 
 const CURRENCY_LABELS: Record<Currency, string> = { CDF: "Francs (FC)", USD: "Dollars ($)" };
@@ -150,8 +150,7 @@ export function PaymentSheet({
     }
   }
 
-  const pointName = (id: string) =>
-    data?.servicePoints.find((point) => point.id === id)?.name ?? "Point de service";
+  const pointName = (id: string | null) => invoicePointName(data?.servicePoints, id);
 
   return (
     <Sheet

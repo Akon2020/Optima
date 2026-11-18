@@ -9,6 +9,8 @@ import type {
   DiningTable,
   ExchangeRate,
   MenuItem,
+  Delivery,
+  DeliveryZone,
   MorningStockEntry,
   Requisition,
   Order,
@@ -30,6 +32,8 @@ import {
   diningTableSnapshot,
   exchangeRateSnapshots,
   menuItemSnapshot,
+  deliverySnapshots,
+  deliveryZoneSnapshot,
   morningEntrySnapshots,
   requisitionSnapshots,
   orderSnapshots,
@@ -59,6 +63,9 @@ export type DeviceBootstrap = {
   morningEntries: MorningStockEntry[];
   /** Réquisitions de la même période (D-069). */
   requisitions: Requisition[];
+  /** Zones (toutes) et livraisons de la même période (EF-LIV, D-070). */
+  deliveryZones: DeliveryZone[];
+  deliveries: Delivery[];
   releases: TableRelease[];
   /** Modules actifs (EF-MOD-02) : l'appareil masque les écrans des autres. */
   modules: string[];
@@ -105,6 +112,8 @@ export async function buildBootstrap(
       activity,
       morningEntries,
       requisitions,
+      deliveryZones,
+      deliveries,
       releases,
       modules,
       payments,
@@ -121,6 +130,8 @@ export async function buildBootstrap(
       orderSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
       morningEntrySnapshots(tx, establishment.id, { enteredAt: { gte: since } }),
       requisitionSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
+      tx.deliveryZone.findMany({ where, orderBy: { sortOrder: "asc" } }),
+      deliverySnapshots(tx, establishment.id, { createdAt: { gte: since } }),
       tableReleaseSnapshots(tx, establishment.id, { releasedAt: { gte: since } }),
       tx.establishmentModule.findMany({ where: { ...where, enabled: true } }),
       paymentSnapshots(tx, establishment.id, { createdAt: { gte: since } }),
@@ -200,6 +211,8 @@ export async function buildBootstrap(
       invoices: [...activity.invoices, ...older.invoices],
       morningEntries,
       requisitions,
+      deliveryZones: deliveryZones.map(deliveryZoneSnapshot),
+      deliveries,
       releases,
       modules: modules.map((entry) => entry.module).sort(),
       payments: [...payments, ...olderPayments],

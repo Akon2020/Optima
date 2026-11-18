@@ -69,6 +69,18 @@ export const ORDER_MODE_LABELS: Record<OrderMode, string> = {
   delivery: "Livraison",
 };
 
+/** Facture des frais de livraison, sans point de service (D-071). */
+export const DELIVERY_FEE_LABEL = "Frais de livraison";
+
+/** Nom du point de service d'une facture, ou « Frais de livraison » (D-071). */
+export function invoicePointName(
+  servicePoints: readonly { id: string; name: string }[] | undefined,
+  servicePointId: string | null,
+): string {
+  if (servicePointId === null) return DELIVERY_FEE_LABEL;
+  return servicePoints?.find((point) => point.id === servicePointId)?.name ?? "Point de service";
+}
+
 export function orderPlaceLabel(mode: OrderMode, tableLabel: string | null): string {
   return mode === "dine-in" && tableLabel ? tableLabel : ORDER_MODE_LABELS[mode];
 }

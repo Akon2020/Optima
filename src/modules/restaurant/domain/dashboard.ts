@@ -65,13 +65,16 @@ export function summarizeDay(
       bucket.invoices += 1;
     }
 
-    const point = byServicePoint.get(invoice.servicePointId) ?? {
-      total: zero(currency),
-      invoices: 0,
-    };
-    point.total = addMoney(point.total, invoice.total);
-    point.invoices += 1;
-    byServicePoint.set(invoice.servicePointId, point);
+    // Les frais de livraison (D-071) n'appartiennent à aucun point de service.
+    if (invoice.servicePointId !== null) {
+      const point = byServicePoint.get(invoice.servicePointId) ?? {
+        total: zero(currency),
+        invoices: 0,
+      };
+      point.total = addMoney(point.total, invoice.total);
+      point.invoices += 1;
+      byServicePoint.set(invoice.servicePointId, point);
+    }
 
     const waiter = byWaiter.get(invoice.waiterId) ?? {
       name: invoice.waiterName,

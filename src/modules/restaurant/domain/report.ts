@@ -19,7 +19,8 @@ export type ReportInvoice = {
   day: string;
   /** Heure locale (0 à 23) de la facture, dans le fuseau de l'établissement. */
   hour: number;
-  servicePointId: string;
+  /** `null` : frais de livraison, hors points de service (D-071). */
+  servicePointId: string | null;
   waiterId: string;
   total: Money;
   discount: Money;

@@ -74,7 +74,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Livraisons",
     shortLabel: "Livraisons",
     icon: Bike,
-    isUpcoming: true,
     module: "delivery",
   },
 ];

@@ -9,6 +9,10 @@ import type {
   CashClosingLine,
   Customer,
   DayClosing,
+  Delivery,
+  DeliveryEvent,
+  DeliveryStatus,
+  DeliveryZone,
   DiningTable,
   ExchangeRate,
   MenuItem,
@@ -59,6 +63,86 @@ async function userNames(tx: Tx, ids: readonly string[]): Promise<Map<string, st
     select: { id: true, displayName: true },
   });
   return new Map(users.map((user) => [user.id, user.displayName]));
+}
+
+/** Zone de livraison (EF-LIV-01, D-070). */
+export function deliveryZoneSnapshot(row: {
+  id: string;
+  establishmentId: string;
+  name: string;
+  feeMinor: bigint;
+  currency: string;
+  sortOrder: number;
+  createdAt: Date;
+  archivedAt: Date | null;
+}): DeliveryZone {
+  return {
+    id: row.id,
+    establishmentId: row.establishmentId,
+    name: row.name,
+    fee: { amountMinor: Number(row.feeMinor), currency: row.currency as Currency },
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt.toISOString(),
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+  };
+}
+
+/** Livraisons (EF-LIV-01 à 04), avec leur historique et les noms des personnes. */
+export async function deliverySnapshots(
+  tx: Tx,
+  establishmentId: string,
+  where: { id?: string; orderId?: { in: string[] }; createdAt?: { gte: Date } },
+): Promise<Delivery[]> {
+  const rows = await tx.delivery.findMany({
+    where: { ...where, establishmentId },
+    orderBy: { createdAt: "asc" },
+  });
+  if (rows.length === 0) return [];
+  const [events, orders] = await Promise.all([
+    tx.deliveryEvent.findMany({
+      where: { establishmentId, deliveryId: { in: rows.map((row) => row.id) } },
+      orderBy: { at: "asc" },
+    }),
+    tx.order.findMany({
+      where: { establishmentId, id: { in: rows.map((row) => row.orderId) } },
+      select: { id: true, number: true },
+    }),
+  ]);
+  const names = await userNames(tx, [
+    ...events.map((event) => event.by),
+    ...rows.flatMap((row) => (row.courierId ? [row.courierId] : [])),
+  ]);
+  const numberOf = new Map(orders.map((order) => [order.id, order.number]));
+  return rows.map((row) => ({
+    id: row.id,
+    establishmentId: row.establishmentId,
+    orderId: row.orderId,
+    orderNumber: numberOf.get(row.orderId) ?? "",
+    customerName: row.customerName,
+    phone: row.phone,
+    address: row.address,
+    zoneId: row.zoneId,
+    zoneName: row.zoneName,
+    fee: { amountMinor: Number(row.feeMinor), currency: row.currency as Currency },
+    feeInvoiceId: row.feeInvoiceId,
+    desiredTime: row.desiredTime,
+    courierId: row.courierId,
+    courierName: row.courierId ? (names.get(row.courierId) ?? "") : "",
+    status: row.status as DeliveryStatus,
+    events: events
+      .filter((event) => event.deliveryId === row.id)
+      .map((event): DeliveryEvent => ({
+        id: event.id,
+        kind: event.kind as DeliveryEvent["kind"],
+        at: event.at.toISOString(),
+        by: event.by,
+        byName: names.get(event.by) ?? "",
+        courierId: event.courierId,
+        note: event.note,
+      })),
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdBy,
+  }));
 }
 
 export function servicePointSnapshot(row: {
@@ -246,7 +330,8 @@ export async function orderSnapshots(
       .map((line) => ({
         menuItemId: line.menuItemId,
         name: line.name,
-        servicePointId: row.servicePointId,
+        // Seules les factures d'un point de service ont des lignes (D-071).
+        servicePointId: row.servicePointId ?? "",
         unit: line.unit as SaleUnit,
         unitPrice: money(line.unitPriceMinor, row.currency),
         quantity: line.quantity,

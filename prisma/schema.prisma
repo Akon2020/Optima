@@ -8,7 +8,7 @@
 //   morning_stock_entries, table_releases, invoice_lines, exchange_rates,
 //   payments, payment_allocations, cash_closings, cash_closing_payments,
 //   stock_counts, day_closings, adjustment_requests, adjustment_decisions,
-//   requisitions.
+//   requisitions, delivery_events.
 
 generator client {
   provider = "prisma-client"
@@ -337,7 +337,8 @@ model AdvanceInvoice {
   id              String    @id @db.Uuid
   establishmentId String    @map("establishment_id") @db.Uuid
   orderId         String    @map("order_id") @db.Uuid
-  servicePointId  String    @map("service_point_id") @db.Uuid
+  /// `null` pour la facture des frais de livraison (D-071).
+  servicePointId  String?   @map("service_point_id") @db.Uuid
   number          String
   totalMinor      BigInt    @map("total_minor")
   currency        String    @db.Char(3)
@@ -501,6 +502,60 @@ model Requisition {
   @@unique([establishmentId, number])
   @@index([establishmentId, day])
   @@map("requisitions")
+}
+
+// Zone de livraison et ses frais, fixés par le gérant (EF-LIV-01, D-070).
+model DeliveryZone {
+  id              String    @id @db.Uuid
+  establishmentId String    @map("establishment_id") @db.Uuid
+  name            String
+  feeMinor        BigInt    @map("fee_minor")
+  currency        String    @db.Char(3)
+  sortOrder       Int       @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@index([establishmentId])
+  @@map("delivery_zones")
+}
+
+// Livraison d'une commande (EF-LIV-01 à 04, D-070) : frais figés, livreur,
+// statut courant ; l'historique est dans delivery_events (ajout seul).
+model Delivery {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  orderId         String   @unique @map("order_id") @db.Uuid
+  customerName    String   @map("customer_name")
+  phone           String
+  address         String
+  zoneId          String   @map("zone_id") @db.Uuid
+  zoneName        String   @map("zone_name")
+  feeMinor        BigInt   @map("fee_minor")
+  currency        String   @db.Char(3)
+  feeInvoiceId    String?  @map("fee_invoice_id") @db.Uuid
+  desiredTime     String?  @map("desired_time")
+  courierId       String?  @map("courier_id") @db.Uuid
+  status          String   @default("preparing")
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  createdBy       String   @map("created_by") @db.Uuid
+
+  @@index([establishmentId, createdAt])
+  @@map("deliveries")
+}
+
+model DeliveryEvent {
+  id              String   @id @db.Uuid
+  establishmentId String   @map("establishment_id") @db.Uuid
+  deliveryId      String   @map("delivery_id") @db.Uuid
+  kind            String
+  courierId       String?  @map("courier_id") @db.Uuid
+  note            String?
+  at              DateTime @db.Timestamptz(6)
+  by              String   @db.Uuid
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([deliveryId])
+  @@map("delivery_events")
 }
 
 // Validation de la journée par le gérant (EF-CLO-04, D-039) : une par journée.

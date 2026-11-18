@@ -20,6 +20,7 @@ import {
   PAYMENT_STATUS,
   PREP_STATUS,
   SERVICE_POINT_ICONS,
+  invoicePointName,
   orderLineDetail,
   orderPlaceLabel,
 } from "../labels";
@@ -98,8 +99,7 @@ export function OrderDetailSheet({
     });
   }
 
-  const pointName = (id: string) =>
-    row?.servicePoints.find((point) => point.id === id)?.name ?? "Point de service";
+  const pointName = (id: string | null) => invoicePointName(row?.servicePoints, id);
 
   return (
     <Sheet

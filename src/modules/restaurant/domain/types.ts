@@ -82,6 +82,63 @@ export type TableRelease = {
 
 export type OrderMode = "dine-in" | "takeaway" | "delivery";
 
+/**
+ * Zone de livraison (EF-LIV-01, D-070) : un quartier de la ville et ses frais,
+ * fixés par le gérant. Une zone ne se supprime pas, elle s'archive ; les frais
+ * sont figés sur chaque livraison au moment de la commande.
+ */
+export type DeliveryZone = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  fee: Money;
+  sortOrder: number;
+  createdAt: string;
+  archivedAt: string | null;
+};
+
+/** EF-LIV-03 : en préparation, en route, livrée ou échouée. */
+export type DeliveryStatus = "preparing" | "en-route" | "delivered" | "failed";
+
+/** Changement horodaté d'une livraison (EF-LIV-03), en ajout seul. */
+export type DeliveryEvent = {
+  id: string;
+  /** Statut atteint, ou `assigned` pour l'attribution à un livreur (EF-LIV-02). */
+  kind: DeliveryStatus | "assigned";
+  at: string;
+  by: string;
+  byName: string;
+  /** Livreur attribué (`assigned`) ; motif d'un échec (`failed`). */
+  courierId?: string | null;
+  note: string | null;
+};
+
+/**
+ * Livraison d'une commande (EF-LIV-01 à 04, D-070). Les frais de la zone sont
+ * figés ici et portés par une facture à part (`feeInvoiceId`, D-071).
+ */
+export type Delivery = {
+  id: string;
+  establishmentId: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  zoneId: string;
+  zoneName: string;
+  fee: Money;
+  feeInvoiceId: string | null;
+  /** Heure souhaitée par le client, « HH:MM », ou `null` : dès que possible. */
+  desiredTime: string | null;
+  courierId: string | null;
+  courierName: string;
+  status: DeliveryStatus;
+  events: DeliveryEvent[];
+  createdAt: string;
+  createdBy: string;
+};
+
 export type OrderLine = {
   menuItemId: string;
   name: string;
@@ -109,7 +166,12 @@ export type AdvanceInvoice = {
   id: string;
   establishmentId: string;
   orderId: string;
-  servicePointId: string;
+  /**
+   * Point de service de la facture d'avance. `null` pour la facture des frais
+   * de livraison (D-070, D-071) : elle n'appartient à aucun point de service,
+   * n'a pas de lignes et revient au restaurant.
+   */
+  servicePointId: string | null;
   number: string;
   mode: OrderMode;
   tableLabel: string | null;

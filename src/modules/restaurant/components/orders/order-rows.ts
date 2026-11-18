@@ -24,8 +24,9 @@ export function buildOrderRows(
   return orders.map((order) => {
     const orderInvoices = (byOrder.get(order.id) ?? []).sort(
       (a, b) =>
-        (pointById.get(a.servicePointId)?.sortOrder ?? 0) -
-        (pointById.get(b.servicePointId)?.sortOrder ?? 0),
+        // La facture des frais de livraison (sans point de service, D-071) vient en dernier.
+        (a.servicePointId === null ? Infinity : (pointById.get(a.servicePointId)?.sortOrder ?? 0)) -
+        (b.servicePointId === null ? Infinity : (pointById.get(b.servicePointId)?.sortOrder ?? 0)),
     );
     const active = orderInvoices.filter((invoice) => invoice.paymentStatus !== "cancelled");
     return {
@@ -33,7 +34,9 @@ export function buildOrderRows(
       invoices: orderInvoices,
       prepStatus: orderPrepStatus(active.map((invoice) => invoice.prepStatus)),
       servicePoints: orderInvoices
-        .map((invoice) => pointById.get(invoice.servicePointId))
+        .map((invoice) =>
+          invoice.servicePointId === null ? undefined : pointById.get(invoice.servicePointId),
+        )
         .filter((point): point is ServicePoint => point !== undefined),
       isCancelled: orderInvoices.length > 0 && active.length === 0,
     };

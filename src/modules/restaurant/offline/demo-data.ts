@@ -31,13 +31,16 @@ import {
   createCustomer,
   createOrder,
   declareCashClosing,
+  assignDelivery,
   createRequisition,
   morningProposals,
   recordPayment,
   recordStockCount,
   releaseTable,
   requestAdjustment,
+  saveDeliveryZone,
   saveMorningStock,
+  setDeliveryStatus,
   stockCountDraft,
   validateDay,
   type DeviceContext,
@@ -64,6 +67,20 @@ const WAITERS: StaffMember[] = ["Amani K.", "Neema B.", "Baraka M.", "Furaha C."
     role: "waiter",
   }),
 );
+
+/** Livreur du personnel (D-036) ; zones génériques, frais fixés par le gérant (D-070). */
+const DEMO_COURIER: StaffMember = {
+  id: "staff-courier-1",
+  establishmentId: ESTABLISHMENT_ID,
+  name: "Jean L.",
+  role: "courier",
+};
+
+const DEMO_ZONES: { name: string; feeMajor: number }[] = [
+  { name: "Centre", feeMajor: 2000 },
+  { name: "Nord", feeMajor: 3000 },
+  { name: "Sud", feeMajor: 3000 },
+];
 
 const SERVICE_POINTS: ServicePoint[] = [
   {
@@ -695,7 +712,7 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
       await db.servicePoints.bulkPut(SERVICE_POINTS);
       await db.menuItems.bulkPut(menuItems);
       await db.diningTables.bulkPut(TABLES);
-      await db.staff.bulkPut([DEMO_MANAGER, ...WAITERS]);
+      await db.staff.bulkPut([DEMO_MANAGER, ...WAITERS, DEMO_COURIER]);
     },
   );
 
@@ -897,5 +914,68 @@ async function seedDemo(db: RestaurantDb, ctx: DeviceContext): Promise<void> {
     }
   }
 
+  await seedDeliveries(db, ctx, manager, now, dayStart);
   await db.meta.put({ key: SEED_FLAG, value: nowIso });
+}
+
+/**
+ * Livraison (D-070) : trois zones, et une commande en livraison du jour,
+ * attribuée au livreur et en route, si la journée est assez avancée.
+ */
+async function seedDeliveries(
+  db: RestaurantDb,
+  ctx: DeviceContext,
+  manager: DeviceContext,
+  now: Date,
+  dayStart: Date,
+): Promise<void> {
+  const at = new Date(dayStart.getTime() + 60_000).toISOString();
+  const zones = [];
+  for (const zone of DEMO_ZONES) {
+    zones.push(await saveDeliveryZone(db, manager, zone, { at, enqueue: false }));
+  }
+  // Vers midi, ou une demi-heure avant maintenant en début de journée.
+  const orderAt = Math.min(dayStart.getTime() + 6 * HOUR_MS, now.getTime() - 30 * 60_000);
+  const zone = zones[0];
+  if (!zone || orderAt < dayStart.getTime() + HOUR_MS) return;
+  const waiter = WAITERS[1] ?? WAITERS[0];
+  if (!waiter) return;
+  try {
+    const { order } = await createOrder(
+      db,
+      { ...ctx, userId: waiter.id, userName: waiter.name, role: "waiter" },
+      {
+        mode: "delivery",
+        tableId: null,
+        lines: [
+          { menuItemId: "item-fanta", quantity: 2 },
+          { menuItemId: "item-coca", quantity: 1 },
+        ],
+        delivery: {
+          customerName: "Client démo",
+          phone: "+243 990 000 000",
+          address: "Avenue de démonstration, n° 1",
+          zoneId: zone.id,
+          desiredTime: "",
+        },
+      },
+      { createdAt: new Date(orderAt).toISOString(), enqueue: false },
+    );
+    const delivery = await db.deliveries.where("orderId").equals(order.id).first();
+    if (!delivery) return;
+    await assignDelivery(db, manager, delivery.id, DEMO_COURIER.id, {
+      at: new Date(orderAt + 5 * 60_000).toISOString(),
+      enqueue: false,
+    });
+    await setDeliveryStatus(
+      db,
+      { ...ctx, userId: DEMO_COURIER.id, userName: DEMO_COURIER.name, role: "courier" },
+      delivery.id,
+      "en-route",
+      null,
+      { at: new Date(orderAt + 15 * 60_000).toISOString(), enqueue: false },
+    );
+  } catch {
+    // Élément épuisé ou absent dans la démo : pas de livraison d'exemple.
+  }
 }
