@@ -199,7 +199,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. ~~**D-Q07**~~ : tranchée (D-070) : frais par zone fixés par le gérant, au restaurant, paiement à la livraison.
 6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-069**.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-071**.
 8. Faire signer le cahier des charges (D-013).
 9. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
 
@@ -263,7 +263,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] Menus avec éléments à options et formules (D-035, D-060).
 - [ ] Effet des options sur le stock (D-Q33) ; modification et archivage d'une formule depuis l'écran Menus.
 - [ ] Fiches recettes (EF-RCT-01 à 04), après les menus à options.
-- [ ] Livraison (EF-LIV-01 à 04, RG-LIV-01), livreurs du personnel (D-036), frais par zone et paiement à la livraison (D-070).
+- [x] Livraison, première partie (EF-LIV-01 à 04, D-070, D-071) : zones et frais, commande en livraison, attribution, statuts, encaissement par le livreur.
+- [ ] Livraison, deuxième partie : livraison échouée (RG-LIV-01), frais de livraison dans les rapports et la clôture, menu réduit du livreur.
 - [x] Rapports et exports PDF, Excel, CSV (EF-RAP-01, 03, 04, D-065).
 - [ ] Marge et bénéfice (EF-RAP-02), après les prix de revient ; rapport « ses ventes » du serveur.
 - [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02) 🔒 D-Q13.

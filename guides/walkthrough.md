@@ -677,6 +677,26 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 32 : livraison, première partie (18/11/2026)
+
+**Fait** (D-070, D-071)
+- **Zones** : dans l'écran « Livraisons », onglet « Zones », le gérant ajoute les quartiers livrés et leurs frais, les modifie ou les retire.
+- **Commande en livraison** : le mode « Livraison » de la prise de commande demande le nom du client, son téléphone, l'adresse, la zone et l'heure souhaitée ; les frais de la zone s'ajoutent au total.
+- **Frais au restaurant** : ils forment une facture à part, sans point de service ; ils s'encaissent, se déclarent à la clôture et s'annulent comme le reste de la commande, et ne partent dans aucun poste de préparation.
+- **Suivi** : le gérant attribue la livraison à un livreur ; le livreur la marque « en route », « livrée » ou « échouée » (avec un motif) ; chaque étape est horodatée dans un historique qui ne se modifie plus.
+- **Encaissement** : le livreur encaisse les commandes de ses livraisons, frais compris, et seulement les siennes ; il déclare sa caisse à la clôture.
+- **Démonstration** : trois zones, un livreur et une livraison en route.
+- **Tests** : 8 unitaires, 6 sur l'appareil, 5 d'intégration (module exigé, zones, facture de frais, attribution, statuts, encaissement du livreur, historique en ajout seul, isolation) ; contrôle axe de l'écran en clair et en sombre.
+
+**Pas encore fait** (deuxième partie) : la livraison échouée (plats rapportés réutilisables ou perdus, RG-LIV-01), la ligne « Frais de livraison » dans les rapports, la clôture et l'espace propriétaire, un menu réduit pour le livreur.
+
+**À faire de votre côté**
+- **Activer le module « Livraison »** pour le restaurant (espace propriétaire), créer les comptes « Livreur » (écran Équipe) et les zones (écran Livraisons).
+- **Base locale** : appliquer les migrations jusqu'à `20261118000001` (`pnpm db:migrate`).
+- **À valider par vous** : D-071.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -686,7 +706,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-069 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-071 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
