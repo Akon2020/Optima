@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  DEFAULT_BUSINESS_DAY_START_HOUR,
+  businessDayKey,
+  businessDayStartOf,
+} from "@/modules/restaurant/domain/business-day";
 import { withContext } from "@/server/db/context";
 import { buildBootstrap } from "@/server/sync/bootstrap";
 import {
@@ -19,7 +24,12 @@ import { createFixtures, createTestDb, type Fixtures, type TestDb } from "./help
 let db: TestDb;
 let fx: Fixtures;
 let device: AuthenticatedDevice;
-const DAY = "2026-11-17";
+// Journée d'aujourd'hui : l'état initial d'un appareil ne couvre que les jours récents.
+const TIME_ZONE = "Africa/Lubumbashi";
+const DAY = businessDayKey(new Date().toISOString(), DEFAULT_BUSINESS_DAY_START_HOUR, TIME_ZONE);
+const DAY_START = new Date(businessDayStartOf(DAY, DEFAULT_BUSINESS_DAY_START_HOUR, TIME_ZONE));
+/** Heure de la journée, en heures après son début (6 h locales). */
+const at = (hours: number) => new Date(DAY_START.getTime() + hours * 3_600_000).toISOString();
 let sequence = 0;
 
 beforeAll(async () => {
@@ -92,25 +102,25 @@ async function stored(id: string) {
 
 describe("réquisitions (D-069)", () => {
   it("seul le gérant fait sortir du magasin ; éléments du point de service seulement", async () => {
-    const forWaiter = requisition({ createdAt: "2026-11-17T05:00:00.000Z" });
+    const forWaiter = requisition({ createdAt: at(1) });
     expect(await push(fx.waiterA.id, "restaurant.requisition.created", forWaiter.payload)).toBe(
       "FORBIDDEN",
     );
     const wrongItem = requisition({
       menuItemId: fx.a.fries.id,
-      createdAt: "2026-11-17T05:00:00.000Z",
+      createdAt: at(1),
     });
     expect(await push(fx.managerA.id, "restaurant.requisition.created", wrongItem.payload)).toBe(
       "ITEM_NOT_FOUND",
     );
-    const noReason = requisition({ kind: "return", createdAt: "2026-11-17T05:00:00.000Z" });
+    const noReason = requisition({ kind: "return", createdAt: at(1) });
     expect(await push(fx.managerA.id, "restaurant.requisition.created", noReason.payload)).toBe(
       "REASON_REQUIRED",
     );
   });
 
   it("avant le stock du matin : principale, auditée, diffusée et en ajout seul", async () => {
-    const main = requisition({ quantity: 48, createdAt: "2026-11-17T05:00:00.000Z" });
+    const main = requisition({ quantity: 48, createdAt: at(1) });
     expect(await push(fx.managerA.id, "restaurant.requisition.created", main.payload)).toBe(
       "accepted",
     );
@@ -156,13 +166,13 @@ describe("réquisitions (D-069)", () => {
             proposed: 48,
             reason: null,
             replacesId: null,
-            enteredAt: "2026-11-17T06:00:00.000Z",
+            enteredAt: at(2),
           },
         ],
       }),
     ).toBe("accepted");
     // L'appareil, hors connexion, croyait encore la faire « du matin ».
-    const late = requisition({ kind: "main", quantity: 24, createdAt: "2026-11-17T12:00:00.000Z" });
+    const late = requisition({ kind: "main", quantity: 24, createdAt: at(8) });
     expect(await push(fx.managerA.id, "restaurant.requisition.created", late.payload)).toBe(
       "accepted",
     );
@@ -172,7 +182,7 @@ describe("réquisitions (D-069)", () => {
       kind: "return",
       quantity: 6,
       comment: "Surplus rendu",
-      createdAt: "2026-11-17T13:00:00.000Z",
+      createdAt: at(9),
     });
     expect(await push(fx.managerA.id, "restaurant.requisition.created", back.payload)).toBe(
       "accepted",
@@ -186,7 +196,7 @@ describe("réquisitions (D-069)", () => {
           id: countId,
           day: DAY,
           servicePointId: fx.a.counter.id,
-          countedAt: "2026-11-17T20:00:00.000Z",
+          countedAt: at(16),
           lines: [{ menuItemId: fx.a.beer.id, counted: 66, declaredOut: 0, outReason: null }],
           comment: null,
         },
