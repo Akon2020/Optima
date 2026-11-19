@@ -27,6 +27,7 @@ import {
 import { AdjustmentSheet } from "../adjustments/adjustment-sheet";
 import { OrderAdjustments } from "../adjustments/order-adjustments";
 import { PaymentSheet } from "../payments/payment-sheet";
+import { usePrintInvoices } from "../printing/use-print-invoices";
 import { useRestaurant } from "../restaurant-provider";
 import { AdvanceInvoiceTicket } from "./advance-invoice-ticket";
 import type { OrderRow } from "./order-rows";
@@ -91,11 +92,16 @@ export function OrderDetailSheet({
     }
   }
 
+  // D-074 : imprimante thermique de l'appareil si elle est connectée.
+  const { printInvoices, error: printError } = usePrintInvoices();
+
   function print(invoices: AdvanceInvoice[]) {
-    setPrinting(invoices);
-    requestAnimationFrame(() => {
-      window.print();
-      setPrinting(null);
+    void printInvoices(invoices, row?.servicePoints ?? [], () => {
+      setPrinting(invoices);
+      requestAnimationFrame(() => {
+        window.print();
+        setPrinting(null);
+      });
     });
   }
 
@@ -167,9 +173,9 @@ export function OrderDetailSheet({
     >
       {row ? (
         <div className="flex flex-col gap-3">
-          {error ? (
+          {error || printError ? (
             <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm">
-              {error}
+              {error ?? printError}
             </p>
           ) : null}
           {row.invoices.map((invoice) => {

@@ -44,7 +44,7 @@ describe("menu selon le rôle (D-073)", () => {
   });
 
   it("le poste de préparation ne voit aucun écran avec des montants", () => {
-    expect(segments("prep")).toEqual(["menus", "stock-du-matin", "preparation"]);
+    expect(segments("prep")).toEqual(["menus", "stock-du-matin", "preparation", "imprimante"]);
   });
 
   it("le gérant voit tout", () => {

@@ -49,6 +49,7 @@ import { DeliveryFields, EMPTY_DELIVERY } from "../delivery/delivery-fields";
 import { availabilityBadge, categoryVisual } from "../labels";
 import { AdvanceInvoiceTicket } from "../orders/advance-invoice-ticket";
 import { OptionPickerSheet } from "../orders/option-picker-sheet";
+import { usePrintInvoices } from "../printing/use-print-invoices";
 import { restaurantHref } from "../shell/nav-items";
 import { useRestaurant } from "../restaurant-provider";
 
@@ -97,6 +98,8 @@ export function NewOrderScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<AdvanceInvoice[] | null>(null);
+  // D-074 : imprimante thermique de l'appareil, sinon impression du navigateur.
+  const { printInvoices, hasPrinter, isBusy: isPrinting, error: printError } = usePrintInvoices();
 
   // Tables occupées : la nouvelle commande y sera complémentaire (EF-CMD-04).
   const busyTables = useMemo(() => new Set(data ? data.sessions.keys() : []), [data]);
@@ -469,9 +472,25 @@ export function NewOrderScreen() {
         }
         footer={
           <div className="flex flex-col gap-2">
-            <Button variant="primary" className="w-full" onClick={() => window.print()}>
+            {printError ? (
+              <p role="alert" className="text-sm text-danger">
+                {printError}
+              </p>
+            ) : null}
+            <Button
+              variant="primary"
+              className="w-full"
+              disabled={isPrinting}
+              onClick={() =>
+                void printInvoices(created ?? [], data.servicePoints, () => window.print())
+              }
+            >
               <Printer aria-hidden />
-              Imprimer les factures d&apos;avance
+              {isPrinting
+                ? "Impression…"
+                : hasPrinter
+                  ? "Imprimer sur l'imprimante"
+                  : "Imprimer les factures d'avance"}
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="action" onClick={startOver}>

@@ -95,6 +95,14 @@ const SCREENS: { name: string; path: string; ready: (page: Page) => Promise<void
     },
   },
   {
+    name: "restaurant-imprimante",
+    path: "/imprimante",
+    ready: async (page) => {
+      await expect(page.getByRole("heading", { name: "Imprimante", level: 1 })).toBeVisible();
+      await expect(page.getByLabel("Aperçu du ticket d'essai")).toContainText("OPTIMA");
+    },
+  },
+  {
     name: "restaurant-menus",
     path: "/menus",
     ready: async (page) => {

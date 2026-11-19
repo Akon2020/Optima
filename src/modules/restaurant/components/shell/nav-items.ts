@@ -6,6 +6,7 @@ import {
   Calculator,
   ClipboardList,
   LayoutDashboard,
+  Printer,
   SquarePlus,
   Sunrise,
   Users,
@@ -130,6 +131,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Bike,
     module: "delivery",
     permission: "delivery.read",
+  },
+  {
+    segment: "imprimante",
+    label: "Imprimante",
+    shortLabel: "Imprimante",
+    icon: Printer,
+    // Ceux qui impriment des factures d'avance : serveur, poste, gérant (D-074).
+    permission: "restaurant.order.prep-status",
   },
 ];
 
