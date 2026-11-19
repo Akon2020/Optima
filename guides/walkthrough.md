@@ -711,6 +711,20 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ---
 
+## Étape 34 : impression thermique, première partie (19/11/2026)
+
+**Fait** (D-074, D-075)
+- **Page « Imprimante »** (`/restaurant/imprimante`, menu « Imprimante ») : vérifie que le navigateur sait piloter une imprimante, explique l'appairage, choisit la largeur (58 ou 80 mm), connecte l'imprimante et imprime un **ticket d'essai** (accents, gras, grand format, largeur) ; aperçu du ticket à l'écran.
+- **Factures d'avance** : après une commande, et en réimpression depuis le détail d'une commande, le bouton imprime sur l'imprimante de l'appareil si elle est connectée ; sinon, l'impression du navigateur, comme avant.
+- **Sans application** : Chrome sur Android pilote l'imprimante en Bluetooth (profil SPP) ou en USB ; l'autorisation donnée une fois est retrouvée ensuite.
+- **Tests** : 7 sur l'encodage des tickets, 2 sur la connexion (imprimante simulée), contrôle axe de la page en clair et en sombre.
+
+**À faire de votre côté**
+- **Acheter une imprimante d'essai** (58 mm, portable, Bluetooth classique, ESC/POS), l'appairer au téléphone, puis sur la page « Imprimante » : connecter, imprimer un ticket d'essai, et me dire ce qui sort (accents, largeur, coupe).
+- **À valider par vous** : D-075.
+
+---
+
 ## Décisions ouvertes et ce qu'elles bloquent
 
 | Question | Bloque | Où en est-on |
@@ -719,7 +733,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
-| D-022 à D-029 et D-055 à D-073 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
+| D-022 à D-029 et D-055 à D-075 (proposées) | Rien, mais à valider | Voir `docs/DECISIONS.md` |
 
 ---
 
@@ -734,7 +748,7 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Impression** (D-074) : acheter une imprimante d'essai ; encodage ESC/POS, page « Tester l'imprimante », puis impression chez le serveur, à chaque poste ou centrale.
+1. **Impression** : acheter une imprimante d'essai et la tester sur la page « Imprimante » ; puis impression automatique à chaque poste ou centrale (D-075).
 2. **Fiches recettes** et module **Achats** (solde du magasin, casiers convertis en bouteilles).
 3. **D-Q20** (choix de l'offre), puis préproduction.
 4. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.

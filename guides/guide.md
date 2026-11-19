@@ -199,7 +199,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. ~~**D-Q07**~~ : tranchée (D-070) : frais par zone fixés par le gérant, au restaurant, paiement à la livraison.
 6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
-7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-073**.
+7. Valider les propositions **D-022** à **D-029** et **D-055** à **D-075**.
 8. Surveiller la parution d'un correctif de `picomatch` et retirer alors l'exception d'audit (D-072, `pnpm-workspace.yaml`).
 9. Faire signer le cahier des charges (D-013).
 10. Avant la phase 2 : **D-Q27**, **D-Q28**, **D-Q30** et les échéances du crédit par tranches (D-052).
@@ -268,7 +268,8 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] Livraison, deuxième partie (D-073) : livraison échouée (RG-LIV-01), frais de livraison dans les rapports et la clôture, menu selon le rôle.
 - [x] Rapports et exports PDF, Excel, CSV (EF-RAP-01, 03, 04, D-065).
 - [ ] Marge et bénéfice (EF-RAP-02), après les prix de revient ; rapport « ses ventes » du serveur.
-- [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02, D-074) : encodage des tickets, page « Tester l'imprimante », impression chez le serveur, à chaque poste ou centrale, au choix par point de service.
+- [x] Impression thermique ESC/POS, 58 et 80 mm, première partie (EF-DOC-02, D-075) : encodage des tickets, page « Imprimante » avec ticket d'essai, factures d'avance sur l'imprimante de l'appareil.
+- [ ] **Essayer une imprimante réelle** sur les téléphones du restaurant (page « Imprimante »), puis impression automatique à chaque poste ou centrale, au choix par point de service.
 - [ ] QR de vérification et page `/verification/[code]` (EF-DOC-03, 04).
 
 ### 7.5 Socle commerce (fonctions d'AkivioFlow) ⬜
