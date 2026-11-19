@@ -472,7 +472,7 @@ Le moteur de synchronisation applique le **patron outbox** :
 
 - Tickets thermiques de 58 et 80 mm en ESC/POS, par **Web Bluetooth** ou **WebUSB** depuis Chrome sur Android, ou par un **relais d'impression local** sur le poste du restaurant. L'impression navigateur reste le recours.
 - Facture A4 et rapports en PDF, générés par le serveur. Hors connexion, une version HTML imprimable est produite localement.
-- Le restaurant est relié par **Wi-Fi Starlink** (D-041) ; le matériel exact est **[À DÉCIDER : D-Q13]**.
+- Le restaurant est relié par **Wi-Fi Starlink** (D-041). Matériel (D-074) : téléphones du restaurant, téléphones personnels et postes fixes ; imprimantes thermiques ESC/POS en Bluetooth classique, pilotées par Web Serial depuis Chrome sur Android ; factures d'avance imprimées chez le serveur, à chaque poste ou de façon centrale, au choix par point de service **[PROPOSÉ ; modèle à confirmer par un essai]**.
 
 ### 3.13 Dépendances
 
@@ -789,4 +789,4 @@ Prévus, pas encore créés **[PROPOSÉ]** : Dockerfile et `docker-compose` de p
 | 6 | Socle serveur : PostgreSQL, Prisma, RLS, authentification maison (D-015), autorisation, audit, synchronisation `/api/sync`, puis liaison de l'interface (appareils, PIN, client de synchronisation) | Fait le 07/11/2026, écrans « Appareils » et « Équipe » et espace propriétaire compris. Journal d'audit consultable fait le 08/11/2026. Exports Excel et PDF du journal faits le 13/11/2026. PWA hors connexion faite le 13/11/2026. CSP avec nonce et en-têtes de sécurité faits le 14/11/2026. Restent l'export complet et la suppression d'établissement ; D-Q20 (hébergement) reste ouverte |
 | 7 | **Landing page** complète selon `docs/LANDING_PAGE.md` | Faite le 17/11/2026 (D-068) ; l'hébergeur des mentions légales attend D-Q20 |
 
-L'ordre a été revu le 07/11/2026 (D-018). Le 14/11/2026, le porteur du projet a tranché la plupart des questions ouvertes (D-030 à D-054). Restent bloquantes : **D-Q20** (choix entre Vercel et ifastnet, puis domaine), et **D-Q13** (matériel d'impression). D-Q26, D-Q14 et D-Q07 sont tranchées (D-068, D-069, D-070). Voir **`docs/DECISIONS.md`**.
+L'ordre a été revu le 07/11/2026 (D-018). Le 14/11/2026, le porteur du projet a tranché la plupart des questions ouvertes (D-030 à D-054). Reste bloquante : **D-Q20** (choix entre Vercel et ifastnet, puis domaine). D-Q26, D-Q14, D-Q07 et D-Q13 sont tranchées (D-068, D-069, D-070, D-074) ; l'impression attend l'essai d'une première imprimante. Voir **`docs/DECISIONS.md`**.

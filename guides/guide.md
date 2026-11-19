@@ -195,7 +195,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 
 1. ~~**D-Q14**~~ : tranchée (D-069).
 2. **D-Q20** : choisir entre Vercel et ifastnet (points à vérifier dans D-045), puis le domaine.
-3. **D-Q13** : appareils et imprimantes à recenser au restaurant (le réseau est un Wi-Fi Starlink, D-041).
+3. ~~**D-Q13**~~ : tranchée (D-074). **Acheter une première imprimante de test** : thermique ESC/POS, 58 mm, portable avec batterie, en Bluetooth classique (SPP) ; les autres après un essai réussi.
 4. **Liste des plats avec options et des formules** (D-035), pour la saisie réelle des menus ; et réponse à **D-Q33** (une option consomme-t-elle du stock ?).
 5. ~~**D-Q07**~~ : tranchée (D-070) : frais par zone fixés par le gérant, au restaurant, paiement à la livraison.
 6. ~~**D-Q26**~~ : tranchée (D-068). Reste à nommer l'hébergeur dans les mentions légales, avec D-Q20.
@@ -268,7 +268,7 @@ Le porteur du projet a répondu le 14/11/2026 à la plupart des questions (D-030
 - [x] Livraison, deuxième partie (D-073) : livraison échouée (RG-LIV-01), frais de livraison dans les rapports et la clôture, menu selon le rôle.
 - [x] Rapports et exports PDF, Excel, CSV (EF-RAP-01, 03, 04, D-065).
 - [ ] Marge et bénéfice (EF-RAP-02), après les prix de revient ; rapport « ses ventes » du serveur.
-- [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02) 🔒 D-Q13.
+- [ ] Impression thermique ESC/POS, 58 et 80 mm (EF-DOC-02, D-074) : encodage des tickets, page « Tester l'imprimante », impression chez le serveur, à chaque poste ou centrale, au choix par point de service.
 - [ ] QR de vérification et page `/verification/[code]` (EF-DOC-03, 04).
 
 ### 7.5 Socle commerce (fonctions d'AkivioFlow) ⬜
@@ -422,7 +422,11 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### 8.9 Mise en service au restaurant
 
-1. **Recenser le matériel** (D-Q13) : téléphones, version d'Android, imprimantes, coupures d'électricité. Le réseau est un Wi-Fi Starlink (D-041) : prévoir ses coupures, l'application travaille hors connexion.
+1. **Matériel** (D-074) :
+   - téléphones Android à jour (Chrome récent), du restaurant ou personnels, et éventuellement une tablette par poste ;
+   - imprimantes thermiques **ESC/POS en Bluetooth classique (SPP)** : 58 mm portables avec batterie pour les serveurs, 80 mm pour les postes ; pas de modèle « BLE seulement », pas d'imprimante réseau ;
+   - acheter **une imprimante d'essai** d'abord, la tester avec la page « Tester l'imprimante », puis acheter le reste ;
+   - le réseau est un Wi-Fi Starlink (D-041) : prévoir ses coupures, l'application travaille hors connexion et l'impression chez le serveur aussi.
 2. Le propriétaire crée l'établissement, active les modules et crée le compte du gérant.
 3. Le gérant :
    - crée le personnel ;

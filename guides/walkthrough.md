@@ -716,7 +716,6 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 | Question | Bloque | Où en est-on |
 |---|---|---|
 | D-Q20 : Vercel ou ifastnet, domaine | Préproduction, production ; PDF et tâches de fond en production | Points à vérifier dans D-045 |
-| D-Q13 : appareils et imprimantes | Impression thermique, tests sur le matériel réel | Wi-Fi Starlink confirmé (D-041), matériel à recenser |
 | D-035 : plats avec options, formules | Saisie réelle des menus, fiches recettes | Modèle fait (D-060) ; liste à fournir par le restaurant |
 | D-Q33 : une option consomme-t-elle du stock ? | Stock exact des accompagnements | Hypothèse : non |
 | D-Q27, D-Q28, D-Q30, échéances de D-Q29 | Phase 2 (boutique de gold detectors) | À traiter avant la phase 2 |
@@ -735,7 +734,8 @@ Le porteur du projet a répondu aux questions D-Q01 à D-Q32. Les réponses sont
 
 ## Prochaines étapes recommandées
 
-1. **Fiches recettes** et module **Achats** (solde du magasin, casiers convertis en bouteilles).
-2. **D-Q20** (choix de l'offre), puis préproduction.
-3. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
-4. **Mentions légales** : nommer l'hébergeur une fois D-Q20 tranchée.
+1. **Impression** (D-074) : acheter une imprimante d'essai ; encodage ESC/POS, page « Tester l'imprimante », puis impression chez le serveur, à chaque poste ou centrale.
+2. **Fiches recettes** et module **Achats** (solde du magasin, casiers convertis en bouteilles).
+3. **D-Q20** (choix de l'offre), puis préproduction.
+4. **Vrai menu** du restaurant (D-035) et réponse à D-Q33.
+5. **Mentions légales** : nommer l'hébergeur une fois D-Q20 tranchée.
